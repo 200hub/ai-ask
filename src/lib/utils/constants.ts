@@ -3,6 +3,22 @@
  */
 import type { AIPlatform, TranslationPlatform } from "../types/platform";
 
+// 引入静态图标，确保 Tauri 安全策略下也能正常显示
+import chatgptIcon from "$lib/assets/platform-icons/chatgpt.svg";
+import anthropicIcon from "$lib/assets/platform-icons/anthropic.svg";
+import geminiIcon from "$lib/assets/platform-icons/gemini.svg";
+import perplexityIcon from "$lib/assets/platform-icons/perplexity.svg";
+import copilotIcon from "$lib/assets/platform-icons/copilot.svg";
+import poeIcon from "$lib/assets/platform-icons/poe.svg";
+import deepseekIcon from "$lib/assets/platform-icons/deepseek.svg";
+import kimiIcon from "$lib/assets/platform-icons/kimi.svg";
+import tongyiIcon from "$lib/assets/platform-icons/alibabacloud.svg";
+import wenxinIcon from "$lib/assets/platform-icons/baidu.svg";
+import doubaoIcon from "$lib/assets/platform-icons/bytedance.svg";
+import chatglmIcon from "$lib/assets/platform-icons/chatglm.svg";
+import xinghuoIcon from "$lib/assets/platform-icons/xinghuo.svg";
+import yuanbaoIcon from "$lib/assets/platform-icons/tencent.svg";
+
 /**
  * 内置AI平台列表
  */
@@ -11,7 +27,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'chatgpt',
     name: 'ChatGPT',
-    icon: 'https://cdn.oaistatic.com/_next/static/media/apple-touch-icon.59f2e898.png',
+  icon: chatgptIcon,
     url: 'https://chat.openai.com',
     enabled: true,
     isCustom: false,
@@ -20,7 +36,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'claude',
     name: 'Claude',
-    icon: 'https://claude.ai/favicon.ico',
+  icon: anthropicIcon,
     url: 'https://claude.ai',
     enabled: true,
     isCustom: false,
@@ -29,7 +45,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'gemini',
     name: 'Gemini',
-    icon: 'https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png',
+  icon: geminiIcon,
     url: 'https://gemini.google.com',
     enabled: true,
     isCustom: false,
@@ -38,7 +54,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'perplexity',
     name: 'Perplexity',
-    icon: 'https://www.perplexity.ai/favicon.svg',
+  icon: perplexityIcon,
     url: 'https://www.perplexity.ai',
     enabled: true,
     isCustom: false,
@@ -47,7 +63,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'copilot',
     name: 'Copilot',
-    icon: 'https://copilot.microsoft.com/favicon.ico',
+  icon: copilotIcon,
     url: 'https://copilot.microsoft.com',
     enabled: true,
     isCustom: false,
@@ -56,7 +72,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'poe',
     name: 'Poe',
-    icon: 'https://poe.com/pwa/icon-256x256.png',
+  icon: poeIcon,
     url: 'https://poe.com',
     enabled: true,
     isCustom: false,
@@ -66,7 +82,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'deepseek',
     name: 'DeepSeek',
-    icon: 'https://chat.deepseek.com/favicon.ico',
+  icon: deepseekIcon,
     url: 'https://chat.deepseek.com',
     enabled: true,
     isCustom: false,
@@ -75,7 +91,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'kimi',
     name: 'Kimi',
-    icon: 'https://statics.moonshot.cn/kimi-chat/favicon.ico',
+  icon: kimiIcon,
     url: 'https://kimi.moonshot.cn',
     enabled: true,
     isCustom: false,
@@ -84,7 +100,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'tongyi',
     name: '通义千问',
-    icon: 'https://img.alicdn.com/imgextra/i1/O1CN01Yt3QXn1EyVkW3xXLu_!!6000000000419-2-tps-128-128.png',
+  icon: tongyiIcon,
     url: 'https://tongyi.aliyun.com/qianwen',
     enabled: true,
     isCustom: false,
@@ -93,7 +109,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'wenxin',
     name: '文心一言',
-    icon: 'https://nlp-eb.cdn.bcebos.com/logo/favicon.ico',
+  icon: wenxinIcon,
     url: 'https://yiyan.baidu.com',
     enabled: true,
     isCustom: false,
@@ -102,7 +118,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'doubao',
     name: '豆包',
-    icon: 'https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/web/logo-icon.png',
+  icon: doubaoIcon,
     url: 'https://www.doubao.com',
     enabled: true,
     isCustom: false,
@@ -111,7 +127,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'chatglm',
     name: '智谱清言',
-    icon: 'https://chatglm.cn/favicon.ico',
+  icon: chatglmIcon,
     url: 'https://chatglm.cn',
     enabled: true,
     isCustom: false,
@@ -120,7 +136,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'xinghuo',
     name: '讯飞星火',
-    icon: 'https://xinghuo.xfyun.cn/favicon.ico',
+  icon: xinghuoIcon,
     url: 'https://xinghuo.xfyun.cn',
     enabled: true,
     isCustom: false,
@@ -129,7 +145,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'yuanbao',
     name: '腾讯元宝',
-    icon: 'https://yuanbao.tencent.com/favicon.ico',
+  icon: yuanbaoIcon,
     url: 'https://yuanbao.tencent.com',
     enabled: true,
     isCustom: false,

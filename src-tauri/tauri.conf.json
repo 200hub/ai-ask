@@ -54,6 +54,5 @@
     "category": "Productivity",
     "shortDescription": "AI问答助手",
     "longDescription": "一个简洁高效的AI问答助手，支持多平台切换和翻译功能"
-  },
-  "plugins": {}
+  }
 }

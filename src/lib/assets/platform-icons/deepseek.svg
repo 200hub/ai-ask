@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+    <title>DeepSeek</title>
+    <rect width="48" height="48" rx="12" fill="#0D47A1" />
+    <path fill="#ffffff"
+        d="M18.2 12h8.6c6.1 0 11.2 5 11.2 12s-5.1 12-11.2 12h-8.6c-.7 0-1.2-.5-1.2-1.2V13.2c0-.7.5-1.2 1.2-1.2Zm7.9 19.6c4 0 7.6-3.2 7.6-7.6s-3.6-7.6-7.6-7.6h-4v15.2Z" />
+</svg>

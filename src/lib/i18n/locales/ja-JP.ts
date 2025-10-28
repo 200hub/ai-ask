@@ -144,6 +144,13 @@ export const jaJP = {
         loadErrorMessage: "ページを読み込めません。ネットワーク接続またはプロキシ設定を確認してください",
         reload: "再読み込み",
         selectPlatform: "AIプラットフォームを選択してください",
+        embedNotSupported: "アプリ内埋め込み非対応",
+        embedNotSupportedMessage: "セキュリティポリシーの制限により、{platform} はアプリ内で直接表示できません。",
+        embedNotSupportedReason: "なぜこうなるの?",
+        embedNotSupportedDetail: "このプラットフォームは、ユーザーアカウントのセキュリティを保護するために X-Frame-Options または Content Security Policy の制限を設定しています。",
+        openInBrowser: "ブラウザで {platform} を開く",
+        retry: "再試行",
+        openExternal: "ブラウザで開く",
     },
 
     translation: {

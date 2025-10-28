@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+    <title>ChatGLM</title>
+    <rect width="48" height="48" rx="12" fill="#0052D9" />
+    <path fill="#ffffff"
+        d="M15.5 24c0-5.4 4-9.5 9.5-9.5 2.8 0 5.3 1.1 7 2.9l-2.6 2.5c-1-1.1-2.3-1.8-4.1-1.8-3.2 0-5.5 2.4-5.5 5.9s2.3 5.9 5.5 5.9c2 0 3.4-.7 4.4-1.9v-1.5h-4.3v-3.3h7.8v5.6C31.7 32 28.4 33.5 25 33.5c-5.5 0-9.5-4.1-9.5-9.5Z" />
+</svg>

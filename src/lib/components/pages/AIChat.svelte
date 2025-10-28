@@ -1,240 +1,483 @@
 <script lang="ts">
     /**
-     * AI对话组件 - 使用iframe嵌入AI平台网页
-     * 支持多个webview同时存在，切换时保持在后台
-     * 使用LRU缓存策略限制iframe数量
+     * AI对话组件 - 使用 Tauri Webview 内嵌方式
+     * 通过在当前窗口内创建多个 Webview 视图来规避 iframe 限制
+     * 每个平台的内容保持在后台，仅通过显示/隐藏切换
      */
-    import { onMount, onDestroy } from "svelte";
+    import { onMount, onDestroy, tick } from "svelte";
     import { appState } from "$lib/stores/app.svelte";
-    import { open } from "@tauri-apps/plugin-shell";
+    import { Webview } from "@tauri-apps/api/webview";
+    import { getCurrentWindow } from "@tauri-apps/api/window";
+    import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
     import type { AIPlatform } from "$lib/types/platform";
 
-    // iframe信息接口
-    interface IframeInfo {
-        element: HTMLIFrameElement;
-        isLoading: boolean;
-        hasError: boolean;
-        lastAccessTime: number;
+    // 主窗口句柄
+    const appWindow = getCurrentWindow();
+
+    // Webview 信息接口
+    interface WebViewBounds {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
     }
 
-    // LRU缓存配置
-    const MAX_IFRAME_CACHE = 5; // 最多缓存5个iframe
+    interface WebViewInfo {
+        view: Webview;
+        isLoading: boolean;
+        hasError: boolean;
+        isVisible: boolean;
+        lastAccessTime: number;
+        lastBounds: WebViewBounds | null;
+    }
 
-    // 存储所有已加载的iframe元素（按访问时间排序）
-    const loadedIframes = new Map<string, IframeInfo>();
-    const pendingAttachments = new Set<string>();
+    // LRU 缓存配置
+    const MAX_WEBVIEW_CACHE = 5; // 最多缓存5个webview
+
+    // 存储所有已创建的 webview
+    const loadedWebViews = new Map<string, WebViewInfo>();
 
     let currentPlatformId = $state<string | null>(null);
+    let isCreatingWebView = $state(false);
+
+    // 主窗口容器的位置和大小
+    let containerRect = $state<DOMRect | null>(null);
     let containerElement = $state<HTMLElement | null>(null);
+    let containerRectUpdateScheduled = false;
+    let boundsUpdateScheduled = false;
+
+    const isWindows =
+        typeof navigator !== "undefined" &&
+        navigator.userAgent.toLowerCase().includes("windows");
+    let cursorEventsIgnored = false;
+    let removeGlobalPointerMove: (() => void) | null = null;
 
     // 监听平台变化
     $effect(() => {
         if (appState.selectedPlatform) {
             currentPlatformId = appState.selectedPlatform.id;
+            touchWebView(appState.selectedPlatform.id);
+            const existing = loadedWebViews.get(appState.selectedPlatform.id);
 
-            // 更新访问时间（LRU）
-            touchIframe(appState.selectedPlatform.id);
-
-            // 如果该平台的iframe还未创建，创建它
-            if (!loadedIframes.has(appState.selectedPlatform.id)) {
-                createIframe(appState.selectedPlatform);
+            if (!existing) {
+                createWebView(appState.selectedPlatform);
             } else {
-                attachIframe(appState.selectedPlatform.id);
+                appState.setWebviewLoading(existing.isLoading);
             }
 
-            updateIframeVisibility();
+            updateWebViewVisibility();
         } else {
             currentPlatformId = null;
-            updateIframeVisibility();
+            updateWebViewVisibility();
+            appState.setWebviewLoading(false);
         }
     });
 
     $effect(() => {
+        if (!appState.selectedPlatform) {
+            void toggleCursorForwarding(false);
+        }
+    });
+
+    // 监听容器大小变化
+    $effect(() => {
         if (!containerElement) return;
-        pendingAttachments.forEach((platformId) => {
-            attachIframe(platformId);
+
+        const resizeObserver = new ResizeObserver(() => {
+            scheduleContainerRectUpdate();
         });
+
+        resizeObserver.observe(containerElement);
+
+        // 初始化时获取位置
+        updateContainerRect();
+
+        return () => {
+            resizeObserver.disconnect();
+        };
     });
 
     /**
-     * LRU缓存清理：移除最久未使用的iframe
+     * 更新容器的位置信息
      */
-    function evictLRUIframe() {
-        if (loadedIframes.size <= MAX_IFRAME_CACHE) {
+    function updateContainerRect() {
+        if (containerElement) {
+            const nextRect = containerElement.getBoundingClientRect();
+            const previous = containerRect;
+            containerRect = nextRect;
+
+            if (
+                previous &&
+                Math.abs(previous.x - nextRect.x) < 0.5 &&
+                Math.abs(previous.y - nextRect.y) < 0.5 &&
+                Math.abs(previous.width - nextRect.width) < 0.5 &&
+                Math.abs(previous.height - nextRect.height) < 0.5
+            ) {
+                return;
+            }
+
+            updateAllWebViewBounds();
+        }
+    }
+
+    function scheduleContainerRectUpdate() {
+        if (containerRectUpdateScheduled) return;
+        containerRectUpdateScheduled = true;
+
+        requestAnimationFrame(() => {
+            containerRectUpdateScheduled = false;
+            updateContainerRect();
+        });
+    }
+
+    async function toggleCursorForwarding(ignore: boolean) {
+        if (!isWindows) {
             return;
         }
 
-        // 找到最久未访问的iframe（不包括当前显示的）
+        if (cursorEventsIgnored === ignore) {
+            return;
+        }
+
+        cursorEventsIgnored = ignore;
+
+        try {
+            if (ignore) {
+                if (!removeGlobalPointerMove) {
+                    const handler = (event: PointerEvent) => {
+                        if (!cursorEventsIgnored) {
+                            return;
+                        }
+
+                        if (!containerElement) {
+                            void toggleCursorForwarding(false);
+                            return;
+                        }
+
+                        const rect = containerElement.getBoundingClientRect();
+                        const { clientX, clientY } = event;
+                        const outside =
+                            clientX < rect.left ||
+                            clientX > rect.right ||
+                            clientY < rect.top ||
+                            clientY > rect.bottom;
+
+                        if (outside) {
+                            void toggleCursorForwarding(false);
+                        }
+                    };
+
+                    window.addEventListener("pointermove", handler, true);
+                    removeGlobalPointerMove = () => {
+                        window.removeEventListener("pointermove", handler, true);
+                        removeGlobalPointerMove = null;
+                    };
+                }
+
+                await appWindow.setIgnoreCursorEvents(true);
+            } else {
+                if (removeGlobalPointerMove) {
+                    removeGlobalPointerMove();
+                }
+                await appWindow.setIgnoreCursorEvents(false);
+            }
+        } catch (error) {
+            console.error("Failed to toggle cursor forwarding:", error);
+        }
+    }
+
+    function handlePointerEnter() {
+        if (!appState.selectedPlatform) {
+            return;
+        }
+
+        void toggleCursorForwarding(true);
+    }
+
+    function handlePointerLeave() {
+        if (!cursorEventsIgnored) {
+            return;
+        }
+
+        void toggleCursorForwarding(false);
+    }
+
+    /**
+    * LRU 缓存清理：移除最久未使用的 webview
+     */
+    async function evictLRUWebView() {
+        if (loadedWebViews.size <= MAX_WEBVIEW_CACHE) {
+            return;
+        }
+
+        // 找到最久未访问的 webview（不包括当前显示的）
         let oldestId: string | null = null;
         let oldestTime = Date.now();
 
-        for (const [id, info] of loadedIframes.entries()) {
+        for (const [id, info] of loadedWebViews.entries()) {
             if (id !== currentPlatformId && info.lastAccessTime < oldestTime) {
                 oldestTime = info.lastAccessTime;
                 oldestId = id;
             }
         }
 
-        // 移除最旧的iframe
+        // 移除最旧的 webview
         if (oldestId) {
-            const iframeInfo = loadedIframes.get(oldestId);
-            if (iframeInfo) {
-                iframeInfo.element.remove();
-                loadedIframes.delete(oldestId);
-                console.log(`[LRU] Evicted iframe: ${oldestId}`);
-            }
-        }
-    }
-
-    /**
-     * 更新iframe的访问时间（LRU）
-     */
-    function touchIframe(platformId: string) {
-        const iframeInfo = loadedIframes.get(platformId);
-        if (iframeInfo) {
-            iframeInfo.lastAccessTime = Date.now();
-        }
-    }
-
-    /**
-     * 创建新的iframe
-     */
-    function createIframe(platform: AIPlatform) {
-        // 创建前先检查并清理缓存
-        evictLRUIframe();
-
-        const iframe = document.createElement("iframe");
-        iframe.src = platform.url;
-        iframe.title = platform.name;
-        iframe.className = "webview-iframe";
-        iframe.allow = "clipboard-read; clipboard-write; microphone; camera";
-        // 不设置 sandbox，避免站点在被 sandbox 时拒绝渲染或受限
-
-        // 禁用右键上下文菜单
-        iframe.oncontextmenu = (e) => {
-            e.preventDefault();
-            return false;
-        };
-
-        const iframeInfo: IframeInfo = {
-            element: iframe,
-            isLoading: true,
-            hasError: false,
-            lastAccessTime: Date.now(),
-        };
-
-        // 设置加载超时以检测被 X-Frame-Options 或 frame-ancestors 拒绝的情况
-        const loadTimeout = window.setTimeout(() => {
-            if (iframeInfo.isLoading) {
-                iframeInfo.isLoading = false;
-                iframeInfo.hasError = true;
-                appState.setWebviewLoading(false);
-                appState.setError(`无法在应用内显示 ${platform.name}，可能被站点拒绝嵌入。`);
-            }
-        }, 8000);
-
-        iframe.onload = () => {
-            iframeInfo.isLoading = false;
-            iframeInfo.hasError = false;
-            appState.setWebviewLoading(false);
-            window.clearTimeout(loadTimeout);
-
-            // 在iframe内禁用右键菜单
-            try {
-                const iframeDoc =
-                    iframe.contentDocument || iframe.contentWindow?.document;
-                if (iframeDoc) {
-                    iframeDoc.addEventListener("contextmenu", (e) => {
-                        e.preventDefault();
-                        return false;
-                    });
+            const webViewInfo = loadedWebViews.get(oldestId);
+            if (webViewInfo) {
+                try {
+                    await webViewInfo.view.close();
+                } catch (error) {
+                    console.error(`Failed to close webview ${oldestId}:`, error);
                 }
-            } catch (error) {
-                // 跨域限制，无法访问iframe内容
-                console.log("Cannot access iframe content due to CORS");
+                loadedWebViews.delete(oldestId);
+                console.log(`[LRU] Evicted webview: ${oldestId}`);
             }
-        };
+        }
+    }
 
-        iframe.onerror = () => {
-            iframeInfo.isLoading = false;
-            iframeInfo.hasError = true;
+    /**
+     * 更新 webview 的访问时间（LRU）
+     */
+    function touchWebView(platformId: string) {
+        const webViewInfo = loadedWebViews.get(platformId);
+        if (webViewInfo) {
+            webViewInfo.lastAccessTime = Date.now();
+        }
+    }
+
+    /**
+     * 创建新的内嵌 Webview
+     */
+    async function createWebView(platform: AIPlatform) {
+        if (isCreatingWebView) return;
+        isCreatingWebView = true;
+
+        try {
+            // 创建前先检查并清理缓存
+            await evictLRUWebView();
+
+            appState.setWebviewLoading(true);
+
+            // 获取容器位置
+            if (!containerRect) {
+                await tick();
+                updateContainerRect();
+            }
+
+            if (!containerRect) {
+                throw new Error("Container not ready");
+            }
+
+            const webviewLabel = `ai-platform-${platform.id}`;
+
+            const webview = new Webview(appWindow, webviewLabel, {
+                url: platform.url,
+                x: containerRect.x,
+                y: containerRect.y,
+                width: containerRect.width,
+                height: containerRect.height,
+                focus: false,
+                dragDropEnabled: false,
+            });
+
+            const webViewInfo: WebViewInfo = {
+                view: webview,
+                isLoading: true,
+                hasError: false,
+                isVisible: false,
+                lastAccessTime: Date.now(),
+                lastBounds: null,
+            };
+
+            loadedWebViews.set(platform.id, webViewInfo);
+
+            webview.once("tauri://created", async () => {
+                webViewInfo.isLoading = false;
+                webViewInfo.hasError = false;
+                await webview.setAutoResize(false);
+                await applyBounds(webViewInfo);
+
+                if (appState.selectedPlatform?.id === platform.id) {
+                    await webview.show();
+                    await webview.setFocus();
+                    appState.setWebviewLoading(false);
+                    webViewInfo.isVisible = true;
+                } else {
+                    await webview.hide();
+                    webViewInfo.isVisible = false;
+                }
+            });
+
+            webview.once("tauri://error", (error) => {
+                console.error(`Webview error: ${platform.id}`, error);
+                webViewInfo.isLoading = false;
+                webViewInfo.hasError = true;
+                appState.setWebviewLoading(false);
+                appState.setError(
+                    `加载 ${platform.name} 失败。请检查网络连接或代理设置。`,
+                );
+            });
+        } catch (error) {
+            console.error(`Failed to create webview for ${platform.id}:`, error);
             appState.setWebviewLoading(false);
             appState.setError(
-                `加载 ${platform.name} 失败，请检查网络连接或代理设置`,
+                `创建 ${platform.name} 窗口失败：${error}`,
             );
-            window.clearTimeout(loadTimeout);
-        };
-
-        loadedIframes.set(platform.id, iframeInfo);
-
-        attachIframe(platform.id);
-
-        appState.setWebviewLoading(true);
-    }
-
-    function attachIframe(platformId: string) {
-        const iframeInfo = loadedIframes.get(platformId);
-        if (!iframeInfo) return;
-
-        if (!containerElement) {
-            pendingAttachments.add(platformId);
-            return;
+        } finally {
+            isCreatingWebView = false;
         }
-
-        pendingAttachments.delete(platformId);
-
-        if (iframeInfo.element.parentElement !== containerElement) {
-            containerElement.appendChild(iframeInfo.element);
-        }
-
-        updateIframeVisibility();
     }
 
     /**
-     * 更新iframe显示状态
+     * 显示指定的 webview
      */
-    function updateIframeVisibility() {
-        loadedIframes.forEach((info, platformId) => {
-            if (platformId === currentPlatformId) {
-                info.element.style.display = "block";
-                info.element.style.zIndex = "1";
-            } else {
-                info.element.style.display = "none";
-                info.element.style.zIndex = "0";
+    async function showWebView(platformId: string) {
+        const webViewInfo = loadedWebViews.get(platformId);
+        if (webViewInfo) {
+            if (webViewInfo.isVisible) {
+                return;
             }
+            if (webViewInfo.isLoading) {
+                return;
+            }
+            try {
+                await applyBounds(webViewInfo);
+                await webViewInfo.view.show();
+                await webViewInfo.view.setFocus();
+                webViewInfo.isLoading = false;
+                webViewInfo.isVisible = true;
+                appState.setWebviewLoading(false);
+            } catch (error) {
+                console.error(`Failed to show webview ${platformId}:`, error);
+            }
+        }
+    }
+
+    /**
+     * 隐藏指定的 webview
+     */
+    async function hideWebView(platformId: string) {
+        const webViewInfo = loadedWebViews.get(platformId);
+        if (webViewInfo) {
+            if (!webViewInfo.isVisible) {
+                return;
+            }
+            try {
+                await webViewInfo.view.hide();
+                webViewInfo.isVisible = false;
+            } catch (error) {
+                console.error(`Failed to hide webview ${platformId}:`, error);
+            }
+        }
+    }
+
+    /**
+     * 更新所有 webview 的位置和大小
+     */
+    function updateAllWebViewBounds() {
+        if (!containerRect) return;
+        scheduleBoundsUpdate();
+    }
+
+    /**
+     * 应用当前容器的边界到指定 webview
+     */
+    async function applyBounds(info: WebViewInfo) {
+        if (!containerRect) return;
+
+        try {
+            const pos = new LogicalPosition(
+                Math.round(containerRect.x),
+                Math.round(containerRect.y),
+            );
+            const size = new LogicalSize(
+                Math.round(containerRect.width),
+                Math.round(containerRect.height),
+            );
+
+            const nextBounds: WebViewBounds = {
+                x: pos.x,
+                y: pos.y,
+                width: size.width,
+                height: size.height,
+            };
+
+            if (
+                info.lastBounds &&
+                info.lastBounds.x === nextBounds.x &&
+                info.lastBounds.y === nextBounds.y &&
+                info.lastBounds.width === nextBounds.width &&
+                info.lastBounds.height === nextBounds.height
+            ) {
+                return;
+            }
+
+            await info.view.setPosition(pos);
+            await info.view.setSize(size);
+
+            info.lastBounds = nextBounds;
+        } catch (error) {
+            console.error("Failed to apply webview bounds:", error);
+        }
+    }
+
+    function scheduleBoundsUpdate() {
+        if (boundsUpdateScheduled) return;
+        boundsUpdateScheduled = true;
+
+        requestAnimationFrame(() => {
+            boundsUpdateScheduled = false;
+            if (!containerRect) return;
+
+            void (async () => {
+                for (const webViewInfo of loadedWebViews.values()) {
+                    try {
+                        await applyBounds(webViewInfo);
+                    } catch (error) {
+                        console.error("Failed to update webview position:", error);
+                    }
+                }
+            })();
         });
+    }
+
+    /**
+     * 更新 webview 显示状态
+     */
+    async function updateWebViewVisibility() {
+        for (const [platformId, webViewInfo] of loadedWebViews) {
+            if (platformId === currentPlatformId) {
+                await showWebView(platformId);
+            } else {
+                await hideWebView(platformId);
+            }
+        }
     }
 
     /**
      * 重新加载当前平台
      */
-    function reload() {
+    async function reload() {
         if (!appState.selectedPlatform) return;
 
-        const iframeInfo = loadedIframes.get(appState.selectedPlatform.id);
-        if (iframeInfo) {
-            iframeInfo.isLoading = true;
-            iframeInfo.hasError = false;
-            iframeInfo.element.src = iframeInfo.element.src;
-            appState.setWebviewLoading(true);
-        }
-    }
-
-    /**
-     * 在外部浏览器中打开当前平台
-     */
-    async function openInBrowser() {
-        if (appState.selectedPlatform) {
+        const webViewInfo = loadedWebViews.get(appState.selectedPlatform.id);
+        if (webViewInfo) {
             try {
-                await open(appState.selectedPlatform.url);
+                // 关闭旧窗口
+                await webViewInfo.view.close();
+                loadedWebViews.delete(appState.selectedPlatform.id);
+                
+                // 创建新窗口
+                await createWebView(appState.selectedPlatform);
             } catch (error) {
-                console.error("Failed to open in browser:", error);
+                console.error("Failed to reload:", error);
             }
         }
     }
 
     /**
-     * 处理来自Header的刷新事件
+     * 处理来自 Header 的刷新事件
      */
     function handleRefreshEvent(event: Event) {
         const customEvent = event as CustomEvent;
@@ -244,28 +487,43 @@
     }
 
     /**
-     * 获取当前iframe信息
-     */
-    function getCurrentIframeInfo() {
-        if (!currentPlatformId) return null;
-        return loadedIframes.get(currentPlatformId);
-    }
-
-    // 更新iframe可见性
-    $effect(() => {
-        updateIframeVisibility();
-    });
-
-    /**
      * 处理清理缓存事件
      */
-    function handleClearCacheEvent() {
-        clearIframeCache();
+    async function handleClearCacheEvent() {
+        await clearWebViewCache();
+    }
+
+    /**
+     * 清理 webview 缓存
+     */
+    export async function clearWebViewCache() {
+        for (const [id, webViewInfo] of loadedWebViews.entries()) {
+            if (id !== currentPlatformId) {
+                try {
+                    await webViewInfo.view.close();
+                } catch (error) {
+                    console.error(`Failed to close webview ${id}:`, error);
+                }
+                loadedWebViews.delete(id);
+            }
+        }
+        console.log("[Cache] Cleared all inactive webviews");
+        await updateWebViewVisibility();
+    }
+
+    /**
+     * 获取缓存统计信息
+     */
+    export function getCacheStats() {
+        return {
+            total: loadedWebViews.size,
+            max: MAX_WEBVIEW_CACHE,
+            current: currentPlatformId,
+            cached: Array.from(loadedWebViews.keys()),
+        };
     }
 
     onMount(() => {
-        appState.setWebviewLoading(true);
-
         // 监听刷新事件
         window.addEventListener(
             "refreshWebview",
@@ -278,7 +536,9 @@
             handleClearCacheEvent as EventListener,
         );
 
-        // 清理函数
+        // 监听窗口大小变化
+    window.addEventListener("resize", scheduleContainerRectUpdate);
+
         return () => {
             window.removeEventListener(
                 "refreshWebview",
@@ -288,124 +548,64 @@
                 "clearIframeCache",
                 handleClearCacheEvent as EventListener,
             );
+            window.removeEventListener("resize", scheduleContainerRectUpdate);
         };
     });
 
-    onDestroy(() => {
-        // 清理事件监听器
-        window.removeEventListener(
-            "refreshWebview",
-            handleRefreshEvent as EventListener,
-        );
-        window.removeEventListener(
-            "clearIframeCache",
-            handleClearCacheEvent as EventListener,
-        );
-
-        // 清理所有iframe
-        loadedIframes.forEach((info) => {
-            info.element.remove();
-        });
-        loadedIframes.clear();
-        pendingAttachments.clear();
-    });
-
-    /**
-     * 导出清理函数供外部调用
-     */
-    export function clearIframeCache() {
-        loadedIframes.forEach((info, id) => {
-            if (id !== currentPlatformId) {
-                info.element.remove();
-                loadedIframes.delete(id);
+    onDestroy(async () => {
+        if (isWindows && cursorEventsIgnored) {
+            try {
+                await appWindow.setIgnoreCursorEvents(false);
+            } catch (error) {
+                console.error("Failed to restore cursor events:", error);
             }
-        });
-        console.log("[Cache] Cleared all inactive iframes");
-        pendingAttachments.clear();
-    }
+            cursorEventsIgnored = false;
+        }
 
-    /**
-     * 获取缓存统计信息
-     */
-    export function getCacheStats() {
-        return {
-            total: loadedIframes.size,
-            max: MAX_IFRAME_CACHE,
-            current: currentPlatformId,
-            cached: Array.from(loadedIframes.keys()),
-        };
-    }
+        if (removeGlobalPointerMove) {
+            removeGlobalPointerMove();
+        }
+
+        // 清理所有 webview
+        for (const [_, webViewInfo] of loadedWebViews) {
+            try {
+                await webViewInfo.view.close();
+            } catch (error) {
+                console.error("Failed to close webview:", error);
+            }
+        }
+        loadedWebViews.clear();
+    });
 </script>
 
 <div class="chat-container">
     {#if appState.selectedPlatform}
-        {@const currentInfo = getCurrentIframeInfo()}
-
-        <!-- 加载状态 -->
-        {#if currentInfo && currentInfo.isLoading}
-            <div class="loading-overlay">
-                <div class="loading-spinner">
-                    <svg class="spinner" viewBox="0 0 50 50">
-                        <circle
-                            class="path"
-                            cx="25"
-                            cy="25"
-                            r="20"
-                            fill="none"
-                            stroke-width="4"
-                        ></circle>
-                    </svg>
-                    <p class="loading-text">加载中...</p>
-                </div>
-            </div>
-        {/if}
-
-        <!-- 错误状态 -->
-        {#if currentInfo && currentInfo.hasError}
-            <div class="error-overlay">
-                <div class="error-content">
-                    <svg
-                        class="error-icon"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                    </svg>
-                    <h3 class="error-title">加载失败</h3>
-                    <p class="error-message">
-                        无法加载 {appState.selectedPlatform
-                            .name}，请检查网络连接或代理设置
-                    </p>
-                    <div class="error-actions">
-                        <button class="reload-btn" onclick={reload}>
-                            重新加载
-                        </button>
-                        <button class="open-btn" onclick={openInBrowser}>
-                            在浏览器中打开
-                        </button>
-                    </div>
-                </div>
-            </div>
-        {/if}
-
-        <!-- WebView iframe 容器 - 所有iframe都在这里，通过CSS控制显示 -->
+        <!-- WebView 容器 - webview 窗口会覆盖在这个位置 -->
         <div
             bind:this={containerElement}
             class="webview-container"
             role="region"
             aria-label="AI 平台内容"
-            oncontextmenu={(e) => {
-                e.preventDefault();
-                return false;
-            }}
+            onpointerenter={handlePointerEnter}
+            onpointerleave={handlePointerLeave}
         >
-            <!-- iframe由JavaScript直接添加到这里 -->
+            {#if isCreatingWebView || appState.webviewLoading}
+                <div class="loading-overlay">
+                    <div class="loading-spinner">
+                        <svg class="spinner" viewBox="0 0 50 50">
+                            <circle
+                                class="path"
+                                cx="25"
+                                cy="25"
+                                r="20"
+                                fill="none"
+                                stroke-width="4"
+                            ></circle>
+                        </svg>
+                        <p class="loading-text">加载中...</p>
+                    </div>
+                </div>
+            {/if}
         </div>
     {:else}
         <div class="no-platform">
@@ -427,17 +627,7 @@
         width: 100%;
         height: 100%;
         position: relative;
-    }
-
-    :global(.webview-iframe) {
-        width: 100%;
-        height: 100%;
-        border: none;
-        display: block;
-        position: absolute;
-        top: 0;
-        left: 0;
-        background-color: var(--bg-primary);
+        background-color: transparent;
     }
 
     .loading-overlay {
@@ -451,6 +641,7 @@
         align-items: center;
         justify-content: center;
         z-index: 10;
+        pointer-events: none;
     }
 
     .loading-spinner {
@@ -497,96 +688,6 @@
         font-size: 0.875rem;
         color: var(--text-secondary);
         margin: 0;
-    }
-
-    .error-overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: var(--bg-primary);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10;
-    }
-
-    .error-content {
-        text-align: center;
-        max-width: 400px;
-        padding: 2rem;
-    }
-
-    .error-icon {
-        width: 64px;
-        height: 64px;
-        color: var(--error-color);
-        margin: 0 auto 1rem;
-    }
-
-    .error-title {
-        font-size: 1.5rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin: 0 0 0.5rem 0;
-    }
-
-    .error-message {
-        font-size: 1rem;
-        color: var(--text-secondary);
-        margin: 0 0 1.5rem 0;
-        line-height: 1.5;
-    }
-
-    .reload-btn {
-        padding: 0.75rem 1.5rem;
-        font-size: 0.875rem;
-        font-weight: 500;
-        color: white;
-        background-color: var(--accent-color);
-        border: none;
-        border-radius: 0.5rem;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .reload-btn:hover {
-        background-color: var(--accent-hover);
-        transform: translateY(-1px);
-        box-shadow: var(--shadow-md);
-    }
-
-    .reload-btn:active {
-        transform: translateY(0);
-    }
-
-    .error-actions {
-        display: flex;
-        gap: 0.75rem;
-        justify-content: center;
-    }
-
-    .open-btn {
-        padding: 0.75rem 1.5rem;
-        font-size: 0.875rem;
-        font-weight: 500;
-        color: var(--text-primary);
-        background-color: var(--bg-secondary);
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .open-btn:hover {
-        background-color: var(--bg-tertiary);
-        transform: translateY(-1px);
-        box-shadow: var(--shadow-md);
-    }
-
-    .open-btn:active {
-        transform: translateY(0);
     }
 
     .no-platform {

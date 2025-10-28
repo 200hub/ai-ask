@@ -144,6 +144,13 @@ export const zhCN = {
     loadErrorMessage: "无法加载页面，请检查网络连接或代理设置",
     reload: "重新加载",
     selectPlatform: "请选择一个AI平台",
+    embedNotSupported: "不支持应用内嵌入",
+    embedNotSupportedMessage: "由于安全策略限制，{platform} 无法在应用内直接显示。",
+    embedNotSupportedReason: "为什么会这样？",
+    embedNotSupportedDetail: "该平台设置了 X-Frame-Options 或 Content Security Policy 限制，这是为了保护用户账号安全的标准做法。",
+    openInBrowser: "在浏览器中打开 {platform}",
+    retry: "重试",
+    openExternal: "在浏览器中打开",
   },
 
   translation: {

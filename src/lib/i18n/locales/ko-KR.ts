@@ -144,6 +144,13 @@ export const koKR = {
         loadErrorMessage: "페이지를 로드할 수 없습니다. 네트워크 연결 또는 프록시 설정을 확인하세요",
         reload: "다시 로드",
         selectPlatform: "AI 플랫폼을 선택하세요",
+        embedNotSupported: "앱 내 임베딩 미지원",
+        embedNotSupportedMessage: "보안 정책 제한으로 인해 {platform}은(는) 앱 내에서 직접 표시할 수 없습니다.",
+        embedNotSupportedReason: "왜 이런 일이 발생하나요?",
+        embedNotSupportedDetail: "이 플랫폼은 사용자 계정 보안을 보호하기 위해 X-Frame-Options 또는 Content Security Policy 제한을 설정했습니다.",
+        openInBrowser: "브라우저에서 {platform} 열기",
+        retry: "재시도",
+        openExternal: "브라우저에서 열기",
     },
 
     translation: {

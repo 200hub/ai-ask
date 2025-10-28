@@ -83,7 +83,11 @@
         }
 
         const portNumber = Number(port);
-        if (!Number.isInteger(portNumber) || portNumber <= 0 || portNumber > 65535) {
+        if (
+            !Number.isInteger(portNumber) ||
+            portNumber <= 0 ||
+            portNumber > 65535
+        ) {
             throw new Error("Proxy port must be between 1 and 65535");
         }
 
@@ -108,7 +112,10 @@
             }
         } catch (error) {
             saveStatus = "error";
-            saveMessage = error instanceof Error ? error.message : "Unable to save proxy settings";
+            saveMessage =
+                error instanceof Error
+                    ? error.message
+                    : "Unable to save proxy settings";
             return;
         }
 
@@ -117,14 +124,26 @@
         saveMessage = null;
 
         try {
+            console.log("Saving proxy config:", proxyPayload);
             await configStore.update({ proxy: proxyPayload });
+            console.log("Proxy config saved successfully");
             saveStatus = "success";
-            saveMessage = "Proxy settings saved";
+            saveMessage = "Proxy settings saved successfully";
             syncFromConfig();
         } catch (error) {
             console.error("Failed to save proxy settings:", error);
             saveStatus = "error";
-            saveMessage = error instanceof Error ? error.message : "Failed to save proxy settings";
+            const errorMsg =
+                error instanceof Error
+                    ? error.message
+                    : "Failed to save proxy settings";
+            saveMessage = errorMsg;
+            // Show more detailed error in console
+            console.error("Detailed error:", {
+                error,
+                proxyPayload,
+                currentConfig: configStore.config,
+            });
         } finally {
             isSaving = false;
         }
@@ -142,19 +161,28 @@
                 payload = { type: "custom", host, port };
             } catch (error) {
                 testStatus = "error";
-                testMessage = error instanceof Error ? error.message : "Proxy settings are invalid";
+                testMessage =
+                    error instanceof Error
+                        ? error.message
+                        : "Proxy settings are invalid";
                 return;
             }
         }
 
         try {
-            const result = await invoke<ProxyTestResult>("test_proxy_connection", {
-                config: payload,
-            });
+            const result = await invoke<ProxyTestResult>(
+                "test_proxy_connection",
+                {
+                    config: payload,
+                },
+            );
 
             if (result.success) {
                 testStatus = "success";
-                const latency = typeof result.latency === "number" ? ` (latency ${result.latency}ms)` : "";
+                const latency =
+                    typeof result.latency === "number"
+                        ? ` (latency ${result.latency}ms)`
+                        : "";
                 testMessage = `Connection successful${latency}`;
             } else {
                 testStatus = "error";
@@ -163,7 +191,8 @@
         } catch (error) {
             console.error("Failed to test proxy:", error);
             testStatus = "error";
-            testMessage = error instanceof Error ? error.message : "Unable to test proxy";
+            testMessage =
+                error instanceof Error ? error.message : "Unable to test proxy";
         }
     }
 </script>
@@ -171,7 +200,9 @@
 <div class="proxy-settings">
     <div class="section-header">
         <h3 class="section-title">Proxy</h3>
-        <p class="section-description">Configure how the application connects to the internet.</p>
+        <p class="section-description">
+            Configure how the application connects to the internet.
+        </p>
     </div>
 
     <div class="form-section">
@@ -188,7 +219,9 @@
                 />
                 <div class="radio-content">
                     <div class="radio-title">No proxy</div>
-                    <div class="radio-description">Direct connection without any proxy</div>
+                    <div class="radio-description">
+                        Direct connection without any proxy
+                    </div>
                 </div>
             </label>
 
@@ -202,7 +235,9 @@
                 />
                 <div class="radio-content">
                     <div class="radio-title">System proxy</div>
-                    <div class="radio-description">Use the OS proxy configuration</div>
+                    <div class="radio-description">
+                        Use the OS proxy configuration
+                    </div>
                 </div>
             </label>
 
@@ -216,7 +251,9 @@
                 />
                 <div class="radio-content">
                     <div class="radio-title">Custom proxy</div>
-                    <div class="radio-description">Specify the proxy host and port manually</div>
+                    <div class="radio-description">
+                        Specify the proxy host and port manually
+                    </div>
                 </div>
             </label>
         </div>
@@ -226,7 +263,8 @@
         <div class="custom-proxy-section">
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label" for="proxy-host">Proxy host</label>
+                    <label class="form-label" for="proxy-host">Proxy host</label
+                    >
                     <input
                         id="proxy-host"
                         type="text"
@@ -258,7 +296,12 @@
     {/if}
 
     <div class="action-buttons">
-        <button class="btn btn-primary" type="button" disabled={isSaving} onclick={handleSave}>
+        <button
+            class="btn btn-primary"
+            type="button"
+            disabled={isSaving}
+            onclick={handleSave}
+        >
             {isSaving ? "Saving..." : "Save settings"}
         </button>
         <button
@@ -272,15 +315,24 @@
     </div>
 
     {#if saveStatus !== "idle" && saveMessage}
-        <p class={`status-message ${saveStatus}`}>{saveMessage}</p>
+        <div class={`status-message ${saveStatus}`}>
+            <p>{saveMessage}</p>
+        </div>
     {/if}
 
     {#if testStatus !== "idle" && testMessage}
-        <p class={`status-message ${testStatus}`}>{testMessage}</p>
+        <div class={`status-message ${testStatus}`}>
+            <p>{testMessage}</p>
+        </div>
     {/if}
 
     <div class="info-box">
-        <svg class="info-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg
+            class="info-icon"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+        >
             <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -290,7 +342,10 @@
         </svg>
         <div class="info-text">
             <p>Changes apply to new tabs after you reload the page.</p>
-            <p class="mt-2">Custom proxies usually expect HTTP/HTTPS traffic. Verify the protocol your proxy requires.</p>
+            <p class="mt-2">
+                Custom proxies usually expect HTTP/HTTPS traffic. Verify the
+                protocol your proxy requires.
+            </p>
         </div>
     </div>
 </div>
@@ -351,7 +406,9 @@
         border: 1px solid var(--border-color);
         background-color: var(--bg-secondary);
         cursor: pointer;
-        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        transition:
+            border-color 0.2s ease,
+            box-shadow 0.2s ease;
     }
 
     .radio-option:hover {
@@ -483,11 +540,14 @@
     }
 
     .status-message {
-        margin: 0;
         font-size: 0.8125rem;
         padding: 0.5rem 0.75rem;
         border-radius: 0.375rem;
         border: 1px solid transparent;
+    }
+
+    .status-message p {
+        margin: 0;
     }
 
     .status-message.success {

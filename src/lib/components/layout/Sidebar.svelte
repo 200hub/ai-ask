@@ -113,8 +113,8 @@
     }
 
     .platform-item {
-        width: 40px;
-        height: 40px;
+        width: 36px;
+        height: 36px;
         border-radius: 10px;
         border: none;
         background-color: var(--bg-primary);
@@ -151,9 +151,9 @@
     }
 
     .platform-icon {
-        width: 36px;
-        height: 36px;
-        border-radius: 8px;
+        width: 18px;
+        height: 18px;
+        border-radius: 6px;
         object-fit: cover;
     }
 

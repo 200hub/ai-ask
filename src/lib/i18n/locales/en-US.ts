@@ -144,6 +144,13 @@ export const enUS = {
         loadErrorMessage: "Unable to load page, please check network connection or proxy settings",
         reload: "Reload",
         selectPlatform: "Please select an AI platform",
+        embedNotSupported: "Embedding Not Supported",
+        embedNotSupportedMessage: "Due to security policies, {platform} cannot be displayed within the app.",
+        embedNotSupportedReason: "Why is this happening?",
+        embedNotSupportedDetail: "This platform has set X-Frame-Options or Content Security Policy restrictions to protect user account security.",
+        openInBrowser: "Open {platform} in Browser",
+        retry: "Retry",
+        openExternal: "Open in Browser",
     },
 
     translation: {
