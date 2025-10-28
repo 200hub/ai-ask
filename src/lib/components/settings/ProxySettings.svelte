@@ -1,52 +1,181 @@
 <script lang="ts">
     /**
-     * 代理设置组件
-     * 支持：无代理、系统代理、自定义代理
+     * Proxy settings panel
+     * Supports: no proxy, system proxy, custom proxy
      */
+    import { onMount } from "svelte";
+    import { invoke } from "@tauri-apps/api/core";
     import { configStore } from "$lib/stores/config.svelte";
+    import type { ProxyConfig } from "$lib/types/config";
 
     type ProxyType = "none" | "system" | "custom";
 
-    let proxyType = $state<ProxyType>(configStore.config.proxy?.type || "none");
-    let customProxyHost = $state(configStore.config.proxy?.host || "127.0.0.1");
-    let customProxyPort = $state(configStore.config.proxy?.port || "7890");
+    interface ProxyTestResult {
+        success: boolean;
+        message: string;
+        latency?: number;
+    }
 
-    /**
-     * 保存代理设置
-     */
+    const DEFAULT_PROXY_HOST = "127.0.0.1";
+    const DEFAULT_PROXY_PORT = "7890";
+
+    let proxyType = $state<ProxyType>("none");
+    let customProxyHost = $state(DEFAULT_PROXY_HOST);
+    let customProxyPort = $state(DEFAULT_PROXY_PORT);
+    let isSaving = $state(false);
+    let saveStatus = $state<"idle" | "success" | "error">("idle");
+    let saveMessage = $state<string | null>(null);
+    let testStatus = $state<"idle" | "testing" | "success" | "error">("idle");
+    let testMessage = $state<string | null>(null);
+    let isDirty = $state(false);
+
+    function syncFromConfig() {
+        const proxy = configStore.config.proxy;
+
+        if (!proxy || proxy.type === "none") {
+            proxyType = "none";
+            customProxyHost = DEFAULT_PROXY_HOST;
+            customProxyPort = DEFAULT_PROXY_PORT;
+        } else if (proxy.type === "system") {
+            proxyType = "system";
+            customProxyHost = DEFAULT_PROXY_HOST;
+            customProxyPort = DEFAULT_PROXY_PORT;
+        } else {
+            proxyType = "custom";
+            customProxyHost = proxy.host ?? DEFAULT_PROXY_HOST;
+            customProxyPort = proxy.port ?? DEFAULT_PROXY_PORT;
+        }
+
+        isDirty = false;
+        saveStatus = "idle";
+        saveMessage = null;
+    }
+
+    onMount(async () => {
+        if (!configStore.initialized) {
+            await configStore.init();
+        }
+        syncFromConfig();
+    });
+
+    function markDirty() {
+        isDirty = true;
+        saveStatus = "idle";
+        saveMessage = null;
+    }
+
+    function handleTypeChange(type: ProxyType) {
+        if (proxyType === type) return;
+        proxyType = type;
+        markDirty();
+    }
+
+    function validateCustomProxy() {
+        const host = customProxyHost.trim();
+        const port = customProxyPort.trim();
+
+        if (!host) {
+            throw new Error("Proxy host is required");
+        }
+
+        if (!port) {
+            throw new Error("Proxy port is required");
+        }
+
+        const portNumber = Number(port);
+        if (!Number.isInteger(portNumber) || portNumber <= 0 || portNumber > 65535) {
+            throw new Error("Proxy port must be between 1 and 65535");
+        }
+
+        return { host, port };
+    }
+
     async function handleSave() {
+        if (!isDirty) {
+            saveStatus = "success";
+            saveMessage = "No changes to save";
+            return;
+        }
+
+        let proxyPayload: ProxyConfig | null = null;
+
         try {
-            await configStore.update({
-                proxy: {
-                    type: proxyType,
-                    host: customProxyHost,
-                    port: customProxyPort,
-                },
-            });
-            alert("代理设置已保存");
+            if (proxyType === "custom") {
+                const { host, port } = validateCustomProxy();
+                proxyPayload = { type: "custom", host, port };
+            } else if (proxyType === "system") {
+                proxyPayload = { type: "system" };
+            }
+        } catch (error) {
+            saveStatus = "error";
+            saveMessage = error instanceof Error ? error.message : "Unable to save proxy settings";
+            return;
+        }
+
+        isSaving = true;
+        saveStatus = "idle";
+        saveMessage = null;
+
+        try {
+            await configStore.update({ proxy: proxyPayload });
+            saveStatus = "success";
+            saveMessage = "Proxy settings saved";
+            syncFromConfig();
         } catch (error) {
             console.error("Failed to save proxy settings:", error);
-            alert("保存失败，请重试");
+            saveStatus = "error";
+            saveMessage = error instanceof Error ? error.message : "Failed to save proxy settings";
+        } finally {
+            isSaving = false;
         }
     }
 
-    /**
-     * 测试代理连接
-     */
     async function handleTestProxy() {
-        alert("代理测试功能开发中...");
+        testStatus = "testing";
+        testMessage = null;
+
+        let payload: ProxyConfig = { type: proxyType };
+
+        if (proxyType === "custom") {
+            try {
+                const { host, port } = validateCustomProxy();
+                payload = { type: "custom", host, port };
+            } catch (error) {
+                testStatus = "error";
+                testMessage = error instanceof Error ? error.message : "Proxy settings are invalid";
+                return;
+            }
+        }
+
+        try {
+            const result = await invoke<ProxyTestResult>("test_proxy_connection", {
+                config: payload,
+            });
+
+            if (result.success) {
+                testStatus = "success";
+                const latency = typeof result.latency === "number" ? ` (latency ${result.latency}ms)` : "";
+                testMessage = `Connection successful${latency}`;
+            } else {
+                testStatus = "error";
+                testMessage = result.message || "Connection failed";
+            }
+        } catch (error) {
+            console.error("Failed to test proxy:", error);
+            testStatus = "error";
+            testMessage = error instanceof Error ? error.message : "Unable to test proxy";
+        }
     }
 </script>
 
 <div class="proxy-settings">
     <div class="section-header">
-        <h3 class="section-title">网络代理</h3>
-        <p class="section-description">配置应用的网络代理设置</p>
+        <h3 class="section-title">Proxy</h3>
+        <p class="section-description">Configure how the application connects to the internet.</p>
     </div>
 
-    <!-- 代理类型选择 -->
     <div class="form-section">
-        <label class="form-label">代理类型</label>
+        <span class="form-label">Proxy type</span>
 
         <div class="radio-group">
             <label class="radio-option">
@@ -55,13 +184,11 @@
                     name="proxy-type"
                     value="none"
                     checked={proxyType === "none"}
-                    onchange={() => (proxyType = "none")}
+                    onchange={() => handleTypeChange("none")}
                 />
                 <div class="radio-content">
-                    <div class="radio-title">不使用代理</div>
-                    <div class="radio-description">
-                        直接连接，不经过任何代理
-                    </div>
+                    <div class="radio-title">No proxy</div>
+                    <div class="radio-description">Direct connection without any proxy</div>
                 </div>
             </label>
 
@@ -71,11 +198,11 @@
                     name="proxy-type"
                     value="system"
                     checked={proxyType === "system"}
-                    onchange={() => (proxyType = "system")}
+                    onchange={() => handleTypeChange("system")}
                 />
                 <div class="radio-content">
-                    <div class="radio-title">系统代理</div>
-                    <div class="radio-description">使用系统配置的代理设置</div>
+                    <div class="radio-title">System proxy</div>
+                    <div class="radio-description">Use the OS proxy configuration</div>
                 </div>
             </label>
 
@@ -85,66 +212,75 @@
                     name="proxy-type"
                     value="custom"
                     checked={proxyType === "custom"}
-                    onchange={() => (proxyType = "custom")}
+                    onchange={() => handleTypeChange("custom")}
                 />
                 <div class="radio-content">
-                    <div class="radio-title">自定义代理</div>
-                    <div class="radio-description">手动配置代理服务器</div>
+                    <div class="radio-title">Custom proxy</div>
+                    <div class="radio-description">Specify the proxy host and port manually</div>
                 </div>
             </label>
         </div>
     </div>
 
-    <!-- 自定义代理配置 -->
     {#if proxyType === "custom"}
         <div class="custom-proxy-section">
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label" for="proxy-host">代理地址</label>
+                    <label class="form-label" for="proxy-host">Proxy host</label>
                     <input
                         id="proxy-host"
                         type="text"
                         class="form-input"
                         placeholder="127.0.0.1"
                         bind:value={customProxyHost}
+                        oninput={markDirty}
                     />
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label" for="proxy-port">端口</label>
+                    <label class="form-label" for="proxy-port">Port</label>
                     <input
                         id="proxy-port"
                         type="text"
                         class="form-input"
                         placeholder="7890"
                         bind:value={customProxyPort}
+                        oninput={markDirty}
                     />
                 </div>
             </div>
 
             <div class="proxy-example">
-                <strong>示例：</strong>
+                <strong>Example:</strong>
                 <code>http://{customProxyHost}:{customProxyPort}</code>
             </div>
         </div>
     {/if}
 
-    <!-- 操作按钮 -->
     <div class="action-buttons">
-        <button class="btn btn-secondary" onclick={handleTestProxy}>
-            测试连接
+        <button class="btn btn-primary" type="button" disabled={isSaving} onclick={handleSave}>
+            {isSaving ? "Saving..." : "Save settings"}
         </button>
-        <button class="btn btn-primary" onclick={handleSave}>保存设置</button>
+        <button
+            class="btn btn-secondary"
+            type="button"
+            disabled={testStatus === "testing"}
+            onclick={handleTestProxy}
+        >
+            {testStatus === "testing" ? "Testing..." : "Test proxy"}
+        </button>
     </div>
 
-    <!-- 提示信息 -->
+    {#if saveStatus !== "idle" && saveMessage}
+        <p class={`status-message ${saveStatus}`}>{saveMessage}</p>
+    {/if}
+
+    {#if testStatus !== "idle" && testMessage}
+        <p class={`status-message ${testStatus}`}>{testMessage}</p>
+    {/if}
+
     <div class="info-box">
-        <svg
-            class="info-icon"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-        >
+        <svg class="info-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -153,97 +289,90 @@
             />
         </svg>
         <div class="info-text">
-            <p>
-                <strong>提示：</strong
-                >修改代理设置后，需要重新加载网页才能生效。
-            </p>
-            <p class="mt-2">
-                常见代理端口：HTTP/HTTPS 代理通常使用 7890、8080、1080 等端口。
-            </p>
+            <p>Changes apply to new tabs after you reload the page.</p>
+            <p class="mt-2">Custom proxies usually expect HTTP/HTTPS traffic. Verify the protocol your proxy requires.</p>
         </div>
     </div>
 </div>
 
 <style>
     .proxy-settings {
-        width: 100%;
-        max-width: none;
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+        padding: 1.25rem;
+        background-color: var(--bg-primary);
+        border-radius: 0.5rem;
+        border: 1px solid var(--border-color);
     }
 
     .section-header {
-        margin-bottom: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
     }
 
     .section-title {
-        font-size: 1.25rem;
+        margin: 0;
+        font-size: 1rem;
         font-weight: 600;
         color: var(--text-primary);
-        margin: 0 0 0.5rem 0;
     }
 
     .section-description {
+        margin: 0;
         font-size: 0.875rem;
         color: var(--text-secondary);
-        margin: 0;
     }
 
     .form-section {
-        margin-bottom: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
     }
 
     .form-label {
-        display: block;
         font-size: 0.875rem;
-        font-weight: 500;
+        font-weight: 600;
         color: var(--text-primary);
-        margin-bottom: 0.75rem;
     }
 
     .radio-group {
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
+        gap: 0.75rem;
     }
 
     .radio-option {
         display: flex;
-        align-items: flex-start;
         gap: 0.75rem;
         padding: 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid var(--border-color);
         background-color: var(--bg-secondary);
-        border: 2px solid var(--border-color);
-        border-radius: 0.375rem;
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
     .radio-option:hover {
         border-color: var(--accent-color);
-        background-color: var(--bg-primary);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
     }
 
-    .radio-option:has(input:checked) {
-        border-color: var(--accent-color);
-        background-color: rgba(59, 130, 246, 0.05);
-    }
-
-    .radio-option input[type="radio"] {
-        margin-top: 0.125rem;
-        cursor: pointer;
-        width: 1.125rem;
-        height: 1.125rem;
-        accent-color: var(--accent-color);
+    .radio-option input {
+        margin: 0.25rem 0 0 0;
     }
 
     .radio-content {
-        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
     }
 
     .radio-title {
-        font-size: 0.9375rem;
-        font-weight: 500;
+        font-size: 0.9rem;
+        font-weight: 600;
         color: var(--text-primary);
-        margin-bottom: 0.25rem;
     }
 
     .radio-description {
@@ -252,22 +381,21 @@
     }
 
     .custom-proxy-section {
-        padding: 1rem;
-        background-color: var(--bg-secondary);
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
     }
 
     .form-row {
         display: grid;
-        grid-template-columns: 2fr 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.75rem;
-        margin-bottom: 0.75rem;
     }
 
     .form-group {
         display: flex;
         flex-direction: column;
+        gap: 0.5rem;
     }
 
     .form-input {
@@ -308,7 +436,7 @@
     .action-buttons {
         display: flex;
         gap: 0.75rem;
-        margin-bottom: 1rem;
+        flex-wrap: wrap;
     }
 
     .btn {
@@ -322,10 +450,17 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        min-width: 7.5rem;
     }
 
     .btn:active {
         transform: scale(0.98);
+    }
+
+    .btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.7;
+        transform: none;
     }
 
     .btn-primary {
@@ -333,7 +468,7 @@
         color: white;
     }
 
-    .btn-primary:hover {
+    .btn-primary:hover:not(:disabled) {
         background-color: var(--accent-hover);
     }
 
@@ -343,8 +478,28 @@
         border: 1px solid var(--border-color);
     }
 
-    .btn-secondary:hover {
+    .btn-secondary:hover:not(:disabled) {
         background-color: var(--bg-tertiary);
+    }
+
+    .status-message {
+        margin: 0;
+        font-size: 0.8125rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.375rem;
+        border: 1px solid transparent;
+    }
+
+    .status-message.success {
+        color: var(--success-color);
+        border-color: rgba(34, 197, 94, 0.4);
+        background-color: rgba(34, 197, 94, 0.12);
+    }
+
+    .status-message.error {
+        color: var(--error-color);
+        border-color: rgba(239, 68, 68, 0.4);
+        background-color: rgba(239, 68, 68, 0.1);
     }
 
     .info-box {
@@ -374,15 +529,10 @@
         margin: 0;
     }
 
-    .info-text strong {
-        color: var(--text-primary);
-    }
-
     .mt-2 {
         margin-top: 0.5rem;
     }
 
-    /* 响应式设计 */
     @media (max-width: 768px) {
         .form-row {
             grid-template-columns: 1fr;

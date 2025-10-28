@@ -1,8 +1,26 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use reqwest::redirect::Policy;
+use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use tauri::{
     menu::{Menu, MenuItem},
     Manager, tray::TrayIconEvent, Emitter,
 };
+
+#[derive(Debug, Deserialize)]
+struct ProxyTestConfig {
+    #[serde(rename = "type")]
+    proxy_type: String,
+    host: Option<String>,
+    port: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ProxyTestResult {
+    success: bool,
+    message: String,
+    latency: Option<u128>,
+}
 
 /// Tauri命令：切换窗口显示状态
 #[tauri::command]
@@ -29,6 +47,73 @@ async fn show_window(window: tauri::Window) -> Result<(), String> {
 async fn hide_window(window: tauri::Window) -> Result<(), String> {
     window.hide().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// 测试代理连通性
+#[tauri::command]
+async fn test_proxy_connection(config: ProxyTestConfig) -> Result<ProxyTestResult, String> {
+    let mut client_builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(Policy::limited(5));
+
+    match config.proxy_type.as_str() {
+        "custom" => {
+            let host = config
+                .host
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "代理地址不能为空".to_string())?;
+
+            let port = config
+                .port
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "代理端口不能为空".to_string())?;
+
+            let proxy_url = if host.contains("://") {
+                host.to_string()
+            } else {
+                format!("http://{}:{}", host, port)
+            };
+
+            let proxy = reqwest::Proxy::all(&proxy_url).map_err(|err| err.to_string())?;
+            client_builder = client_builder.proxy(proxy);
+        }
+        "none" => {
+            client_builder = client_builder.no_proxy();
+        }
+        _ => {}
+    }
+
+    let client = client_builder.build().map_err(|err| err.to_string())?;
+    let target_url = "https://www.example.com";
+    let start = Instant::now();
+
+    match client.get(target_url).send().await {
+        Ok(response) => {
+            let latency = start.elapsed().as_millis();
+            if response.status().is_success() {
+                Ok(ProxyTestResult {
+                    success: true,
+                    message: "连接成功".into(),
+                    latency: Some(latency),
+                })
+            } else {
+                Ok(ProxyTestResult {
+                    success: false,
+                    message: format!("目标返回状态码 {}", response.status()),
+                    latency: Some(latency),
+                })
+            }
+        }
+        Err(error) => Ok(ProxyTestResult {
+            success: false,
+            message: error.to_string(),
+            latency: None,
+        }),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -133,7 +218,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             toggle_window,
             show_window,
-            hide_window
+            hide_window,
+            test_proxy_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

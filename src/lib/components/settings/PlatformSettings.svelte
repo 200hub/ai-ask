@@ -1,140 +1,196 @@
 <script lang="ts">
     /**
-     * AI平台管理设置标签页
+     * Platform settings panel for managing AI providers.
      */
-    import { platformsStore } from "$lib/stores/platforms.svelte";
-    import { Trash2, Plus, GripVertical } from "lucide-svelte";
+    import { onMount, tick } from "svelte";
+    import { Plus, Trash2 } from "lucide-svelte";
     import Button from "../common/Button.svelte";
+    import { platformsStore } from "$lib/stores/platforms.svelte";
+
+    const FALLBACK_ICON =
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3C/svg%3E";
 
     let showAddModal = $state(false);
-    let newPlatform = $state({
-        name: "",
-        url: "",
-        icon: "",
-        enabled: true,
+    let isSubmitting = $state(false);
+    let formError = $state<string | null>(null);
+
+    let newPlatformName = $state("");
+    let newPlatformUrl = $state("");
+    let newPlatformIcon = $state("");
+    let newPlatformEnabled = $state(true);
+
+    onMount(async () => {
+        if (platformsStore.platforms.length === 0) {
+            try {
+                await platformsStore.init();
+            } catch (error) {
+                console.error("Failed to load AI platforms:", error);
+            }
+        }
     });
 
-    /**
-     * 切换平台启用状态
-     */
+    function focusOnMount(node: HTMLElement) {
+        tick().then(() => node.focus());
+        return {
+            destroy() {},
+        };
+    }
+
+    function resetForm() {
+        newPlatformName = "";
+        newPlatformUrl = "";
+        newPlatformIcon = "";
+        newPlatformEnabled = true;
+        formError = null;
+    }
+
+    function handleIconError(event: Event) {
+        const target = event.currentTarget as HTMLImageElement | null;
+        if (target && target.src !== FALLBACK_ICON) {
+            target.src = FALLBACK_ICON;
+        }
+    }
+
     async function togglePlatform(id: string) {
         try {
             await platformsStore.togglePlatform(id);
         } catch (error) {
             console.error("Failed to toggle platform:", error);
+            window.alert("Unable to update platform. Please try again.");
         }
     }
 
-    /**
-     * 删除自定义平台
-     */
     async function deletePlatform(id: string) {
-        if (!confirm("确定要删除这个平台吗？")) return;
+        if (!window.confirm("Remove this custom platform?")) return;
 
         try {
             await platformsStore.removePlatform(id);
         } catch (error) {
             console.error("Failed to delete platform:", error);
-            alert("删除失败：" + (error as Error).message);
+            window.alert("Unable to delete platform. Please try again.");
         }
     }
 
-    /**
-     * 打开添加平台弹窗
-     */
     function openAddModal() {
+        resetForm();
         showAddModal = true;
-        newPlatform = {
-            name: "",
-            url: "",
-            icon: "",
-            enabled: true,
-        };
     }
 
-    /**
-     * 关闭添加平台弹窗
-     */
     function closeAddModal() {
         showAddModal = false;
     }
 
-    /**
-     * 添加自定义平台
-     */
-    async function handleAddPlatform() {
-        if (!newPlatform.name || !newPlatform.url) {
-            alert("请填写平台名称和网址");
-            return;
+    function validateForm() {
+        if (!newPlatformName.trim()) {
+            throw new Error("Platform name is required");
+        }
+
+        if (!newPlatformUrl.trim()) {
+            throw new Error("Platform URL is required");
         }
 
         try {
+            const parsed = new URL(newPlatformUrl.trim());
+            if (!parsed.protocol.startsWith("http")) {
+                throw new Error();
+            }
+        } catch (error) {
+            throw new Error("Please enter a valid platform URL (http/https)");
+        }
+
+        if (newPlatformIcon.trim()) {
+            try {
+                const parsed = new URL(newPlatformIcon.trim());
+                if (!parsed.protocol.startsWith("http")) {
+                    throw new Error();
+                }
+            } catch (error) {
+                throw new Error("Please enter a valid icon URL or leave it blank");
+            }
+        }
+    }
+
+    async function handleAddPlatform() {
+        formError = null;
+
+        try {
+            validateForm();
+        } catch (error) {
+            formError = error instanceof Error ? error.message : "Invalid form data";
+            return;
+        }
+
+        isSubmitting = true;
+
+        try {
             await platformsStore.addPlatform({
-                name: newPlatform.name,
-                url: newPlatform.url,
-                icon: newPlatform.icon || "https://via.placeholder.com/40",
-                enabled: newPlatform.enabled,
+                name: newPlatformName.trim(),
+                url: newPlatformUrl.trim(),
+                icon: newPlatformIcon.trim() || FALLBACK_ICON,
+                enabled: newPlatformEnabled,
             });
             closeAddModal();
         } catch (error) {
             console.error("Failed to add platform:", error);
-            alert("添加失败");
+            formError = "Unable to add platform. Please try again.";
+        } finally {
+            isSubmitting = false;
         }
     }
 </script>
 
 <div class="settings-section">
-    <!-- 内置平台 -->
     <div class="setting-group">
         <div class="group-header">
-            <h3 class="group-title">内置AI平台</h3>
-            <p class="group-description">启用或禁用内置的AI平台</p>
+            <h3 class="group-title">Built-in platforms</h3>
+            <p class="group-description">Enable or disable the default AI providers.</p>
         </div>
 
         <div class="platform-list">
-            {#each platformsStore.builtInPlatforms as platform (platform.id)}
-                <div class="platform-item">
-                    <div class="platform-info">
-                        <img
-                            src={platform.icon}
-                            alt={platform.name}
-                            class="platform-icon"
-                            onerror={(e) =>
-                                (e.currentTarget.src =
-                                    "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22currentColor%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22/%3E%3C/svg%3E")}
-                        />
-                        <div class="platform-details">
-                            <span class="platform-name">{platform.name}</span>
-                            <span class="platform-url">{platform.url}</span>
+            {#if platformsStore.builtInPlatforms.length === 0}
+                <p class="empty-message">No built-in platforms available.</p>
+            {:else}
+                {#each platformsStore.builtInPlatforms as platform (platform.id)}
+                    <div class="platform-item">
+                        <div class="platform-info">
+                            <img
+                                src={platform.icon || FALLBACK_ICON}
+                                alt={platform.name}
+                                class="platform-icon"
+                                onerror={handleIconError}
+                            />
+                            <div class="platform-details">
+                                <span class="platform-name">{platform.name}</span>
+                                <span class="platform-url">{platform.url}</span>
+                            </div>
                         </div>
+                        <label class="toggle-switch">
+                            <input
+                                type="checkbox"
+                                checked={platform.enabled}
+                                onchange={() => togglePlatform(platform.id)}
+                            />
+                            <span class="toggle-slider"></span>
+                        </label>
                     </div>
-                    <label class="toggle-switch">
-                        <input
-                            type="checkbox"
-                            checked={platform.enabled}
-                            onchange={() => togglePlatform(platform.id)}
-                        />
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-            {/each}
+                {/each}
+            {/if}
         </div>
     </div>
 
-    <!-- 自定义平台 -->
     <div class="setting-group">
         <div class="group-header">
-            <h3 class="group-title">自定义平台</h3>
+            <h3 class="group-title">Custom platforms</h3>
             <Button variant="primary" size="sm" onclick={openAddModal}>
                 <Plus size={16} />
-                添加平台
+                Add platform
             </Button>
         </div>
 
         {#if platformsStore.customPlatforms.length === 0}
             <div class="empty-state">
-                <p>暂无自定义平台</p>
-                <p class="empty-hint">点击上方按钮添加您自己的AI平台</p>
+                <p>No custom platforms yet.</p>
+                <p class="empty-hint">Use the button above to add your own AI platform.</p>
             </div>
         {:else}
             <div class="platform-list">
@@ -142,17 +198,13 @@
                     <div class="platform-item">
                         <div class="platform-info">
                             <img
-                                src={platform.icon}
+                                src={platform.icon || FALLBACK_ICON}
                                 alt={platform.name}
                                 class="platform-icon"
-                                onerror={(e) =>
-                                    (e.currentTarget.src =
-                                        "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22currentColor%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22/%3E%3C/svg%3E")}
+                                onerror={handleIconError}
                             />
                             <div class="platform-details">
-                                <span class="platform-name"
-                                    >{platform.name}</span
-                                >
+                                <span class="platform-name">{platform.name}</span>
                                 <span class="platform-url">{platform.url}</span>
                             </div>
                         </div>
@@ -169,7 +221,6 @@
                                 variant="icon"
                                 size="sm"
                                 onclick={() => deletePlatform(platform.id)}
-                                class="delete-btn"
                             >
                                 <Trash2 size={16} />
                             </Button>
@@ -181,61 +232,89 @@
     </div>
 </div>
 
-<!-- 添加平台弹窗 -->
 {#if showAddModal}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
         class="modal-overlay"
-        onclick={(e) => e.target === e.currentTarget && closeAddModal()}
+        role="button"
+        tabindex="0"
+        aria-label="Close modal"
+        onclick={(event) => {
+            if (event.target === event.currentTarget) closeAddModal();
+        }}
+        onkeydown={(event) => {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                closeAddModal();
+            }
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                closeAddModal();
+            }
+        }}
     >
-        <div class="add-modal">
-            <h3 class="modal-title">添加自定义平台</h3>
+        <div class="modal" role="dialog" aria-modal="true" tabindex="-1" use:focusOnMount>
+            <h3 class="modal-title">Add custom platform</h3>
 
             <div class="form-group">
-                <label class="form-label">平台名称 *</label>
+                <label class="form-label" for="platform-name">Platform name *</label>
                 <input
+                    id="platform-name"
                     type="text"
                     class="form-input"
-                    placeholder="例如：My AI"
-                    bind:value={newPlatform.name}
+                    placeholder="e.g. My AI"
+                    bind:value={newPlatformName}
                 />
             </div>
 
             <div class="form-group">
-                <label class="form-label">平台网址 *</label>
+                <label class="form-label" for="platform-url">Platform URL *</label>
                 <input
+                    id="platform-url"
                     type="url"
                     class="form-input"
                     placeholder="https://example.com"
-                    bind:value={newPlatform.url}
+                    bind:value={newPlatformUrl}
                 />
             </div>
 
             <div class="form-group">
-                <label class="form-label">图标网址</label>
+                <label class="form-label" for="platform-icon">Icon URL</label>
                 <input
+                    id="platform-icon"
                     type="url"
                     class="form-input"
                     placeholder="https://example.com/icon.png"
-                    bind:value={newPlatform.icon}
+                    bind:value={newPlatformIcon}
                 />
-                <p class="form-hint">可选，留空将使用默认图标</p>
+                <p class="form-hint">Optional; leave blank to use a generic icon.</p>
             </div>
 
-            <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" bind:checked={newPlatform.enabled} />
-                    <span>立即启用此平台</span>
-                </label>
-            </div>
+            <label class="toggle-switch enable-toggle">
+                <input
+                    type="checkbox"
+                    checked={newPlatformEnabled}
+                    onchange={() => (newPlatformEnabled = !newPlatformEnabled)}
+                />
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Enable after adding</span>
+            </label>
+
+            {#if formError}
+                <p class="form-error">{formError}</p>
+            {/if}
 
             <div class="modal-actions">
-                <Button variant="secondary" onclick={closeAddModal}>取消</Button
+                <Button variant="secondary" size="sm" onclick={closeAddModal}>
+                    Cancel
+                </Button>
+                <Button
+                    variant="primary"
+                    size="sm"
+                    onclick={handleAddPlatform}
+                    disabled={isSubmitting}
                 >
-                <Button variant="primary" onclick={handleAddPlatform}
-                    >添加</Button
-                >
+                    {isSubmitting ? "Adding..." : "Add platform"}
+                </Button>
             </div>
         </div>
     </div>
@@ -243,34 +322,39 @@
 
 <style>
     .settings-section {
-        width: 100%;
-        max-width: none;
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
     }
 
     .setting-group {
-        margin-bottom: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+        background-color: var(--bg-secondary);
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+        border: 1px solid var(--border-color);
     }
 
     .group-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 0.875rem;
-        padding-bottom: 0.375rem;
-        border-bottom: 1px solid var(--border-color);
+        gap: 1rem;
     }
 
     .group-title {
-        font-size: 1.0625rem;
+        margin: 0;
+        font-size: 1.1rem;
         font-weight: 600;
         color: var(--text-primary);
-        margin: 0;
     }
 
     .group-description {
-        font-size: 0.875rem;
+        margin: 0;
+        font-size: 0.9rem;
         color: var(--text-secondary);
-        margin: 0.25rem 0 0 0;
     }
 
     .platform-list {
@@ -282,31 +366,27 @@
     .platform-item {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        padding: 0.75rem;
-        background-color: var(--bg-secondary);
+        justify-content: space-between;
+        padding: 0.75rem 1rem;
+        background-color: var(--bg-primary);
+        border-radius: 0.5rem;
         border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        transition: all 0.2s ease;
-    }
-
-    .platform-item:hover {
-        background-color: var(--bg-tertiary);
+        gap: 1rem;
     }
 
     .platform-info {
         display: flex;
         align-items: center;
         gap: 0.75rem;
-        flex: 1;
         min-width: 0;
     }
 
     .platform-icon {
         width: 40px;
         height: 40px;
-        border-radius: 6px;
+        border-radius: 0.5rem;
         object-fit: cover;
+        background-color: var(--bg-secondary);
         flex-shrink: 0;
     }
 
@@ -318,25 +398,21 @@
     }
 
     .platform-name {
-        font-size: 0.9375rem;
-        font-weight: 500;
+        font-size: 0.95rem;
+        font-weight: 600;
         color: var(--text-primary);
-        margin: 0;
     }
 
     .platform-url {
         font-size: 0.8125rem;
         color: var(--text-secondary);
-        margin: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        word-break: break-all;
     }
 
     .platform-actions {
         display: flex;
-        gap: 0.375rem;
-        margin-left: auto;
+        align-items: center;
+        gap: 0.75rem;
     }
 
     .toggle-switch {
@@ -345,7 +421,6 @@
         width: 48px;
         height: 24px;
         cursor: pointer;
-        flex-shrink: 0;
     }
 
     .toggle-switch input {
@@ -356,10 +431,7 @@
 
     .toggle-slider {
         position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        inset: 0;
         background-color: var(--border-color);
         border-radius: 24px;
         transition: all 0.3s ease;
@@ -385,117 +457,130 @@
         transform: translateX(24px);
     }
 
+    .empty-message,
     .empty-state {
-        text-align: center;
-        padding: 3rem 1rem;
+        margin: 0;
+        font-size: 0.9rem;
         color: var(--text-secondary);
     }
 
-    .empty-state p {
-        margin: 0 0 0.5rem 0;
-        font-size: 1rem;
+    .empty-state {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        padding: 1rem;
+        background-color: var(--bg-primary);
+        border-radius: 0.5rem;
+        border: 1px dashed var(--border-color);
     }
 
     .empty-hint {
-        font-size: 0.875rem;
+        margin: 0;
+        font-size: 0.8125rem;
         color: var(--text-tertiary);
     }
 
-    /* 添加平台弹窗 */
     .modal-overlay {
         position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: rgba(0, 0, 0, 0.5);
+        inset: 0;
+        background: rgba(10, 10, 10, 0.45);
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 10000;
+        padding: 1.5rem;
+        z-index: 1000;
     }
 
-    .add-modal {
+    .modal {
+        width: min(480px, 100%);
         background-color: var(--bg-primary);
-        border-radius: 0.625rem;
-        padding: 1.25rem;
-        width: 90%;
-        max-width: 480px;
+        border-radius: 0.75rem;
+        border: 1px solid var(--border-color);
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
         box-shadow: var(--shadow-lg);
     }
 
     .modal-title {
-        font-size: 1.125rem;
+        margin: 0;
+        font-size: 1.05rem;
         font-weight: 600;
         color: var(--text-primary);
-        margin: 0 0 1rem 0;
     }
 
     .form-group {
-        margin-bottom: 0.875rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
     }
 
     .form-label {
-        display: block;
-        font-size: 0.8125rem;
-        font-weight: 500;
+        font-size: 0.875rem;
+        font-weight: 600;
         color: var(--text-primary);
-        margin-bottom: 0.375rem;
     }
 
     .form-input {
-        width: 100%;
-        padding: 0.625rem;
+        padding: 0.625rem 0.875rem;
         font-size: 0.875rem;
         border: 1px solid var(--border-color);
         border-radius: 0.375rem;
         background-color: var(--bg-primary);
         color: var(--text-primary);
-        transition: all 0.2s ease;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
     .form-input:focus {
         outline: none;
         border-color: var(--accent-color);
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
     }
 
     .form-hint {
+        margin: 0;
         font-size: 0.75rem;
         color: var(--text-tertiary);
-        margin: 0.375rem 0 0 0;
     }
 
-    .checkbox-label {
-        display: flex;
+    .enable-toggle {
+        display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
-        cursor: pointer;
+        gap: 0.75rem;
+        margin-top: 0.5rem;
     }
 
-    .checkbox-label input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
-        cursor: pointer;
-    }
-
-    .checkbox-label span {
+    .toggle-label {
         font-size: 0.875rem;
-        color: var(--text-primary);
+        color: var(--text-secondary);
+    }
+
+    .form-error {
+        margin: 0;
+        color: var(--error-color);
+        font-size: 0.8125rem;
     }
 
     .modal-actions {
         display: flex;
-        gap: 0.625rem;
         justify-content: flex-end;
-        margin-top: 1rem;
+        gap: 0.75rem;
     }
 
-    .platform-item :global(.delete-btn) {
-        color: var(--error-color);
-    }
+    @media (max-width: 768px) {
+        .setting-group {
+            padding: 1.125rem;
+        }
 
-    .platform-item :global(.delete-btn:hover) {
-        background-color: rgba(239, 68, 68, 0.1);
+        .platform-item {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .platform-actions {
+            width: 100%;
+            justify-content: space-between;
+        }
     }
 </style>

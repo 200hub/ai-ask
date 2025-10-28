@@ -74,7 +74,13 @@ export async function saveConfig(config: AppConfig): Promise<void> {
 export async function updateConfig(updates: Partial<AppConfig>): Promise<AppConfig> {
   try {
     const currentConfig = await getConfig();
-    const newConfig = { ...currentConfig, ...updates };
+    const { proxy, ...restUpdates } = updates;
+    const newConfig: AppConfig = { ...currentConfig, ...restUpdates };
+
+    if (proxy !== undefined) {
+      newConfig.proxy = proxy;
+    }
+
     await saveConfig(newConfig);
     return newConfig;
   } catch (error) {

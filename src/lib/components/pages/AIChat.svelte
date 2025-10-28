@@ -6,6 +6,7 @@
      */
     import { onMount, onDestroy } from "svelte";
     import { appState } from "$lib/stores/app.svelte";
+    import { open } from "@tauri-apps/plugin-shell";
     import type { AIPlatform } from "$lib/types/platform";
 
     // iframe信息接口
@@ -21,9 +22,10 @@
 
     // 存储所有已加载的iframe元素（按访问时间排序）
     const loadedIframes = new Map<string, IframeInfo>();
+    const pendingAttachments = new Set<string>();
 
     let currentPlatformId = $state<string | null>(null);
-    let containerElement: HTMLElement;
+    let containerElement = $state<HTMLElement | null>(null);
 
     // 监听平台变化
     $effect(() => {
@@ -36,10 +38,22 @@
             // 如果该平台的iframe还未创建，创建它
             if (!loadedIframes.has(appState.selectedPlatform.id)) {
                 createIframe(appState.selectedPlatform);
+            } else {
+                attachIframe(appState.selectedPlatform.id);
             }
+
+            updateIframeVisibility();
         } else {
             currentPlatformId = null;
+            updateIframeVisibility();
         }
+    });
+
+    $effect(() => {
+        if (!containerElement) return;
+        pendingAttachments.forEach((platformId) => {
+            attachIframe(platformId);
+        });
     });
 
     /**
@@ -94,10 +108,7 @@
         iframe.title = platform.name;
         iframe.className = "webview-iframe";
         iframe.allow = "clipboard-read; clipboard-write; microphone; camera";
-        iframe.setAttribute(
-            "sandbox",
-            "allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads",
-        );
+        // 不设置 sandbox，避免站点在被 sandbox 时拒绝渲染或受限
 
         // 禁用右键上下文菜单
         iframe.oncontextmenu = (e) => {
@@ -112,10 +123,21 @@
             lastAccessTime: Date.now(),
         };
 
+        // 设置加载超时以检测被 X-Frame-Options 或 frame-ancestors 拒绝的情况
+        const loadTimeout = window.setTimeout(() => {
+            if (iframeInfo.isLoading) {
+                iframeInfo.isLoading = false;
+                iframeInfo.hasError = true;
+                appState.setWebviewLoading(false);
+                appState.setError(`无法在应用内显示 ${platform.name}，可能被站点拒绝嵌入。`);
+            }
+        }, 8000);
+
         iframe.onload = () => {
             iframeInfo.isLoading = false;
             iframeInfo.hasError = false;
             appState.setWebviewLoading(false);
+            window.clearTimeout(loadTimeout);
 
             // 在iframe内禁用右键菜单
             try {
@@ -140,17 +162,32 @@
             appState.setError(
                 `加载 ${platform.name} 失败，请检查网络连接或代理设置`,
             );
+            window.clearTimeout(loadTimeout);
         };
 
         loadedIframes.set(platform.id, iframeInfo);
 
-        // 添加到容器
-        if (containerElement) {
-            containerElement.appendChild(iframe);
-            updateIframeVisibility();
-        }
+        attachIframe(platform.id);
 
         appState.setWebviewLoading(true);
+    }
+
+    function attachIframe(platformId: string) {
+        const iframeInfo = loadedIframes.get(platformId);
+        if (!iframeInfo) return;
+
+        if (!containerElement) {
+            pendingAttachments.add(platformId);
+            return;
+        }
+
+        pendingAttachments.delete(platformId);
+
+        if (iframeInfo.element.parentElement !== containerElement) {
+            containerElement.appendChild(iframeInfo.element);
+        }
+
+        updateIframeVisibility();
     }
 
     /**
@@ -180,6 +217,19 @@
             iframeInfo.hasError = false;
             iframeInfo.element.src = iframeInfo.element.src;
             appState.setWebviewLoading(true);
+        }
+    }
+
+    /**
+     * 在外部浏览器中打开当前平台
+     */
+    async function openInBrowser() {
+        if (appState.selectedPlatform) {
+            try {
+                await open(appState.selectedPlatform.url);
+            } catch (error) {
+                console.error("Failed to open in browser:", error);
+            }
         }
     }
 
@@ -257,6 +307,7 @@
             info.element.remove();
         });
         loadedIframes.clear();
+        pendingAttachments.clear();
     });
 
     /**
@@ -270,6 +321,7 @@
             }
         });
         console.log("[Cache] Cleared all inactive iframes");
+        pendingAttachments.clear();
     }
 
     /**
@@ -330,9 +382,14 @@
                         无法加载 {appState.selectedPlatform
                             .name}，请检查网络连接或代理设置
                     </p>
-                    <button class="reload-btn" onclick={reload}>
-                        重新加载
-                    </button>
+                    <div class="error-actions">
+                        <button class="reload-btn" onclick={reload}>
+                            重新加载
+                        </button>
+                        <button class="open-btn" onclick={openInBrowser}>
+                            在浏览器中打开
+                        </button>
+                    </div>
                 </div>
             </div>
         {/if}
@@ -341,6 +398,8 @@
         <div
             bind:this={containerElement}
             class="webview-container"
+            role="region"
+            aria-label="AI 平台内容"
             oncontextmenu={(e) => {
                 e.preventDefault();
                 return false;
@@ -499,6 +558,34 @@
     }
 
     .reload-btn:active {
+        transform: translateY(0);
+    }
+
+    .error-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: center;
+    }
+
+    .open-btn {
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-primary);
+        background-color: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 0.5rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .open-btn:hover {
+        background-color: var(--bg-tertiary);
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-md);
+    }
+
+    .open-btn:active {
         transform: translateY(0);
     }
 

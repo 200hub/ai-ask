@@ -9,28 +9,28 @@ export interface AppConfig {
   locale?: "zh-CN" | "en-US" | "ja-JP" | "ko-KR";
 
   // 快捷键设置
-  globalHotkey: string; // 显示/隐藏窗口快捷键
-  translationHotkey: string; // 翻译快捷键
+  globalHotkey: string;
+  translationHotkey: string;
 
   // 启动设置
-  autoStart: boolean; // 开机自启动
+  autoStart: boolean;
 
   // 平台设置
-  defaultPlatform: string | null; // 默认AI平台ID
-  lastUsedPlatform: string | null; // 最后使用的AI平台ID
+  defaultPlatform: string | null;
+  lastUsedPlatform: string | null;
 
   // 翻译设置
-  currentTranslator: string; // 当前选中的翻译平台ID
+  currentTranslator: string;
 
   // 代理设置
-  proxy?: ProxyConfig;
+  proxy?: ProxyConfig | null;
 
   // 窗口设置
   windowSize: WindowSize;
   windowPosition: WindowPosition | null;
 
   // 其他设置
-  firstRun: boolean; // 是否首次运行
+  firstRun: boolean;
 }
 
 /**
@@ -38,8 +38,8 @@ export interface AppConfig {
  */
 export interface ProxyConfig {
   type: "none" | "system" | "custom";
-  host: string;
-  port: string;
+  host?: string;
+  port?: string;
 }
 
 /**
@@ -70,6 +70,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultPlatform: null,
   lastUsedPlatform: null,
   currentTranslator: "google",
+  proxy: null,
   windowSize: {
     width: 1200,
     height: 800,

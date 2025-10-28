@@ -48,6 +48,10 @@ class ConfigStore {
     }
   }
 
+  async updateConfig(updates: Partial<AppConfig>) {
+    await this.update(updates);
+  }
+
   /**
    * 设置主题
    */
