@@ -1,35 +1,42 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AI Ask",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.aiask.app",
   "build": {
-    "frontendDist": "../dist"
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../build"
   },
   "app": {
-    "withGlobalTauri": true,
     "windows": [
       {
-        "title": "AI Ask - 智能划词搜索",
-        "width": 900,
-        "height": 700,
-        "minWidth": 600,
-        "minHeight": 400,
+        "title": "AI Ask",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
         "resizable": true,
         "fullscreen": false,
-        "decorations": true,
-        "center": true,
-        "visible": false,
+        "decorations": false,
+        "transparent": false,
+        "visible": true,
         "skipTaskbar": false,
-        "alwaysOnTop": false
+        "titleBarStyle": "Overlay",
+        "dragDropEnabled": false
       }
     ],
     "security": {
       "csp": null
     },
     "trayIcon": {
+      "id": "main",
       "iconPath": "icons/icon.png",
-      "iconAsTemplate": false
+      "menuOnLeftClick": false,
+      "iconAsTemplate": false,
+      "tooltip": "AI Ask"
     }
   },
   "bundle": {
@@ -42,10 +49,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "windows": {
-      "wix": {
-        "language": "zh-CN"
-      }
-    }
-  }
+    "resources": [],
+    "copyright": "© 2025 AI Ask",
+    "category": "Productivity",
+    "shortDescription": "AI问答助手",
+    "longDescription": "一个简洁高效的AI问答助手，支持多平台切换和翻译功能"
+  },
+  "plugins": {}
 }

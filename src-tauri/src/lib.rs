@@ -1,186 +1,139 @@
-// Prevents additional console window on Windows in release
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use tauri::{
+    menu::{Menu, MenuItem},
+    Manager, tray::TrayIconEvent, Emitter,
+};
 
-use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder};
-use tauri::{Emitter, Manager, State, Window};
-use tauri_plugin_clipboard_manager::ClipboardExt;
-use tauri_plugin_global_shortcut::GlobalShortcutExt;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Config {
-    model: String,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            model: "chatgpt".to_string(),
-        }
-    }
-}
-
-struct AppState {
-    config: std::sync::Mutex<Config>,
-}
-
-fn get_config_path() -> PathBuf {
-    let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("ai-ask");
-    fs::create_dir_all(&path).ok();
-    path.push("config.json");
-    path
-}
-
-fn load_config() -> Config {
-    let path = get_config_path();
-    if let Ok(content) = fs::read_to_string(path) {
-        serde_json::from_str(&content).unwrap_or_default()
+/// Tauri命令：切换窗口显示状态
+#[tauri::command]
+async fn toggle_window(window: tauri::Window) -> Result<(), String> {
+    if window.is_visible().map_err(|e| e.to_string())? {
+        window.hide().map_err(|e| e.to_string())?;
     } else {
-        Config::default()
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
     }
+    Ok(())
 }
 
-fn save_config_to_disk(config: &Config) -> Result<(), String> {
-    let path = get_config_path();
-    let content = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    fs::write(path, content).map_err(|e| e.to_string())
-}
-
+/// Tauri命令：显示窗口
 #[tauri::command]
-async fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
-    let config = state.config.lock().unwrap();
-    Ok(config.clone())
+async fn show_window(window: tauri::Window) -> Result<(), String> {
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
+/// Tauri命令：隐藏窗口
 #[tauri::command]
-async fn save_config(model: String, state: State<'_, AppState>) -> Result<(), String> {
-    let config = Config { model };
-    {
-        let mut state_config = state.config.lock().unwrap();
-        *state_config = config.clone();
-    }
-    save_config_to_disk(&config)
-}
-
-#[tauri::command]
-async fn search_with_ai(query: String, model: String) -> Result<String, String> {
-    let url = get_search_url(&query, &model);
-    Ok(url)
-}
-
-fn get_search_url(query: &str, model: &str) -> String {
-    match model {
-        "chatgpt" => format!("https://chatgpt.com/?q={}", urlencoding::encode(query)),
-        "claude" => format!("https://claude.ai/new?q={}", urlencoding::encode(query)),
-        "gemini" => format!(
-            "https://gemini.google.com/app?q={}",
-            urlencoding::encode(query)
-        ),
-        "perplexity" => format!(
-            "https://www.perplexity.ai/search?q={}",
-            urlencoding::encode(query)
-        ),
-        _ => format!(
-            "https://www.google.com/search?q={}",
-            urlencoding::encode(query)
-        ),
-    }
-}
-
-#[tauri::command]
-async fn get_clipboard_text() -> Result<String, String> {
-    // This will be called when global hotkey is pressed
-    // The clipboard will be read using the clipboard manager plugin from frontend
-    Ok(String::new())
-}
-
-#[tauri::command]
-async fn show_main_window(window: Window) -> Result<(), String> {
-    window
-        .get_webview_window("main")
-        .ok_or("Main window not found")?
-        .show()
-        .map_err(|e| e.to_string())?;
-    window
-        .get_webview_window("main")
-        .ok_or("Main window not found")?
-        .set_focus()
-        .map_err(|e| e.to_string())?;
+async fn hide_window(window: tauri::Window) -> Result<(), String> {
+    window.hide().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 插件初始化
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_shell::init())
+        // 设置处理程序
         .setup(|app| {
-            let config = load_config();
-            app.manage(AppState {
-                config: std::sync::Mutex::new(config),
-            });
-
-            // Register global shortcut for Ctrl/Cmd+Shift+S
-            let handle = app.handle().clone();
-            app.global_shortcut().on_shortcut(
-                "CmdOrCtrl+Shift+S",
-                move |app_handle, _shortcut, _event| {
-                    // Read clipboard text and emit to frontend
-                    if let Ok(clipboard_text) = app_handle.clipboard().read_text() {
-                        let _ = handle.emit("global-search-triggered", clipboard_text);
-                    }
-                },
-            )?;
-
-            let show_item = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
+            // 创建托盘菜单
+            let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+            let settings_item = MenuItem::with_id(app, "settings", "偏好设置", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-            let _tray = TrayIconBuilder::new()
-                .menu(&menu)
-                .icon(app.default_window_icon().unwrap().clone())
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
+            let menu = Menu::with_items(app, &[&show_item, &settings_item, &quit_item])?;
+
+            // 设置托盘菜单
+            if let Some(tray) = app.tray_by_id("main") {
+                tray.set_menu(Some(menu))?;
+
+                // 托盘图标点击事件
+                let _app_handle = app.handle().clone();
+                tray.on_tray_icon_event(move |tray, event| {
+                    match event {
+                        TrayIconEvent::Click { button, button_state, .. } => {
+                            if button == tauri::tray::MouseButton::Left
+                                && button_state == tauri::tray::MouseButtonState::Up {
+                                let app = tray.app_handle();
+                                if let Some(window) = app.get_webview_window("main") {
+                                    if window.is_visible().unwrap_or(false) {
+                                        let _ = window.hide();
+                                    } else {
+                                        let _ = window.show();
+                                        let _ = window.set_focus();
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                });
+
+                // 托盘菜单事件
+                tray.on_menu_event(move |app, event| {
+                    match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "settings" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                                let _ = window.emit("open-settings", ());
+                            }
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                });
+            }
+
+            // 注册全局快捷键（默认）
+            let handle = app.handle().clone();
+            #[cfg(target_os = "macos")]
+            let shortcut = "Cmd+Shift+A";
+            #[cfg(not(target_os = "macos"))]
+            let shortcut = "Ctrl+Shift+A";
+
+            use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+            if let Ok(shortcut) = shortcut.parse::<Shortcut>() {
+                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _event, _shortcut| {
+                    if let Some(window) = handle.get_webview_window("main") {
+                        if window.is_visible().unwrap_or(false) {
+                            let _ = window.hide();
+                        } else {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
                     }
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })
-                .build(app)?;
+                });
+            }
 
             Ok(())
         })
+        // 窗口事件处理
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // 阻止窗口关闭，而是隐藏到托盘
+                api.prevent_close();
+                window.hide().unwrap();
+            }
+        })
+        // 注册命令
         .invoke_handler(tauri::generate_handler![
-            get_config,
-            save_config,
-            search_with_ai,
-            show_main_window,
-            get_clipboard_text,
+            toggle_window,
+            show_window,
+            hide_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
