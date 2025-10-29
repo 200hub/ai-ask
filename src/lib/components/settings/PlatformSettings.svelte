@@ -3,9 +3,12 @@
      * Platform settings panel for managing AI providers.
      */
     import { onMount, tick } from "svelte";
-    import { Plus, Trash2 } from "lucide-svelte";
+    import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-svelte";
     import Button from "../common/Button.svelte";
     import { platformsStore } from "$lib/stores/platforms.svelte";
+    import { i18n } from "$lib/i18n";
+
+    const t = i18n.t;
 
     const FALLBACK_ICON =
         "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3C/svg%3E";
@@ -18,6 +21,10 @@
     let newPlatformUrl = $state("");
     let newPlatformIcon = $state("");
     let newPlatformEnabled = $state(true);
+
+    const orderedPlatforms = $derived(
+        [...platformsStore.platforms].sort((a, b) => a.sortOrder - b.sortOrder),
+    );
 
     onMount(async () => {
         if (platformsStore.platforms.length === 0) {
@@ -56,18 +63,18 @@
             await platformsStore.togglePlatform(id);
         } catch (error) {
             console.error("Failed to toggle platform:", error);
-            window.alert("Unable to update platform. Please try again.");
+            window.alert(t("platforms.errorToggle"));
         }
     }
 
     async function deletePlatform(id: string) {
-        if (!window.confirm("Remove this custom platform?")) return;
+        if (!window.confirm(t("platforms.confirmRemove"))) return;
 
         try {
             await platformsStore.removePlatform(id);
         } catch (error) {
             console.error("Failed to delete platform:", error);
-            window.alert("Unable to delete platform. Please try again.");
+            window.alert(t("platforms.errorDelete"));
         }
     }
 
@@ -80,13 +87,25 @@
         showAddModal = false;
     }
 
+    async function movePlatform(id: string, direction: "up" | "down") {
+        console.log('[PlatformSettings] movePlatform called:', { id, direction });
+        
+        try {
+            await platformsStore.movePlatform(id, direction);
+            console.log('[PlatformSettings] Platform moved successfully');
+        } catch (error) {
+            console.error("Failed to reorder platform:", error);
+            window.alert(t("platforms.errorOrder"));
+        }
+    }
+
     function validateForm() {
         if (!newPlatformName.trim()) {
-            throw new Error("Platform name is required");
+            throw new Error(t("platforms.required"));
         }
 
         if (!newPlatformUrl.trim()) {
-            throw new Error("Platform URL is required");
+            throw new Error(t("platforms.required"));
         }
 
         try {
@@ -95,7 +114,7 @@
                 throw new Error();
             }
         } catch (error) {
-            throw new Error("Please enter a valid platform URL (http/https)");
+            throw new Error(t("platforms.invalidUrl"));
         }
 
         if (newPlatformIcon.trim()) {
@@ -105,7 +124,7 @@
                     throw new Error();
                 }
             } catch (error) {
-                throw new Error("Please enter a valid icon URL or leave it blank");
+                throw new Error(t("platforms.invalidUrl"));
             }
         }
     }
@@ -116,7 +135,7 @@
         try {
             validateForm();
         } catch (error) {
-            formError = error instanceof Error ? error.message : "Invalid form data";
+            formError = error instanceof Error ? error.message : t("errors.unknownError");
             return;
         }
 
@@ -132,7 +151,7 @@
             closeAddModal();
         } catch (error) {
             console.error("Failed to add platform:", error);
-            formError = "Unable to add platform. Please try again.";
+            formError = t("platforms.errorAdd");
         } finally {
             isSubmitting = false;
         }
@@ -142,13 +161,69 @@
 <div class="settings-section">
     <div class="setting-group">
         <div class="group-header">
-            <h3 class="group-title">Built-in platforms</h3>
-            <p class="group-description">Enable or disable the default AI providers.</p>
+            <h3 class="group-title">{t("platforms.displayOrderTitle")}</h3>
+            <p class="group-description">
+                {t("platforms.displayOrderDescription")}
+            </p>
+        </div>
+
+        <div class="order-list">
+            {#if orderedPlatforms.length === 0}
+                <p class="empty-message">{t("platforms.noPlatforms")}</p>
+            {:else}
+                {#each orderedPlatforms as platform, index (platform.id)}
+                    <div class="order-item">
+                        <div class="order-info">
+                            <span class="order-number">{index + 1}</span>
+                            <img
+                                src={platform.icon || FALLBACK_ICON}
+                                alt={platform.name}
+                                class="order-icon"
+                                onerror={handleIconError}
+                            />
+                            <div class="order-details">
+                                <span class="order-name">{platform.name}</span>
+                                <span class="order-meta">
+                                    {platform.enabled ? t("common.enabled") : t("common.disabled")}
+                                    {platform.isCustom ? ` · ${t("platforms.customTag")}` : ""}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="order-actions">
+                            <button
+                                type="button"
+                                class="order-btn"
+                                onclick={() => movePlatform(platform.id, "up")}
+                                disabled={index === 0}
+                                aria-label={`${t("platforms.moveUp")} ${platform.name}`}
+                            >
+                                <ArrowUp size={16} />
+                            </button>
+                            <button
+                                type="button"
+                                class="order-btn"
+                                onclick={() => movePlatform(platform.id, "down")}
+                                disabled={index === orderedPlatforms.length - 1}
+                                aria-label={`${t("platforms.moveDown")} ${platform.name}`}
+                            >
+                                <ArrowDown size={16} />
+                            </button>
+                        </div>
+                    </div>
+                {/each}
+            {/if}
+        </div>
+    </div>
+
+    <div class="setting-group">
+        <div class="group-header">
+            <h3 class="group-title">{t("platforms.builtInTitle")}</h3>
+            <p class="group-description">{t("platforms.builtInDescription")}</p>
         </div>
 
         <div class="platform-list">
             {#if platformsStore.builtInPlatforms.length === 0}
-                <p class="empty-message">No built-in platforms available.</p>
+                <p class="empty-message">{t("platforms.noPlatforms")}</p>
             {:else}
                 {#each platformsStore.builtInPlatforms as platform (platform.id)}
                     <div class="platform-item">
@@ -180,17 +255,17 @@
 
     <div class="setting-group">
         <div class="group-header">
-            <h3 class="group-title">Custom platforms</h3>
+            <h3 class="group-title">{t("platforms.customTitle")}</h3>
             <Button variant="primary" size="sm" onclick={openAddModal}>
                 <Plus size={16} />
-                Add platform
+                {t("platforms.addPlatform")}
             </Button>
         </div>
 
         {#if platformsStore.customPlatforms.length === 0}
             <div class="empty-state">
-                <p>No custom platforms yet.</p>
-                <p class="empty-hint">Use the button above to add your own AI platform.</p>
+                <p>{t("platforms.customEmpty")}</p>
+                <p class="empty-hint">{t("platforms.customEmptyHint")}</p>
             </div>
         {:else}
             <div class="platform-list">
@@ -237,7 +312,7 @@
         class="modal-overlay"
         role="button"
         tabindex="0"
-        aria-label="Close modal"
+    aria-label={t("common.close")}
         onclick={(event) => {
             if (event.target === event.currentTarget) closeAddModal();
         }}
@@ -253,40 +328,44 @@
         }}
     >
         <div class="modal" role="dialog" aria-modal="true" tabindex="-1" use:focusOnMount>
-            <h3 class="modal-title">Add custom platform</h3>
+            <h3 class="modal-title">{t("platforms.addPlatform")}</h3>
 
             <div class="form-group">
-                <label class="form-label" for="platform-name">Platform name *</label>
+                <label class="form-label" for="platform-name">
+                    {t("platforms.name")} *
+                </label>
                 <input
                     id="platform-name"
                     type="text"
                     class="form-input"
-                    placeholder="e.g. My AI"
+                    placeholder={t("platforms.namePlaceholder")}
                     bind:value={newPlatformName}
                 />
             </div>
 
             <div class="form-group">
-                <label class="form-label" for="platform-url">Platform URL *</label>
+                <label class="form-label" for="platform-url">
+                    {t("platforms.url")} *
+                </label>
                 <input
                     id="platform-url"
                     type="url"
                     class="form-input"
-                    placeholder="https://example.com"
+                    placeholder={t("platforms.urlPlaceholder")}
                     bind:value={newPlatformUrl}
                 />
             </div>
 
             <div class="form-group">
-                <label class="form-label" for="platform-icon">Icon URL</label>
+                <label class="form-label" for="platform-icon">{t("platforms.icon")}</label>
                 <input
                     id="platform-icon"
                     type="url"
                     class="form-input"
-                    placeholder="https://example.com/icon.png"
+                    placeholder={t("platforms.iconPlaceholder")}
                     bind:value={newPlatformIcon}
                 />
-                <p class="form-hint">Optional; leave blank to use a generic icon.</p>
+                <p class="form-hint">{t("platforms.iconOptionalHint")}</p>
             </div>
 
             <label class="toggle-switch enable-toggle">
@@ -296,7 +375,7 @@
                     onchange={() => (newPlatformEnabled = !newPlatformEnabled)}
                 />
                 <span class="toggle-slider"></span>
-                <span class="toggle-label">Enable after adding</span>
+                <span class="toggle-label">{t("platforms.enableAfterAdding")}</span>
             </label>
 
             {#if formError}
@@ -305,7 +384,7 @@
 
             <div class="modal-actions">
                 <Button variant="secondary" size="sm" onclick={closeAddModal}>
-                    Cancel
+                    {t("common.cancel")}
                 </Button>
                 <Button
                     variant="primary"
@@ -313,7 +392,7 @@
                     onclick={handleAddPlatform}
                     disabled={isSubmitting}
                 >
-                    {isSubmitting ? "Adding..." : "Add platform"}
+                    {isSubmitting ? t("common.loading") : t("platforms.addPlatform")}
                 </Button>
             </div>
         </div>
@@ -335,6 +414,105 @@
         border-radius: 0.75rem;
         padding: 1.5rem;
         border: 1px solid var(--border-color);
+    }
+
+    .order-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .order-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 1rem;
+        background-color: var(--bg-primary);
+        border-radius: 0.5rem;
+        border: 1px solid var(--border-color);
+        gap: 1rem;
+    }
+
+    .order-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        min-width: 0;
+    }
+
+    .order-number {
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        background-color: var(--bg-secondary);
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
+    .order-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 0.5rem;
+        object-fit: cover;
+        background-color: var(--bg-secondary);
+        flex-shrink: 0;
+    }
+
+    .order-details {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+        min-width: 0;
+    }
+
+    .order-name {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .order-meta {
+        font-size: 0.75rem;
+        color: var(--text-tertiary);
+    }
+
+    .order-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .order-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 0.5rem;
+        border: 1px solid var(--border-color);
+        background-color: var(--bg-primary);
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .order-btn:hover:not(:disabled) {
+        color: var(--text-primary);
+        border-color: var(--accent-color);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .order-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
     }
 
     .group-header {
@@ -571,6 +749,16 @@
     @media (max-width: 768px) {
         .setting-group {
             padding: 1.125rem;
+        }
+
+        .order-item {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .order-actions {
+            width: 100%;
+            justify-content: flex-end;
         }
 
         .platform-item {

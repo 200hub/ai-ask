@@ -6,6 +6,8 @@
     import { open } from "@tauri-apps/plugin-shell";
     import { i18n } from "$lib/i18n";
 
+    const t = i18n.t;
+
     /**
      * 打开GitHub仓库
      */
@@ -17,8 +19,6 @@
         }
     }
 
-    // 暂时不使用 i18n，直接使用中文
-    // const t = $derived(i18n.t);
 </script>
 
 <div class="about-section">
@@ -55,38 +55,38 @@
             </svg>
         </div>
         <h1 class="app-name">{APP_INFO.name}</h1>
-        <p class="app-version">版本 {APP_INFO.version}</p>
-        <p class="app-description">一个简洁高效的AI问答助手</p>
+        <p class="app-version">{t("about.version")}: {APP_INFO.version}</p>
+        <p class="app-description">{t("about.description")}</p>
     </div>
 
     <!-- 功能特性 -->
     <div class="info-card">
-        <h3 class="card-title">主要功能</h3>
+        <h3 class="card-title">{t("about.features")}</h3>
         <div class="features-list">
             <div class="feature-item">
                 <span class="feature-icon">🤖</span>
-                <span class="feature-text">多AI平台支持</span>
+                <span class="feature-text">{t("about.feature1")}</span>
             </div>
             <div class="feature-item">
                 <span class="feature-icon">🌐</span>
-                <span class="feature-text">智能翻译功能</span>
+                <span class="feature-text">{t("about.feature2")}</span>
             </div>
             <div class="feature-item">
                 <span class="feature-icon">⚙️</span>
-                <span class="feature-text">灵活配置选项</span>
+                <span class="feature-text">{t("about.feature3")}</span>
             </div>
             <div class="feature-item">
                 <span class="feature-icon">🎨</span>
-                <span class="feature-text">简洁优雅界面</span>
+                <span class="feature-text">{t("about.feature4")}</span>
             </div>
         </div>
     </div>
 
     <!-- 开源信息 -->
     <div class="info-card">
-        <h3 class="card-title">开源项目</h3>
+        <h3 class="card-title">{t("about.openSource")}</h3>
         <div class="opensource-info">
-            <p class="info-text">本项目采用 MIT 开源协议</p>
+            <p class="info-text">{t("about.license")}</p>
             <button class="link-btn" onclick={openRepository}>
                 <svg
                     class="link-icon"
@@ -101,14 +101,14 @@
                         d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                     />
                 </svg>
-                访问 GitHub 仓库
+                {t("about.visitRepository")}
             </button>
         </div>
     </div>
 
     <!-- 版权信息 -->
     <div class="copyright">
-        <p>© 2025 {APP_INFO.name}. 保留所有权利。</p>
+        <p>© 2025 {APP_INFO.name}. {t("about.copyright")}.</p>
     </div>
 </div>
 

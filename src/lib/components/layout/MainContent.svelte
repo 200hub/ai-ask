@@ -4,16 +4,34 @@
      */
     import { appState } from "$lib/stores/app.svelte";
     import WelcomePage from "../pages/WelcomePage.svelte";
-    import AIChat from "../pages/AIChat.svelte";
     import TranslationPage from "../pages/TranslationPage.svelte";
     import SettingsModal from "../settings/SettingsModal.svelte";
+    import { i18n } from "$lib/i18n";
+
+    // 懒加载 AIChat，避免未进入聊天视图时的任何潜在副作用
+    let AIChatComp = $state<any | null>(null);
+
+    const t = i18n.t;
+
+    $effect(() => {
+        if (appState.currentView === "chat" && !AIChatComp) {
+            (async () => {
+                const mod = await import("../pages/AIChat.svelte");
+                AIChatComp = mod.default;
+            })();
+        }
+    });
 </script>
 
 <main class="main-content">
     {#if appState.currentView === "welcome"}
         <WelcomePage />
     {:else if appState.currentView === "chat"}
-        <AIChat />
+        {#if AIChatComp}
+            <AIChatComp />
+        {:else}
+            <div class="loading-chat">{t("chat.loading")}</div>
+        {/if}
     {:else if appState.currentView === "translation"}
         <TranslationPage />
     {/if}
@@ -41,7 +59,7 @@
             <button
                 class="close-toast"
                 onclick={() => appState.clearError()}
-                aria-label="关闭错误提示"
+                aria-label={t("common.close")}
             >
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -124,5 +142,15 @@
     .close-toast svg {
         width: 100%;
         height: 100%;
+    }
+
+    .loading-chat {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
     }
 </style>

@@ -7,16 +7,14 @@ import type { AIPlatform, TranslationPlatform } from "../types/platform";
 import chatgptIcon from "$lib/assets/platform-icons/chatgpt.svg";
 import anthropicIcon from "$lib/assets/platform-icons/anthropic.svg";
 import geminiIcon from "$lib/assets/platform-icons/gemini.svg";
-import perplexityIcon from "$lib/assets/platform-icons/perplexity.svg";
 import copilotIcon from "$lib/assets/platform-icons/copilot.svg";
-import poeIcon from "$lib/assets/platform-icons/poe.svg";
+import grokIcon from "$lib/assets/platform-icons/grok.svg";
+import metaIcon from "$lib/assets/platform-icons/meta.svg";
 import deepseekIcon from "$lib/assets/platform-icons/deepseek.svg";
 import kimiIcon from "$lib/assets/platform-icons/kimi.svg";
 import tongyiIcon from "$lib/assets/platform-icons/alibabacloud.svg";
 import wenxinIcon from "$lib/assets/platform-icons/baidu.svg";
 import doubaoIcon from "$lib/assets/platform-icons/bytedance.svg";
-import chatglmIcon from "$lib/assets/platform-icons/chatglm.svg";
-import xinghuoIcon from "$lib/assets/platform-icons/xinghuo.svg";
 import yuanbaoIcon from "$lib/assets/platform-icons/tencent.svg";
 
 /**
@@ -27,7 +25,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'chatgpt',
     name: 'ChatGPT',
-  icon: chatgptIcon,
+    icon: chatgptIcon,
     url: 'https://chat.openai.com',
     enabled: true,
     isCustom: false,
@@ -36,7 +34,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'claude',
     name: 'Claude',
-  icon: anthropicIcon,
+    icon: anthropicIcon,
     url: 'https://claude.ai',
     enabled: true,
     isCustom: false,
@@ -45,35 +43,35 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'gemini',
     name: 'Gemini',
-  icon: geminiIcon,
+    icon: geminiIcon,
     url: 'https://gemini.google.com',
     enabled: true,
     isCustom: false,
     sortOrder: 3,
   },
   {
-    id: 'perplexity',
-    name: 'Perplexity',
-  icon: perplexityIcon,
-    url: 'https://www.perplexity.ai',
+    id: 'copilot',
+    name: 'Copilot',
+    icon: copilotIcon,
+    url: 'https://copilot.microsoft.com',
     enabled: true,
     isCustom: false,
     sortOrder: 4,
   },
   {
-    id: 'copilot',
-    name: 'Copilot',
-  icon: copilotIcon,
-    url: 'https://copilot.microsoft.com',
+    id: 'grok',
+    name: 'Grok',
+    icon: grokIcon,
+    url: 'https://grok.x.ai',
     enabled: true,
     isCustom: false,
     sortOrder: 5,
   },
   {
-    id: 'poe',
-    name: 'Poe',
-  icon: poeIcon,
-    url: 'https://poe.com',
+    id: 'metaai',
+    name: 'Meta AI',
+    icon: metaIcon,
+    url: 'https://www.meta.ai',
     enabled: true,
     isCustom: false,
     sortOrder: 6,
@@ -82,7 +80,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'deepseek',
     name: 'DeepSeek',
-  icon: deepseekIcon,
+    icon: deepseekIcon,
     url: 'https://chat.deepseek.com',
     enabled: true,
     isCustom: false,
@@ -91,7 +89,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'kimi',
     name: 'Kimi',
-  icon: kimiIcon,
+    icon: kimiIcon,
     url: 'https://kimi.moonshot.cn',
     enabled: true,
     isCustom: false,
@@ -100,7 +98,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'tongyi',
     name: '通义千问',
-  icon: tongyiIcon,
+    icon: tongyiIcon,
     url: 'https://tongyi.aliyun.com/qianwen',
     enabled: true,
     isCustom: false,
@@ -109,7 +107,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'wenxin',
     name: '文心一言',
-  icon: wenxinIcon,
+    icon: wenxinIcon,
     url: 'https://yiyan.baidu.com',
     enabled: true,
     isCustom: false,
@@ -118,38 +116,20 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   {
     id: 'doubao',
     name: '豆包',
-  icon: doubaoIcon,
+    icon: doubaoIcon,
     url: 'https://www.doubao.com',
     enabled: true,
     isCustom: false,
     sortOrder: 11,
   },
   {
-    id: 'chatglm',
-    name: '智谱清言',
-  icon: chatglmIcon,
-    url: 'https://chatglm.cn',
-    enabled: true,
-    isCustom: false,
-    sortOrder: 12,
-  },
-  {
-    id: 'xinghuo',
-    name: '讯飞星火',
-  icon: xinghuoIcon,
-    url: 'https://xinghuo.xfyun.cn',
-    enabled: true,
-    isCustom: false,
-    sortOrder: 13,
-  },
-  {
     id: 'yuanbao',
     name: '腾讯元宝',
-  icon: yuanbaoIcon,
+    icon: yuanbaoIcon,
     url: 'https://yuanbao.tencent.com',
     enabled: true,
     isCustom: false,
-    sortOrder: 14,
+    sortOrder: 12,
   },
 ];
 
@@ -241,7 +221,7 @@ export const APP_INFO = {
   version: "1.0.0",
   description: "一个简洁高效的AI问答助手",
   author: "AI Ask Team",
-  repository: "https://github.com/yourusername/ai-ask",
+  repository: "https://github.com/200hub/ai-ask",
 };
 
 /**

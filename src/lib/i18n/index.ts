@@ -3,7 +3,7 @@
  * 提供多语言支持
  */
 
-import { writable, derived } from "svelte/store";
+import { writable, derived, type Readable } from "svelte/store";
 import { zhCN } from "./locales/zh-CN";
 import { enUS } from "./locales/en-US";
 import { jaJP } from "./locales/ja-JP";
@@ -19,6 +19,9 @@ export type TranslationKey = string;
 export interface TranslationDict {
   [key: string]: string | TranslationDict;
 }
+
+// 翻译函数类型
+export type Translator = (key: string, fallback?: string) => string;
 
 // 语言配置
 export interface LocaleConfig {
@@ -71,31 +74,41 @@ function getNestedValue(
 }
 
 /**
- * 翻译函数
+ * 翻译函数 - 直接返回函数而不是 store
  */
-function createTranslator() {
-  return derived([currentLocale, translations], ([$locale, $translations]) => {
-    return (key: string, fallback?: string): string => {
-      const translation = getNestedValue($translations[$locale], key);
-      if (translation) {
-        return translation;
-      }
-
-      // 尝试使用默认语言
-      if ($locale !== DEFAULT_LOCALE) {
-        const defaultTranslation = getNestedValue(
-          $translations[DEFAULT_LOCALE],
-          key,
-        );
-        if (defaultTranslation) {
-          return defaultTranslation;
-        }
-      }
-
-      // 返回 fallback 或 key
-      return fallback || key;
+function createTranslator(): Translator {
+  return (key: string, fallback?: string): string => {
+    let locale: Locale = DEFAULT_LOCALE;
+    let translationData: Record<Locale, TranslationDict> = {
+      "zh-CN": zhCN,
+      "en-US": enUS,
+      "ja-JP": jaJP,
+      "ko-KR": koKR,
     };
-  });
+
+    // 同步读取当前值
+    currentLocale.subscribe((v) => (locale = v))();
+    translations.subscribe((v) => (translationData = v))();
+
+    const translation = getNestedValue(translationData[locale], key);
+    if (translation) {
+      return translation;
+    }
+
+    // 尝试使用默认语言
+    if (locale !== DEFAULT_LOCALE) {
+      const defaultTranslation = getNestedValue(
+        translationData[DEFAULT_LOCALE],
+        key,
+      );
+      if (defaultTranslation) {
+        return defaultTranslation;
+      }
+    }
+
+    // 返回 fallback 或 key
+    return fallback || key;
+  };
 }
 
 // 创建翻译器
@@ -120,10 +133,8 @@ export const i18n = {
     },
   },
 
-  // 翻译函数
-  t: {
-    subscribe: t.subscribe,
-  },
+  // 翻译函数 - 直接暴露
+  t,
 
   // 加载翻译数据
   loadTranslations: (locale: Locale, data: TranslationDict) => {

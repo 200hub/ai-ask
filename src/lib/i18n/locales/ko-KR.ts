@@ -22,6 +22,9 @@ export const koKR = {
         info: "정보",
         yes: "예",
         no: "아니오",
+        enabled: "활성화됨",
+        disabled: "비활성화됨",
+        custom: "사용자 지정",
     },
 
     app: {
@@ -54,6 +57,9 @@ export const koKR = {
 
     general: {
         title: "일반 설정",
+        languageTitle: "언어",
+        interfaceLanguage: "인터페이스 언어",
+        interfaceLanguageDescription: "앱 표시 언어를 선택하세요",
         appearance: "외관",
         theme: "테마 모드",
         themeDescription: "앱의 외관 테마 선택",
@@ -68,6 +74,11 @@ export const koKR = {
         startup: "시작",
         autoStart: "시작 시 자동 실행",
         autoStartDescription: "시스템 시작 시 자동으로 실행",
+        cacheManagement: "캐시 관리",
+        clearCache: "캐시 페이지 비우기",
+        clearCacheDescription: "백그라운드 AI 페이지를 닫고 캐시 데이터를 초기화합니다",
+        clearCacheConfirm: "캐시를 삭제하시겠어요? 현재 활성 페이지를 제외한 모든 AI 페이지가 닫힙니다.",
+        clearCacheSuccess: "캐시가 삭제되었습니다",
         infoTip1: "앱을 닫으면 종료되지 않고 시스템 트레이로 최소화됩니다.",
         infoTip2: "트레이 아이콘을 우클릭하고 '종료'를 선택하면 완전히 닫을 수 있습니다.",
     },
@@ -75,6 +86,10 @@ export const koKR = {
     platforms: {
         title: "AI 플랫폼 관리",
         description: "AI 플랫폼 관리 및 구성",
+        displayOrderTitle: "표시 순서",
+        displayOrderDescription: "사이드바에서 플랫폼이 표시되는 순서를 정렬하세요.",
+        builtInTitle: "기본 제공 플랫폼",
+        builtInDescription: "기본 AI 제공업체를 활성화하거나 비활성화합니다.",
         addPlatform: "플랫폼 추가",
         editPlatform: "플랫폼 편집",
         noPlatforms: "플랫폼 없음",
@@ -90,6 +105,20 @@ export const koKR = {
         dragToReorder: "드래그하여 순서 변경",
         required: "필수 항목",
         invalidUrl: "유효한 URL을 입력하세요",
+        customTitle: "사용자 지정 플랫폼",
+        customDescription: "직접 AI 항목을 추가 및 관리합니다.",
+        customEmpty: "아직 사용자 지정 플랫폼이 없습니다.",
+        customEmptyHint: "위 버튼을 사용하여 자신의 AI 플랫폼을 추가하세요.",
+        customTag: "사용자 지정",
+        moveUp: "위로 이동",
+        moveDown: "아래로 이동",
+        enableAfterAdding: "추가 후 활성화",
+        confirmRemove: "이 사용자 지정 플랫폼을 삭제하시겠어요?",
+        errorToggle: "플랫폼을 업데이트할 수 없습니다. 다시 시도하세요.",
+        errorDelete: "플랫폼을 삭제할 수 없습니다. 다시 시도하세요.",
+        errorOrder: "순서를 업데이트할 수 없습니다. 다시 시도하세요.",
+        errorAdd: "플랫폼을 추가할 수 없습니다. 다시 시도하세요.",
+        iconOptionalHint: "선택 사항입니다. 비워두면 기본 아이콘이 사용됩니다.",
     },
 
     proxy: {
@@ -114,6 +143,14 @@ export const koKR = {
         saveSuccess: "프록시 설정이 저장되었습니다",
         saveFailed: "저장 실패, 다시 시도하세요",
         testInProgress: "프록시 테스트 기능은 개발 중입니다...",
+        hostRequired: "프록시 주소를 입력하세요",
+        portRequired: "프록시 포트를 입력하세요",
+        portRangeError: "프록시 포트는 1에서 65535 사이여야 합니다",
+        noChanges: "저장할 변경 사항이 없습니다",
+        invalidSettings: "프록시 설정이 올바르지 않습니다",
+        testSuccess: "연결에 성공했습니다{latency}",
+        testFailed: "연결에 실패했습니다",
+        latencySuffix: " (지연 {latency}ms)",
     },
 
     translationSettings: {
@@ -121,6 +158,20 @@ export const koKR = {
         description: "번역 기능 구성",
         defaultTranslator: "기본 번역 엔진",
         selectTranslator: "번역 엔진 선택",
+        providersTitle: "번역 제공자",
+        providersDescription: "사이드바에서 사용하려는 번역 서비스를 활성화하세요.",
+        defaultBadge: "기본값",
+        setDefault: "기본값으로 설정",
+        supportedLanguages: "지원: {languages}",
+        moreLanguages: "+{count}개 더",
+        toggleError: "번역 플랫폼을 업데이트할 수 없습니다. 다시 시도하세요.",
+        setDefaultError: "기본 번역 엔진을 설정할 수 없습니다. 다시 시도하세요.",
+        tipsTitle: "번역 사용 팁",
+        tips: {
+            item1: "각 번역 서비스는 별도의 Webview 탭에서 열립니다.",
+            item2: "사이드바에서 언제든 번역 플랫폼을 전환할 수 있습니다.",
+            item3: "사용하는 서비스만 활성화하면 자원을 절약할 수 있습니다.",
+        },
     },
 
     about: {
@@ -158,6 +209,31 @@ export const koKR = {
         selectPlatform: "번역 플랫폼 선택",
         noPlatforms: "사용 가능한 번역 플랫폼이 없습니다",
         noPlatformsDescription: "설정에서 번역 플랫폼을 추가하세요",
+        selectorLabel: "번역 플랫폼 선택:",
+        loading: "로딩 중...",
+        loadErrorTitle: "로드 실패",
+        loadErrorMessage: "{name}을(를) 로드할 수 없습니다",
+        reload: "다시 로드",
+        emptyHint: "설정에서 최소 하나의 번역 플랫폼을 활성화하세요",
+        toastError: "번역 플랫폼을 로드하지 못했습니다. 네트워크 연결을 확인하세요.",
+    },
+
+    welcome: {
+        tipsTitle: "시작하기",
+        features: {
+            quickTitle: "빠른 접근",
+            quickDescription: "사이드바를 사용해 즉시 AI 플랫폼을 전환하세요.",
+            hotkeyTitle: "키보드 단축키",
+            hotkeyDescription: "{shortcut} 단축키로 언제든 창을 표시하거나 숨기세요.",
+            translationTitle: "번역",
+            translationDescription: "내장 번역 엔진을 한 번의 클릭으로 사용할 수 있습니다.",
+        },
+        steps: {
+            step1: "사이드바에서 AI 플랫폼을 선택하세요.",
+            step2: "열린 페이지에서 로그인하고 대화를 시작하세요.",
+            step3: "단축키로 언제든 앱을 앞에 불러오세요.",
+        },
+        trayHint: "창을 닫으면 시스템 트레이에 숨겨집니다. 트레이 아이콘을 우클릭하여 종료할 수 있습니다.",
     },
 
     tray: {

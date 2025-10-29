@@ -11,15 +11,18 @@
     import TranslationSettings from "./TranslationSettings.svelte";
     import AboutSettings from "./AboutSettings.svelte";
     import Button from "../common/Button.svelte";
+    import { i18n } from "$lib/i18n";
+
+    const t = i18n.t;
 
     let currentTab = $state<SettingsTab>("general");
 
-    const tabs: Array<{ id: SettingsTab; label: string; icon: string }> = [
-        { id: "general", label: "通用", icon: "⚙️" },
-        { id: "platforms", label: "AI平台", icon: "🤖" },
-        { id: "proxy", label: "代理", icon: "🌐" },
-        { id: "translation", label: "翻译", icon: "🌍" },
-        { id: "about", label: "关于", icon: "ℹ️" },
+    const tabs: Array<{ id: SettingsTab; labelKey: string; icon: string }> = [
+        { id: "general", labelKey: "settings.general", icon: "⚙️" },
+        { id: "platforms", labelKey: "settings.platforms", icon: "🤖" },
+        { id: "proxy", labelKey: "settings.proxy", icon: "🌐" },
+        { id: "translation", labelKey: "settings.translation", icon: "🌍" },
+        { id: "about", labelKey: "settings.about", icon: "ℹ️" },
     ];
 
     /**
@@ -52,7 +55,7 @@
     <div class="modal-container">
         <!-- 标题栏 -->
         <div class="modal-header">
-            <h2 class="modal-title">设置</h2>
+            <h2 class="modal-title">{t("settings.title")}</h2>
             <Button variant="icon" onclick={handleClose}>
                 <X size={20} />
             </Button>
@@ -67,7 +70,7 @@
                     onclick={() => switchTab(tab.id)}
                 >
                     <span class="tab-icon">{tab.icon}</span>
-                    <span class="tab-label">{tab.label}</span>
+                    <span class="tab-label">{t(tab.labelKey)}</span>
                 </button>
             {/each}
         </div>

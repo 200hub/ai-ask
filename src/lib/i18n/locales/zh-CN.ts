@@ -22,6 +22,9 @@ export const zhCN = {
     info: "提示",
     yes: "是",
     no: "否",
+    enabled: "启用",
+    disabled: "禁用",
+    custom: "自定义",
   },
 
   app: {
@@ -54,6 +57,9 @@ export const zhCN = {
 
   general: {
     title: "通用设置",
+    languageTitle: "语言",
+    interfaceLanguage: "界面语言",
+    interfaceLanguageDescription: "选择应用的显示语言",
     appearance: "外观",
     theme: "主题模式",
     themeDescription: "选择应用的外观主题",
@@ -68,6 +74,11 @@ export const zhCN = {
     startup: "启动",
     autoStart: "开机自动启动",
     autoStartDescription: "系统启动时自动运行应用",
+    cacheManagement: "缓存管理",
+    clearCache: "清理页面缓存",
+    clearCacheDescription: "关闭后台 AI 页面并重置缓存数据",
+    clearCacheConfirm: "确认清理页面缓存吗？这将关闭除当前页面外的所有 AI 页面。",
+    clearCacheSuccess: "缓存已清理",
     infoTip1: "应用关闭时会最小化到系统托盘，不会完全退出。",
     infoTip2: '右键点击托盘图标选择"退出"可完全关闭应用。',
   },
@@ -75,6 +86,10 @@ export const zhCN = {
   platforms: {
     title: "AI平台管理",
     description: "管理和配置AI平台",
+    displayOrderTitle: "显示顺序",
+    displayOrderDescription: "调整侧边栏中平台的显示顺序。",
+    builtInTitle: "内置平台",
+    builtInDescription: "启用或禁用默认的 AI 提供商。",
     addPlatform: "添加平台",
     editPlatform: "编辑平台",
     noPlatforms: "暂无平台",
@@ -90,6 +105,20 @@ export const zhCN = {
     dragToReorder: "拖动以重新排序",
     required: "必填项",
     invalidUrl: "请输入有效的网址",
+    customTitle: "自定义平台",
+    customDescription: "添加并管理你自己的 AI 平台。",
+    customEmpty: "尚未添加自定义平台。",
+    customEmptyHint: "使用上方按钮添加你自己的 AI 平台。",
+    customTag: "自定义",
+    moveUp: "上移",
+    moveDown: "下移",
+    enableAfterAdding: "添加后启用",
+    confirmRemove: "确定删除该自定义平台吗？",
+    errorToggle: "无法更新平台状态，请重试。",
+    errorDelete: "无法删除平台，请重试。",
+    errorOrder: "无法更新排序，请重试。",
+    errorAdd: "无法添加平台，请重试。",
+    iconOptionalHint: "可选，留空将使用默认图标。",
   },
 
   proxy: {
@@ -114,6 +143,14 @@ export const zhCN = {
     saveSuccess: "代理设置已保存",
     saveFailed: "保存失败，请重试",
     testInProgress: "代理测试功能开发中...",
+    hostRequired: "请输入代理地址",
+    portRequired: "请输入代理端口",
+    portRangeError: "代理端口必须在 1 到 65535 之间",
+    noChanges: "没有需要保存的更改",
+    invalidSettings: "代理配置无效",
+    testSuccess: "连接成功{latency}",
+    testFailed: "连接失败",
+    latencySuffix: "（延迟 {latency} 毫秒）",
   },
 
   translationSettings: {
@@ -121,6 +158,20 @@ export const zhCN = {
     description: "配置翻译功能",
     defaultTranslator: "默认翻译引擎",
     selectTranslator: "选择翻译引擎",
+    providersTitle: "翻译平台",
+    providersDescription: "启用你希望在侧边栏使用的翻译服务。",
+    defaultBadge: "默认",
+    setDefault: "设为默认",
+    supportedLanguages: "支持：{languages}",
+    moreLanguages: "+{count} 个更多",
+    toggleError: "无法更新翻译平台，请重试。",
+    setDefaultError: "无法设置默认翻译平台，请重试。",
+    tipsTitle: "翻译使用提示",
+    tips: {
+      item1: "每个翻译服务都会在独立的 Webview 标签中打开。",
+      item2: "可随时在侧边栏切换不同的翻译平台。",
+      item3: "仅启用常用服务可以节省资源。",
+    },
   },
 
   about: {
@@ -158,6 +209,31 @@ export const zhCN = {
     selectPlatform: "选择翻译平台",
     noPlatforms: "暂无可用的翻译平台",
     noPlatformsDescription: "请在设置中添加翻译平台",
+    selectorLabel: "选择翻译平台：",
+    loading: "加载中...",
+    loadErrorTitle: "加载失败",
+    loadErrorMessage: "无法加载 {name}",
+    reload: "重新加载",
+    emptyHint: "请在设置中启用至少一个翻译平台",
+    toastError: "加载翻译平台失败，请检查网络连接。",
+  },
+
+  welcome: {
+    tipsTitle: "开始使用",
+    features: {
+      quickTitle: "快速访问",
+      quickDescription: "通过侧边栏快速切换不同的 AI 平台。",
+      hotkeyTitle: "快捷键支持",
+      hotkeyDescription: "使用 {shortcut} 随时唤醒或隐藏窗口。",
+      translationTitle: "翻译功能",
+      translationDescription: "内置多种翻译引擎，随时一键切换。",
+    },
+    steps: {
+      step1: "点击左侧图标选择一个 AI 平台。",
+      step2: "在打开的页面中登录并开始使用。",
+      step3: "利用快捷键随时唤醒窗口。",
+    },
+    trayHint: "关闭窗口后会最小化到系统托盘，右键托盘图标可完全退出应用。",
   },
 
   tray: {

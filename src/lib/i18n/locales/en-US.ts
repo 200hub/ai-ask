@@ -22,6 +22,9 @@ export const enUS = {
         info: "Info",
         yes: "Yes",
         no: "No",
+        enabled: "Enabled",
+        disabled: "Disabled",
+        custom: "Custom",
     },
 
     app: {
@@ -54,6 +57,9 @@ export const enUS = {
 
     general: {
         title: "General Settings",
+        languageTitle: "Language",
+        interfaceLanguage: "Interface Language",
+        interfaceLanguageDescription: "Choose the display language of the app",
         appearance: "Appearance",
         theme: "Theme Mode",
         themeDescription: "Choose the appearance theme of the app",
@@ -68,6 +74,11 @@ export const enUS = {
         startup: "Startup",
         autoStart: "Launch at Startup",
         autoStartDescription: "Automatically run when system starts",
+        cacheManagement: "Cache Management",
+        clearCache: "Clear Cached Pages",
+        clearCacheDescription: "Close background AI pages and reset cached data",
+        clearCacheConfirm: "Clear cached pages? This will close every AI webview except the active one.",
+        clearCacheSuccess: "Cache cleared successfully",
         infoTip1: "Closing the app will minimize it to the system tray instead of exiting.",
         infoTip2: "Right-click the tray icon and select 'Quit' to completely close the app.",
     },
@@ -75,6 +86,10 @@ export const enUS = {
     platforms: {
         title: "AI Platform Management",
         description: "Manage and configure AI platforms",
+        displayOrderTitle: "Display Order",
+        displayOrderDescription: "Arrange how platforms appear in the sidebar.",
+        builtInTitle: "Built-in platforms",
+        builtInDescription: "Enable or disable the default AI providers.",
         addPlatform: "Add Platform",
         editPlatform: "Edit Platform",
         noPlatforms: "No Platforms",
@@ -90,6 +105,20 @@ export const enUS = {
         dragToReorder: "Drag to reorder",
         required: "Required field",
         invalidUrl: "Please enter a valid URL",
+        customTitle: "Custom platforms",
+        customDescription: "Add and manage your own AI entries.",
+        customEmpty: "No custom platforms yet.",
+        customEmptyHint: "Use the button above to add your own AI platform.",
+        customTag: "Custom",
+        moveUp: "Move up",
+        moveDown: "Move down",
+        enableAfterAdding: "Enable after adding",
+        confirmRemove: "Remove this custom platform?",
+        errorToggle: "Unable to update platform. Please try again.",
+        errorDelete: "Unable to delete platform. Please try again.",
+        errorOrder: "Unable to update order. Please try again.",
+        errorAdd: "Unable to add platform. Please try again.",
+        iconOptionalHint: "Optional; leave blank to use a default icon.",
     },
 
     proxy: {
@@ -114,6 +143,14 @@ export const enUS = {
         saveSuccess: "Proxy settings saved",
         saveFailed: "Failed to save, please try again",
         testInProgress: "Proxy testing feature is under development...",
+        hostRequired: "Proxy host is required",
+        portRequired: "Proxy port is required",
+        portRangeError: "Proxy port must be between 1 and 65535",
+        noChanges: "No changes to save",
+        invalidSettings: "Proxy settings are invalid",
+        testSuccess: "Connection successful{latency}",
+        testFailed: "Connection failed",
+        latencySuffix: " (latency {latency} ms)",
     },
 
     translationSettings: {
@@ -121,6 +158,20 @@ export const enUS = {
         description: "Configure translation features",
         defaultTranslator: "Default Translation Engine",
         selectTranslator: "Select Translation Engine",
+        providersTitle: "Translation providers",
+        providersDescription: "Enable the translators you want to access from the sidebar.",
+        defaultBadge: "Default",
+        setDefault: "Set default",
+        supportedLanguages: "Supported: {languages}",
+        moreLanguages: "+{count} more",
+        toggleError: "Unable to update translation platform. Please try again.",
+        setDefaultError: "Unable to set default translator. Please try again.",
+        tipsTitle: "Tips for translators",
+        tips: {
+            item1: "Each provider opens in its own webview tab.",
+            item2: "Switch translators any time from the sidebar.",
+            item3: "Keep only the services you use enabled to save resources.",
+        },
     },
 
     about: {
@@ -158,6 +209,31 @@ export const enUS = {
         selectPlatform: "Select Translation Platform",
         noPlatforms: "No translation platforms available",
         noPlatformsDescription: "Please add translation platforms in settings",
+        selectorLabel: "Select translation platform:",
+        loading: "Loading...",
+        loadErrorTitle: "Load failed",
+        loadErrorMessage: "Unable to load {name}",
+        reload: "Reload",
+        emptyHint: "Enable at least one translation platform in settings",
+        toastError: "Failed to load translation platform. Please check your network connection.",
+    },
+
+    welcome: {
+        tipsTitle: "Get Started",
+        features: {
+            quickTitle: "Quick access",
+            quickDescription: "Use the sidebar to switch between AI platforms instantly.",
+            hotkeyTitle: "Keyboard shortcuts",
+            hotkeyDescription: "Use {shortcut} to show or hide the window at any time.",
+            translationTitle: "Translation",
+            translationDescription: "Built-in translation engines are always one click away.",
+        },
+        steps: {
+            step1: "Select an AI platform from the sidebar.",
+            step2: "Sign in on the opened page and start chatting.",
+            step3: "Use the hotkey to bring the app to front instantly.",
+        },
+        trayHint: "Closing the window hides it in the system tray. Right-click the tray icon to quit.",
     },
 
     tray: {

@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use tauri::{
     menu::{Menu, MenuItem},
-    Manager, tray::TrayIconEvent, Emitter,
+    tray::TrayIconEvent,
+    Emitter, Manager,
 };
 
 #[derive(Debug, Deserialize)]
@@ -139,47 +140,67 @@ pub fn run() {
 
                 // 托盘图标点击事件
                 let _app_handle = app.handle().clone();
-                tray.on_tray_icon_event(move |tray, event| {
-                    match event {
-                        TrayIconEvent::Click { button, button_state, .. } => {
-                            if button == tauri::tray::MouseButton::Left
-                                && button_state == tauri::tray::MouseButtonState::Up {
-                                let app = tray.app_handle();
+                tray.on_tray_icon_event(move |tray, event| match event {
+                    TrayIconEvent::Click {
+                        button,
+                        button_state,
+                        ..
+                    } => {
+                        if button == tauri::tray::MouseButton::Left
+                            && button_state == tauri::tray::MouseButtonState::Up
+                        {
+                            let app = tray.app_handle().clone();
+                            tauri::async_runtime::spawn(async move {
                                 if let Some(window) = app.get_webview_window("main") {
-                                    if window.is_visible().unwrap_or(false) {
-                                        let _ = window.hide();
+                                    let is_visible = window.is_visible().unwrap_or(false);
+                                    println!("[托盘] 窗口当前状态: visible={}", is_visible);
+
+                                    if is_visible {
+                                        println!("[托盘] 开始隐藏流程...");
+                                        // 先通知前端隐藏所有 webview
+                                        let _ = window.emit("hideAllWebviews", ());
+                                        // 等待 webview 隐藏完成
+                                        tokio::time::sleep(tokio::time::Duration::from_millis(100))
+                                            .await;
+                                        // 然后隐藏主窗口
+                                        match window.hide() {
+                                            Ok(_) => println!("[托盘] 主窗口隐藏成功"),
+                                            Err(e) => println!("[托盘] 主窗口隐藏失败: {}", e),
+                                        }
                                     } else {
-                                        let _ = window.show();
+                                        println!("[托盘] 开始显示流程...");
+                                        match window.show() {
+                                            Ok(_) => println!("[托盘] 主窗口显示成功"),
+                                            Err(e) => println!("[托盘] 主窗口显示失败: {}", e),
+                                        }
                                         let _ = window.set_focus();
                                     }
                                 }
-                            }
+                            });
                         }
-                        _ => {}
                     }
+                    _ => {}
                 });
 
                 // 托盘菜单事件
-                tray.on_menu_event(move |app, event| {
-                    match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                tray.on_menu_event(move |app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "settings" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                                let _ = window.emit("open-settings", ());
-                            }
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
                     }
+                    "settings" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            let _ = window.emit("open-settings", ());
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 });
             }
 
@@ -192,16 +213,38 @@ pub fn run() {
 
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
             if let Ok(shortcut) = shortcut.parse::<Shortcut>() {
-                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _event, _shortcut| {
-                    if let Some(window) = handle.get_webview_window("main") {
-                        if window.is_visible().unwrap_or(false) {
-                            let _ = window.hide();
-                        } else {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                });
+                let _ =
+                    app.global_shortcut()
+                        .on_shortcut(shortcut, move |_app, _event, _shortcut| {
+                            let handle = handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Some(window) = handle.get_webview_window("main") {
+                                    let is_visible = window.is_visible().unwrap_or(false);
+                                    println!("[快捷键] 窗口当前状态: visible={}", is_visible);
+
+                                    if is_visible {
+                                        println!("[快捷键] 开始隐藏流程...");
+                                        // 先通知前端隐藏所有 webview
+                                        let _ = window.emit("hideAllWebviews", ());
+                                        // 等待 webview 隐藏完成
+                                        tokio::time::sleep(tokio::time::Duration::from_millis(100))
+                                            .await;
+                                        // 然后隐藏主窗口
+                                        match window.hide() {
+                                            Ok(_) => println!("[快捷键] 主窗口隐藏成功"),
+                                            Err(e) => println!("[快捷键] 主窗口隐藏失败: {}", e),
+                                        }
+                                    } else {
+                                        println!("[快捷键] 开始显示流程...");
+                                        match window.show() {
+                                            Ok(_) => println!("[快捷键] 主窗口显示成功"),
+                                            Err(e) => println!("[快捷键] 主窗口显示失败: {}", e),
+                                        }
+                                        let _ = window.set_focus();
+                                    }
+                                }
+                            });
+                        });
             }
 
             Ok(())

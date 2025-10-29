@@ -22,6 +22,9 @@ export const jaJP = {
         info: "情報",
         yes: "はい",
         no: "いいえ",
+        enabled: "有効",
+        disabled: "無効",
+        custom: "カスタム",
     },
 
     app: {
@@ -54,6 +57,9 @@ export const jaJP = {
 
     general: {
         title: "一般設定",
+        languageTitle: "言語",
+        interfaceLanguage: "インターフェース言語",
+        interfaceLanguageDescription: "アプリの表示言語を選択",
         appearance: "外観",
         theme: "テーマモード",
         themeDescription: "アプリの外観テーマを選択",
@@ -68,6 +74,11 @@ export const jaJP = {
         startup: "スタートアップ",
         autoStart: "自動起動",
         autoStartDescription: "システム起動時に自動的に実行",
+        cacheManagement: "キャッシュ管理",
+        clearCache: "ページキャッシュをクリア",
+        clearCacheDescription: "バックグラウンドの AI ページを閉じてキャッシュをリセット",
+        clearCacheConfirm: "ページキャッシュをクリアしますか？現在のページ以外のすべての AI ページが閉じられます。",
+        clearCacheSuccess: "キャッシュをクリアしました",
         infoTip1: "アプリを閉じると、終了せずにシステムトレイに最小化されます。",
         infoTip2: "トレイアイコンを右クリックして「終了」を選択すると、完全に閉じることができます。",
     },
@@ -75,6 +86,10 @@ export const jaJP = {
     platforms: {
         title: "AIプラットフォーム管理",
         description: "AIプラットフォームの管理と設定",
+        displayOrderTitle: "表示順序",
+        displayOrderDescription: "サイドバーに表示される順序を並べ替えます。",
+        builtInTitle: "内蔵プラットフォーム",
+        builtInDescription: "既定の AI プロバイダーを有効／無効にします。",
         addPlatform: "プラットフォームを追加",
         editPlatform: "プラットフォームを編集",
         noPlatforms: "プラットフォームがありません",
@@ -90,6 +105,20 @@ export const jaJP = {
         dragToReorder: "ドラッグして並び替え",
         required: "必須項目",
         invalidUrl: "有効なURLを入力してください",
+        customTitle: "カスタムプラットフォーム",
+        customDescription: "独自の AI プラットフォームを追加して管理します。",
+        customEmpty: "カスタムプラットフォームはまだありません。",
+        customEmptyHint: "上のボタンを使って独自のプラットフォームを追加してください。",
+        customTag: "カスタム",
+        moveUp: "上に移動",
+        moveDown: "下に移動",
+        enableAfterAdding: "追加後に有効化",
+        confirmRemove: "このカスタムプラットフォームを削除しますか？",
+        errorToggle: "プラットフォームの状態を更新できませんでした。もう一度お試しください。",
+        errorDelete: "プラットフォームを削除できませんでした。もう一度お試しください。",
+        errorOrder: "並び順を更新できませんでした。もう一度お試しください。",
+        errorAdd: "プラットフォームを追加できませんでした。もう一度お試しください。",
+        iconOptionalHint: "任意。空欄の場合はデフォルトアイコンを使用します。",
     },
 
     proxy: {
@@ -114,6 +143,14 @@ export const jaJP = {
         saveSuccess: "プロキシ設定が保存されました",
         saveFailed: "保存に失敗しました。もう一度お試しください",
         testInProgress: "プロキシテスト機能は開発中です...",
+        hostRequired: "プロキシホストを入力してください",
+        portRequired: "プロキシポートを入力してください",
+        portRangeError: "プロキシポートは1～65535の範囲で指定してください",
+        noChanges: "保存する変更はありません",
+        invalidSettings: "プロキシ設定が無効です",
+        testSuccess: "接続に成功しました{latency}",
+        testFailed: "接続に失敗しました",
+        latencySuffix: "（レイテンシ {latency}ms）",
     },
 
     translationSettings: {
@@ -121,6 +158,20 @@ export const jaJP = {
         description: "翻訳機能の設定",
         defaultTranslator: "デフォルト翻訳エンジン",
         selectTranslator: "翻訳エンジンを選択",
+        providersTitle: "翻訳プロバイダー",
+        providersDescription: "サイドバーから利用したい翻訳サービスを有効にします。",
+        defaultBadge: "デフォルト",
+        setDefault: "デフォルトに設定",
+        supportedLanguages: "対応言語: {languages}",
+        moreLanguages: "+{count} 件",
+        toggleError: "翻訳プラットフォームを更新できませんでした。もう一度お試しください。",
+        setDefaultError: "デフォルト翻訳を設定できませんでした。もう一度お試しください。",
+        tipsTitle: "翻訳のヒント",
+        tips: {
+            item1: "各プロバイダーは専用の Webview タブで開きます。",
+            item2: "サイドバーからいつでも翻訳サービスを切り替えられます。",
+            item3: "利用するサービスだけを有効にするとリソースを節約できます。",
+        },
     },
 
     about: {
@@ -158,6 +209,31 @@ export const jaJP = {
         selectPlatform: "翻訳プラットフォームを選択",
         noPlatforms: "利用可能な翻訳プラットフォームがありません",
         noPlatformsDescription: "設定で翻訳プラットフォームを追加してください",
+        selectorLabel: "翻訳プラットフォームを選択：",
+        loading: "読み込み中...",
+        loadErrorTitle: "読み込み失敗",
+        loadErrorMessage: "{name} を読み込めません",
+        reload: "再読み込み",
+        emptyHint: "設定で少なくとも 1 つの翻訳プラットフォームを有効にしてください",
+        toastError: "翻訳プラットフォームの読み込みに失敗しました。ネットワーク接続を確認してください。",
+    },
+
+    welcome: {
+        tipsTitle: "使い始める",
+        features: {
+            quickTitle: "クイックアクセス",
+            quickDescription: "サイドバーからすばやく AI プラットフォームを切り替えられます。",
+            hotkeyTitle: "キーボードショートカット",
+            hotkeyDescription: "{shortcut} でいつでもウィンドウを表示／非表示できます。",
+            translationTitle: "翻訳機能",
+            translationDescription: "複数の翻訳エンジンをワンクリックで利用できます。",
+        },
+        steps: {
+            step1: "左側のアイコンをクリックして AI プラットフォームを選択します。",
+            step2: "開いたページでログインして利用を開始します。",
+            step3: "ショートカットでいつでもアプリを呼び出せます。",
+        },
+        trayHint: "ウィンドウを閉じるとシステムトレイに最小化されます。トレイアイコンを右クリックすると完全に終了できます。",
     },
 
     tray: {

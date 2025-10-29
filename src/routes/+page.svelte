@@ -2,7 +2,7 @@
     /**
      * AI Ask 主页面
      */
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import Header from "$lib/components/layout/Header.svelte";
     import Sidebar from "$lib/components/layout/Sidebar.svelte";
     import MainContent from "$lib/components/layout/MainContent.svelte";
@@ -10,7 +10,11 @@
     import { configStore } from "$lib/stores/config.svelte";
     import { platformsStore } from "$lib/stores/platforms.svelte";
     import { translationStore } from "$lib/stores/translation.svelte";
+    import type { UnlistenFn } from "@tauri-apps/api/event";
+    import { listen } from "@tauri-apps/api/event";
     import "$lib/styles/base.css";
+
+    let openSettingsUnlisten: UnlistenFn | null = null;
 
     onMount(async () => {
         // 初始化所有 stores
@@ -28,6 +32,19 @@
                 appState.switchToChatView(platform);
             }
         }
+
+        try {
+            openSettingsUnlisten = await listen("open-settings", () => {
+                appState.openSettings();
+            });
+        } catch (error) {
+            console.error("Failed to listen for open-settings event:", error);
+        }
+    });
+
+    onDestroy(() => {
+        openSettingsUnlisten?.();
+        openSettingsUnlisten = null;
     });
 </script>
 

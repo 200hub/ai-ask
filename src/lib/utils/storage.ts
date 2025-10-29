@@ -118,24 +118,66 @@ export async function getAIPlatforms(): Promise<AIPlatform[]> {
     const defaultsById = new Map(
       BUILT_IN_AI_PLATFORMS.map((platform) => [platform.id, platform]),
     );
+    const defaultIds = new Set(defaultsById.keys());
 
     let hasUpdates = false;
-    const normalized = platforms.map((platform) => {
+
+    const normalized: AIPlatform[] = [];
+
+    for (const platform of platforms) {
       if (platform.isCustom) {
-        return platform;
+        normalized.push(platform);
+        continue;
       }
 
       const defaults = defaultsById.get(platform.id);
       if (!defaults) {
-        return platform;
+        // 移除已下线的内置平台
+        hasUpdates = true;
+        continue;
       }
+
+      const merged: AIPlatform = {
+        ...defaults,
+        enabled: platform.enabled,
+        sortOrder: platform.sortOrder ?? defaults.sortOrder,
+      };
 
       if (platform.icon !== defaults.icon) {
         hasUpdates = true;
-        return { ...platform, icon: defaults.icon };
+      }
+      if (platform.name !== defaults.name || platform.url !== defaults.url) {
+        hasUpdates = true;
       }
 
-      return platform;
+      normalized.push({ ...merged });
+      defaultIds.delete(platform.id);
+    }
+
+    if (defaultIds.size > 0) {
+      // 新增的内置平台
+      for (const id of defaultIds) {
+        const defaults = defaultsById.get(id);
+        if (defaults) {
+          normalized.push({ ...defaults });
+          hasUpdates = true;
+        }
+      }
+    }
+
+    normalized.sort((a, b) => {
+      if (a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    normalized.forEach((platform, index) => {
+      const expected = index + 1;
+      if (platform.sortOrder !== expected) {
+        platform.sortOrder = expected;
+        hasUpdates = true;
+      }
     });
 
     if (hasUpdates) {
@@ -143,7 +185,7 @@ export async function getAIPlatforms(): Promise<AIPlatform[]> {
       return normalized;
     }
 
-    return platforms;
+    return normalized;
   } catch (error) {
     console.error("Failed to get AI platforms:", error);
     return [...BUILT_IN_AI_PLATFORMS];

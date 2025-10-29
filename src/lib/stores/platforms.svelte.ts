@@ -11,6 +11,20 @@ class PlatformsStore {
   // 所有AI平台列表
   platforms = $state<AIPlatform[]>([]);
 
+  private normalizeOrder(platforms: AIPlatform[]): AIPlatform[] {
+    return [...platforms]
+      .sort((a, b) => {
+        if (a.sortOrder !== b.sortOrder) {
+          return a.sortOrder - b.sortOrder;
+        }
+        return a.name.localeCompare(b.name);
+      })
+      .map((platform, index) => ({
+        ...platform,
+        sortOrder: index + 1,
+      }));
+  }
+
   // 已启用的平台列表
   get enabledPlatforms(): AIPlatform[] {
     return this.platforms
@@ -33,7 +47,8 @@ class PlatformsStore {
    */
   async init() {
     try {
-      this.platforms = await getAIPlatforms();
+      const platforms = await getAIPlatforms();
+      this.platforms = this.normalizeOrder(platforms);
     } catch (error) {
       console.error('Failed to initialize platforms:', error);
     }
@@ -68,7 +83,7 @@ class PlatformsStore {
   async addPlatform(platform: Omit<AIPlatform, 'id' | 'isCustom' | 'sortOrder'>) {
     try {
       const newPlatform = await addCustomPlatform(platform);
-      this.platforms.push(newPlatform);
+      this.platforms = this.normalizeOrder([...this.platforms, newPlatform]);
       return newPlatform;
     } catch (error) {
       console.error('Failed to add platform:', error);
@@ -115,14 +130,66 @@ class PlatformsStore {
    */
   async reorderPlatforms(platforms: AIPlatform[]) {
     try {
-      // 更新sortOrder
-      platforms.forEach((p, index) => {
-        p.sortOrder = index + 1;
-      });
-      this.platforms = platforms;
-      await saveAIPlatforms(platforms);
+      const normalized = this.normalizeOrder(platforms);
+      this.platforms = normalized;
+      await saveAIPlatforms(normalized);
     } catch (error) {
       console.error('Failed to reorder platforms:', error);
+      throw error;
+    }
+  }
+
+  async movePlatform(id: string, direction: 'up' | 'down') {
+    console.log('[PlatformsStore] movePlatform called:', { id, direction });
+    console.log('[PlatformsStore] Current platforms:', this.platforms.map(p => ({ 
+      id: p.id, 
+      name: p.name, 
+      sortOrder: p.sortOrder 
+    })));
+
+    const platform = this.platforms.find(p => p.id === id);
+    if (!platform) {
+      console.error('[PlatformsStore] Platform not found:', id);
+      return;
+    }
+
+    // 按 sortOrder 排序获取所有平台
+    const sorted = [...this.platforms].sort((a, b) => a.sortOrder - b.sortOrder);
+    const currentIndex = sorted.findIndex(p => p.id === id);
+    
+    console.log('[PlatformsStore] Current position:', currentIndex, 'of', sorted.length);
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= sorted.length) {
+      console.log('[PlatformsStore] Cannot move - out of bounds:', { currentIndex, targetIndex });
+      return;
+    }
+
+    // 交换两个平台的 sortOrder
+    const targetPlatform = sorted[targetIndex];
+    const tempOrder = platform.sortOrder;
+    platform.sortOrder = targetPlatform.sortOrder;
+    targetPlatform.sortOrder = tempOrder;
+
+    console.log('[PlatformsStore] Swapped sortOrder:', {
+      platform: { id: platform.id, name: platform.name, sortOrder: platform.sortOrder },
+      target: { id: targetPlatform.id, name: targetPlatform.name, sortOrder: targetPlatform.sortOrder }
+    });
+
+    // 触发响应式更新
+    this.platforms = [...this.platforms];
+    
+    console.log('[PlatformsStore] Updated platforms:', this.platforms.map(p => ({ 
+      id: p.id, 
+      name: p.name, 
+      sortOrder: p.sortOrder 
+    })));
+
+    try {
+      await saveAIPlatforms(this.platforms);
+      console.log('[PlatformsStore] Platform order saved successfully');
+    } catch (error) {
+      console.error('[PlatformsStore] Failed to save platform order:', error);
       throw error;
     }
   }

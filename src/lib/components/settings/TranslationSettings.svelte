@@ -5,6 +5,19 @@
     import { onMount } from "svelte";
     import { translationStore } from "$lib/stores/translation.svelte";
     import { configStore } from "$lib/stores/config.svelte";
+    import { i18n } from "$lib/i18n";
+
+    const t = i18n.t;
+
+    function translate(key: string, params?: Record<string, string>) {
+        let value = t(key);
+        if (params) {
+            for (const [paramKey, paramValue] of Object.entries(params)) {
+                value = value.replace(`{${paramKey}}`, paramValue);
+            }
+        }
+        return value;
+    }
 
     const FALLBACK_ICON =
         "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129'/%3E%3C/svg%3E";
@@ -35,7 +48,7 @@
             await translationStore.togglePlatform(id);
         } catch (error) {
             console.error("Failed to toggle translation platform:", error);
-            window.alert("Unable to update translation platform. Please try again.");
+            window.alert(t("translationSettings.toggleError"));
         }
     }
 
@@ -45,7 +58,7 @@
             await configStore.setCurrentTranslator(id);
         } catch (error) {
             console.error("Failed to set default translator:", error);
-            window.alert("Unable to set default translator. Please try again.");
+            window.alert(t("translationSettings.setDefaultError"));
         }
     }
 </script>
@@ -53,13 +66,15 @@
 <div class="settings-section">
     <div class="setting-group">
         <div class="group-header">
-            <h3 class="group-title">Translation providers</h3>
-            <p class="group-description">Enable the translators you want to access from the sidebar.</p>
+            <h3 class="group-title">{t("translationSettings.providersTitle")}</h3>
+            <p class="group-description">
+                {t("translationSettings.providersDescription")}
+            </p>
         </div>
 
         <div class="platform-list">
             {#if translationStore.platforms.length === 0}
-                <p class="empty-message">No translation platforms available.</p>
+                <p class="empty-message">{t("translation.noPlatforms")}</p>
             {:else}
                 {#each translationStore.platforms as platform (platform.id)}
                     <div class="platform-item">
@@ -74,15 +89,19 @@
                                 <div class="platform-name-row">
                                     <span class="platform-name">{platform.name}</span>
                                     {#if isDefault(platform.id)}
-                                        <span class="default-badge">Default</span>
+                                        <span class="default-badge">{t("translationSettings.defaultBadge")}</span>
                                     {/if}
                                 </div>
                                 <span class="platform-url">{platform.url}</span>
                                 {#if platform.supportLanguages && platform.supportLanguages.length > 0}
                                     <span class="languages">
-                                        Supported: {platform.supportLanguages.slice(0, 4).join(", ")}
+                                        {translate("translationSettings.supportedLanguages", {
+                                            languages: platform.supportLanguages.slice(0, 4).join(", "),
+                                        })}
                                         {#if platform.supportLanguages.length > 4}
-                                            +{platform.supportLanguages.length - 4} more
+                                            {translate("translationSettings.moreLanguages", {
+                                                count: String(platform.supportLanguages.length - 4),
+                                            })}
                                         {/if}
                                     </span>
                                 {/if}
@@ -96,7 +115,7 @@
                                     type="button"
                                     onclick={() => setAsDefault(platform.id)}
                                 >
-                                    Set default
+                                    {t("translationSettings.setDefault")}
                                 </button>
                             {/if}
                             <label class="toggle-switch">
@@ -124,11 +143,11 @@
             />
         </svg>
         <div class="info-text">
-            <p><strong>Tips for translators</strong></p>
+            <p><strong>{t("translationSettings.tipsTitle")}</strong></p>
             <ul>
-                <li>Each provider opens in a dedicated web view tab.</li>
-                <li>You can switch translators any time from the sidebar.</li>
-                <li>Keep only the services you use enabled to save resources.</li>
+                <li>{t("translationSettings.tips.item1")}</li>
+                <li>{t("translationSettings.tips.item2")}</li>
+                <li>{t("translationSettings.tips.item3")}</li>
             </ul>
         </div>
     </div>

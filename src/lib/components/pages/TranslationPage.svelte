@@ -6,6 +6,19 @@
     import { appState } from "$lib/stores/app.svelte";
     import { translationStore } from "$lib/stores/translation.svelte";
     import { configStore } from "$lib/stores/config.svelte";
+    import { i18n } from "$lib/i18n";
+
+    const t = i18n.t;
+
+    function translate(key: string, params?: Record<string, string>) {
+        let value = t(key);
+        if (params) {
+            for (const [paramKey, paramValue] of Object.entries(params)) {
+                value = value.replace(`{${paramKey}}`, paramValue);
+            }
+        }
+        return value;
+    }
 
     let iframeElement = $state<HTMLIFrameElement | null>(null);
     let isLoading = $state(true);
@@ -35,7 +48,7 @@
     function handleError() {
         isLoading = false;
         loadError = true;
-        appState.setError("加载翻译平台失败，请检查网络连接");
+        appState.setError(t("translation.toastError"));
     }
 
     /**
@@ -65,7 +78,7 @@
 <div class="translation-container">
     <!-- 翻译平台选择器 -->
     <div class="platform-selector">
-        <div class="selector-label">选择翻译平台：</div>
+        <div class="selector-label">{t("translation.selectorLabel")}</div>
         <div class="platform-buttons">
             {#each translationStore.enabledPlatforms as platform (platform.id)}
                 <button
@@ -106,7 +119,7 @@
                                 stroke-width="4"
                             ></circle>
                         </svg>
-                        <p class="loading-text">加载中...</p>
+                        <p class="loading-text">{t("translation.loading")}</p>
                     </div>
                 </div>
             {/if}
@@ -128,12 +141,14 @@
                                 d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                             />
                         </svg>
-                        <h3 class="error-title">加载失败</h3>
+                        <h3 class="error-title">{t("translation.loadErrorTitle")}</h3>
                         <p class="error-message">
-                            无法加载 {translationStore.currentPlatform.name}
+                            {translate("translation.loadErrorMessage", {
+                                name: translationStore.currentPlatform.name,
+                            })}
                         </p>
                         <button class="reload-btn" onclick={reload}>
-                            重新加载
+                            {t("translation.reload")}
                         </button>
                     </div>
                 </div>
@@ -166,8 +181,8 @@
                         d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"
                     />
                 </svg>
-                <p>没有可用的翻译平台</p>
-                <p class="hint">请在设置中启用至少一个翻译平台</p>
+                <p>{t("translation.noPlatforms")}</p>
+                <p class="hint">{t("translation.emptyHint")}</p>
             </div>
         {/if}
     </div>

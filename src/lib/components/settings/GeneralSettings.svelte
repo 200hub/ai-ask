@@ -8,7 +8,8 @@
         TRANSLATION_SHORTCUTS,
     } from "$lib/utils/constants";
     import { i18n, SUPPORTED_LOCALES, type Locale } from "$lib/i18n";
-    import Button from "../common/Button.svelte";
+
+    const t = i18n.t;
 
     let isSaving = $state(false);
     let currentLocale = $state<Locale>(i18n.locale.get());
@@ -17,9 +18,9 @@
      * 主题选项
      */
     const themeOptions = [
-        { value: "system", label: "跟随系统", icon: "🌓" },
-        { value: "light", label: "浅色", icon: "☀️" },
-        { value: "dark", label: "深色", icon: "🌙" },
+        { value: "system", labelKey: "general.themeSystem", icon: "🌓" },
+        { value: "light", labelKey: "general.themeLight", icon: "☀️" },
+        { value: "dark", labelKey: "general.themeDark", icon: "🌙" },
     ] as const;
 
     /**
@@ -113,15 +114,11 @@
      * 清理iframe缓存
      */
     function handleClearCache() {
-        if (
-            confirm(
-                "确定要清理所有后台页面缓存吗？这将关闭除当前页面外的所有AI平台页面。",
-            )
-        ) {
+        if (window.confirm(t("general.clearCacheConfirm"))) {
             // 触发自定义事件通知AIChat组件清理缓存
             const clearEvent = new CustomEvent("clearIframeCache");
             window.dispatchEvent(clearEvent);
-            alert("缓存已清理");
+            window.alert(t("general.clearCacheSuccess"));
         }
     }
 </script>
@@ -129,12 +126,14 @@
 <div class="settings-section">
     <!-- 语言设置 -->
     <div class="setting-group">
-        <h3 class="group-title">语言</h3>
+        <h3 class="group-title">{t("general.languageTitle")}</h3>
 
         <div class="setting-item">
             <div class="setting-label">
-                <span class="label-text">界面语言</span>
-                <span class="label-description">选择应用的显示语言</span>
+                <span class="label-text">{t("general.interfaceLanguage")}</span>
+                <span class="label-description">
+                    {t("general.interfaceLanguageDescription")}
+                </span>
             </div>
             <select
                 class="setting-select"
@@ -150,12 +149,12 @@
 
     <!-- 主题设置 -->
     <div class="setting-group">
-        <h3 class="group-title">外观</h3>
+        <h3 class="group-title">{t("general.appearance")}</h3>
 
         <div class="setting-item">
             <div class="setting-label">
-                <span class="label-text">主题模式</span>
-                <span class="label-description">选择应用的外观主题</span>
+                <span class="label-text">{t("general.theme")}</span>
+                <span class="label-description">{t("general.themeDescription")}</span>
             </div>
             <div class="theme-options">
                 {#each themeOptions as option}
@@ -166,7 +165,7 @@
                         disabled={isSaving}
                     >
                         <span class="theme-icon">{option.icon}</span>
-                        <span class="theme-label">{option.label}</span>
+                        <span class="theme-label">{t(option.labelKey)}</span>
                     </button>
                 {/each}
             </div>
@@ -175,12 +174,12 @@
 
     <!-- 快捷键设置 -->
     <div class="setting-group">
-        <h3 class="group-title">快捷键</h3>
+        <h3 class="group-title">{t("general.shortcuts")}</h3>
 
         <div class="setting-item">
             <div class="setting-label">
-                <span class="label-text">全局快捷键</span>
-                <span class="label-description">显示/隐藏应用窗口</span>
+                <span class="label-text">{t("general.globalHotkey")}</span>
+                <span class="label-description">{t("general.globalHotkeyDescription")}</span>
             </div>
             <select
                 class="setting-select"
@@ -195,8 +194,10 @@
 
         <div class="setting-item">
             <div class="setting-label">
-                <span class="label-text">翻译快捷键</span>
-                <span class="label-description">快速打开翻译功能</span>
+                <span class="label-text">{t("general.translationHotkey")}</span>
+                <span class="label-description">
+                    {t("general.translationHotkeyDescription")}
+                </span>
             </div>
             <select
                 class="setting-select"
@@ -212,12 +213,12 @@
 
     <!-- 启动设置 -->
     <div class="setting-group">
-        <h3 class="group-title">启动</h3>
+        <h3 class="group-title">{t("general.startup")}</h3>
 
         <div class="setting-item">
             <div class="setting-label">
-                <span class="label-text">开机自动启动</span>
-                <span class="label-description">系统启动时自动运行应用</span>
+                <span class="label-text">{t("general.autoStart")}</span>
+                <span class="label-description">{t("general.autoStartDescription")}</span>
             </div>
             <label class="toggle-switch">
                 <input
@@ -232,17 +233,17 @@
 
     <!-- 缓存管理 -->
     <div class="setting-group">
-        <h3 class="group-title">缓存管理</h3>
+        <h3 class="group-title">{t("general.cacheManagement")}</h3>
 
         <div class="setting-item">
             <div class="setting-label">
-                <span class="label-text">清理页面缓存</span>
-                <span class="label-description"
-                    >清理所有后台AI平台页面（最多保留5个）</span
-                >
+                <span class="label-text">{t("general.clearCache")}</span>
+                <span class="label-description">
+                    {t("general.clearCacheDescription")}
+                </span>
             </div>
             <button class="btn-clear-cache" onclick={handleClearCache}>
-                清理缓存
+                {t("general.clearCache")}
             </button>
         </div>
     </div>
@@ -263,8 +264,8 @@
             />
         </svg>
         <div class="info-text">
-            <p>应用关闭时会最小化到系统托盘，不会完全退出。</p>
-            <p>右键点击托盘图标选择"退出"可完全关闭应用。</p>
+            <p>{t("general.infoTip1")}</p>
+            <p>{t("general.infoTip2")}</p>
         </div>
     </div>
 </div>

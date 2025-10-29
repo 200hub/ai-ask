@@ -7,6 +7,7 @@
     import { invoke } from "@tauri-apps/api/core";
     import { configStore } from "$lib/stores/config.svelte";
     import type { ProxyConfig } from "$lib/types/config";
+    import { i18n } from "$lib/i18n";
 
     type ProxyType = "none" | "system" | "custom";
 
@@ -18,6 +19,18 @@
 
     const DEFAULT_PROXY_HOST = "127.0.0.1";
     const DEFAULT_PROXY_PORT = "7890";
+
+    const t = i18n.t;
+
+    function translate(key: string, params?: Record<string, string>) {
+        let value = t(key);
+        if (params) {
+            for (const [paramKey, paramValue] of Object.entries(params)) {
+                value = value.replace(`{${paramKey}}`, paramValue);
+            }
+        }
+        return value;
+    }
 
     let proxyType = $state<ProxyType>("none");
     let customProxyHost = $state(DEFAULT_PROXY_HOST);
@@ -75,11 +88,11 @@
         const port = customProxyPort.trim();
 
         if (!host) {
-            throw new Error("Proxy host is required");
+            throw new Error(t("proxy.hostRequired"));
         }
 
         if (!port) {
-            throw new Error("Proxy port is required");
+            throw new Error(t("proxy.portRequired"));
         }
 
         const portNumber = Number(port);
@@ -88,7 +101,7 @@
             portNumber <= 0 ||
             portNumber > 65535
         ) {
-            throw new Error("Proxy port must be between 1 and 65535");
+            throw new Error(t("proxy.portRangeError"));
         }
 
         return { host, port };
@@ -97,7 +110,7 @@
     async function handleSave() {
         if (!isDirty) {
             saveStatus = "success";
-            saveMessage = "No changes to save";
+            saveMessage = t("proxy.noChanges");
             return;
         }
 
@@ -115,7 +128,7 @@
             saveMessage =
                 error instanceof Error
                     ? error.message
-                    : "Unable to save proxy settings";
+                    : t("proxy.saveFailed");
             return;
         }
 
@@ -128,7 +141,7 @@
             await configStore.update({ proxy: proxyPayload });
             console.log("Proxy config saved successfully");
             saveStatus = "success";
-            saveMessage = "Proxy settings saved successfully";
+            saveMessage = t("proxy.saveSuccess");
             syncFromConfig();
         } catch (error) {
             console.error("Failed to save proxy settings:", error);
@@ -136,7 +149,7 @@
             const errorMsg =
                 error instanceof Error
                     ? error.message
-                    : "Failed to save proxy settings";
+                    : t("proxy.saveFailed");
             saveMessage = errorMsg;
             // Show more detailed error in console
             console.error("Detailed error:", {
@@ -164,7 +177,7 @@
                 testMessage =
                     error instanceof Error
                         ? error.message
-                        : "Proxy settings are invalid";
+                        : t("proxy.invalidSettings");
                 return;
             }
         }
@@ -179,34 +192,36 @@
 
             if (result.success) {
                 testStatus = "success";
-                const latency =
+                const latencyText =
                     typeof result.latency === "number"
-                        ? ` (latency ${result.latency}ms)`
+                        ? translate("proxy.latencySuffix", {
+                              latency: String(result.latency),
+                          })
                         : "";
-                testMessage = `Connection successful${latency}`;
+                testMessage = translate("proxy.testSuccess", {
+                    latency: latencyText,
+                });
             } else {
                 testStatus = "error";
-                testMessage = result.message || "Connection failed";
+                testMessage = result.message || t("proxy.testFailed");
             }
         } catch (error) {
             console.error("Failed to test proxy:", error);
             testStatus = "error";
             testMessage =
-                error instanceof Error ? error.message : "Unable to test proxy";
+                error instanceof Error ? error.message : t("proxy.testFailed");
         }
     }
 </script>
 
 <div class="proxy-settings">
     <div class="section-header">
-        <h3 class="section-title">Proxy</h3>
-        <p class="section-description">
-            Configure how the application connects to the internet.
-        </p>
+        <h3 class="section-title">{t("proxy.title")}</h3>
+        <p class="section-description">{t("proxy.description")}</p>
     </div>
 
     <div class="form-section">
-        <span class="form-label">Proxy type</span>
+        <span class="form-label">{t("proxy.type")}</span>
 
         <div class="radio-group">
             <label class="radio-option">
@@ -218,9 +233,9 @@
                     onchange={() => handleTypeChange("none")}
                 />
                 <div class="radio-content">
-                    <div class="radio-title">No proxy</div>
+                    <div class="radio-title">{t("proxy.none")}</div>
                     <div class="radio-description">
-                        Direct connection without any proxy
+                        {t("proxy.noneDescription")}
                     </div>
                 </div>
             </label>
@@ -234,9 +249,9 @@
                     onchange={() => handleTypeChange("system")}
                 />
                 <div class="radio-content">
-                    <div class="radio-title">System proxy</div>
+                    <div class="radio-title">{t("proxy.system")}</div>
                     <div class="radio-description">
-                        Use the OS proxy configuration
+                        {t("proxy.systemDescription")}
                     </div>
                 </div>
             </label>
@@ -250,9 +265,9 @@
                     onchange={() => handleTypeChange("custom")}
                 />
                 <div class="radio-content">
-                    <div class="radio-title">Custom proxy</div>
+                    <div class="radio-title">{t("proxy.custom")}</div>
                     <div class="radio-description">
-                        Specify the proxy host and port manually
+                        {t("proxy.customDescription")}
                     </div>
                 </div>
             </label>
@@ -263,25 +278,24 @@
         <div class="custom-proxy-section">
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label" for="proxy-host">Proxy host</label
-                    >
+                    <label class="form-label" for="proxy-host">{t("proxy.host")}</label>
                     <input
                         id="proxy-host"
                         type="text"
                         class="form-input"
-                        placeholder="127.0.0.1"
+                        placeholder={t("proxy.hostPlaceholder")}
                         bind:value={customProxyHost}
                         oninput={markDirty}
                     />
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label" for="proxy-port">Port</label>
+                    <label class="form-label" for="proxy-port">{t("proxy.port")}</label>
                     <input
                         id="proxy-port"
                         type="text"
                         class="form-input"
-                        placeholder="7890"
+                        placeholder={t("proxy.portPlaceholder")}
                         bind:value={customProxyPort}
                         oninput={markDirty}
                     />
@@ -289,7 +303,7 @@
             </div>
 
             <div class="proxy-example">
-                <strong>Example:</strong>
+                <strong>{t("proxy.example")}:</strong>
                 <code>http://{customProxyHost}:{customProxyPort}</code>
             </div>
         </div>
@@ -302,7 +316,7 @@
             disabled={isSaving}
             onclick={handleSave}
         >
-            {isSaving ? "Saving..." : "Save settings"}
+            {isSaving ? t("common.loading") : t("proxy.saveSettings")}
         </button>
         <button
             class="btn btn-secondary"
@@ -310,7 +324,7 @@
             disabled={testStatus === "testing"}
             onclick={handleTestProxy}
         >
-            {testStatus === "testing" ? "Testing..." : "Test proxy"}
+            {testStatus === "testing" ? t("common.loading") : t("proxy.testConnection")}
         </button>
     </div>
 
@@ -341,11 +355,8 @@
             />
         </svg>
         <div class="info-text">
-            <p>Changes apply to new tabs after you reload the page.</p>
-            <p class="mt-2">
-                Custom proxies usually expect HTTP/HTTPS traffic. Verify the
-                protocol your proxy requires.
-            </p>
+            <p>{t("proxy.infoTip1")}</p>
+            <p class="mt-2">{t("proxy.infoTip2")}</p>
         </div>
     </div>
 </div>

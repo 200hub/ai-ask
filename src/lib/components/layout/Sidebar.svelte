@@ -7,11 +7,23 @@
     import { platformsStore } from "$lib/stores/platforms.svelte";
     import { translationStore } from "$lib/stores/translation.svelte";
     import { configStore } from "$lib/stores/config.svelte";
+    import { i18n } from "$lib/i18n";
+
+    const t = i18n.t;
 
     /**
      * 选择AI平台
      */
     function selectPlatform(platform: any) {
+        const alreadySelected =
+            appState.currentView === "chat" && appState.selectedPlatform?.id === platform.id;
+
+        if (alreadySelected) {
+            appState.switchToWelcomeView();
+            configStore.setLastUsedPlatform(null);
+            return;
+        }
+
         appState.switchToChatView(platform);
         configStore.setLastUsedPlatform(platform.id);
     }
@@ -48,6 +60,8 @@
                 class:selected={isSelected(platform.id)}
                 onclick={() => selectPlatform(platform)}
                 data-tooltip={platform.name}
+                title={platform.name}
+                aria-label={platform.name}
             >
                 <img
                     src={platform.icon}
@@ -68,7 +82,8 @@
             class="action-btn tooltip"
             class:selected={appState.currentView === "translation"}
             onclick={openTranslation}
-            data-tooltip="翻译"
+            data-tooltip={t("sidebar.translation")}
+            aria-label={t("sidebar.translation")}
         >
             <Languages size={20} />
         </button>
@@ -77,7 +92,8 @@
             class="action-btn tooltip"
             class:selected={appState.currentView === "settings"}
             onclick={openSettings}
-            data-tooltip="设置"
+            data-tooltip={t("sidebar.settings")}
+            aria-label={t("sidebar.settings")}
         >
             <Settings size={20} />
         </button>

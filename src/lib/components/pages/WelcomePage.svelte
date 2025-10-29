@@ -5,22 +5,44 @@
   import { Zap, Keyboard, Globe } from 'lucide-svelte';
   import { configStore } from '$lib/stores/config.svelte';
   import { APP_INFO } from '$lib/utils/constants';
+  import { i18n } from '$lib/i18n';
+
+  const t = i18n.t;
+
+  function translate(key: string, params?: Record<string, string>) {
+    let value = t(key);
+    if (params) {
+      for (const [paramKey, paramValue] of Object.entries(params)) {
+        value = value.replace(`{${paramKey}}`, paramValue);
+      }
+    }
+    return value;
+  }
+
+  function formatShortcut(hotkey: string): string {
+    return hotkey
+      .replace('CommandOrControl', 'Ctrl/Cmd')
+      .replace('Alt', 'Alt')
+      .replace('Shift', 'Shift')
+      .replace(/\+/g, ' + ');
+  }
 
   const features = [
     {
       icon: Zap,
-      title: '快速访问',
-      description: '点击左侧图标快速切换不同的AI平台'
+      titleKey: 'welcome.features.quickTitle',
+      descriptionKey: 'welcome.features.quickDescription'
     },
     {
       icon: Keyboard,
-      title: '快捷键支持',
-      description: `使用 ${configStore.config.globalHotkey.replace('CommandOrControl', 'Ctrl')} 快速显示/隐藏窗口`
+      titleKey: 'welcome.features.hotkeyTitle',
+      descriptionKey: 'welcome.features.hotkeyDescription',
+      needsShortcut: true
     },
     {
       icon: Globe,
-      title: '翻译功能',
-      description: '内置多个翻译平台，点击左下角翻译图标使用'
+      titleKey: 'welcome.features.translationTitle',
+      descriptionKey: 'welcome.features.translationDescription'
     }
   ];
 </script>
@@ -37,38 +59,45 @@
         </svg>
       </div>
       <h1 class="title">{APP_INFO.name}</h1>
-      <p class="subtitle">{APP_INFO.description}</p>
+      <p class="subtitle">{t('app.description')}</p>
       <p class="version">v{APP_INFO.version}</p>
     </div>
 
     <!-- 功能介绍 -->
     <div class="features-section">
       {#each features as feature}
+        {@const Icon = feature.icon}
         <div class="feature-card">
           <div class="feature-icon">
-            <svelte:component this={feature.icon} size={24} />
+            <Icon size={24} />
           </div>
-          <h3 class="feature-title">{feature.title}</h3>
-          <p class="feature-description">{feature.description}</p>
+          <h3 class="feature-title">{t(feature.titleKey)}</h3>
+          <p class="feature-description">
+            {feature.needsShortcut
+              ? translate(feature.descriptionKey, {
+                  shortcut: formatShortcut(configStore.config.globalHotkey)
+                })
+              : t(feature.descriptionKey)}
+          </p>
         </div>
       {/each}
     </div>
 
     <!-- 使用提示 -->
     <div class="tips-section">
-      <h2 class="tips-title">开始使用</h2>
+      <h2 class="tips-title">{t('welcome.tipsTitle')}</h2>
       <div class="tips-content">
         <div class="tip-item">
           <span class="tip-number">1</span>
-          <span class="tip-text">点击左侧图标选择一个AI平台</span>
+          <span class="tip-text">{t('welcome.steps.step1')}</span>
         </div>
         <div class="tip-item">
           <span class="tip-number">2</span>
-          <span class="tip-text">在打开的页面中登录并使用</span>
+          <span class="tip-text">{t('welcome.steps.step2')}</span>
         </div>
         <div class="tip-item">
           <span class="tip-number">3</span>
-          <span class="tip-text">使用快捷键随时唤醒窗口</span>
+          <span class="tip-text">{t('welcome.steps.step3')}</span>
         </div>
       </div>
     </div>
@@ -76,7 +105,7 @@
     <!-- 底部提示 -->
     <div class="footer-section">
       <p class="footer-text">
-        窗口关闭后会最小化到系统托盘，右键托盘图标可完全退出应用
+        {t('welcome.trayHint')}
       </p>
     </div>
   </div>

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+    <defs>
+        <linearGradient id="grok-gradient" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#101828" />
+            <stop offset="1" stop-color="#3b82f6" />
+        </linearGradient>
+    </defs>
+    <rect width="64" height="64" rx="14" fill="url(#grok-gradient)" />
+    <path
+        d="M20 44c0-10 6-22 12-22s12 12 12 22"
+        fill="none"
+        stroke="#f8fafc"
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+    />
+    <path
+        d="M16 28c4-6 10-10 16-10s12 4 16 10"
+        fill="none"
+        stroke="#f8fafc"
+        stroke-width="4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        opacity="0.6"
+    />
+    <circle cx="24" cy="40" r="3" fill="#38bdf8" />
+    <circle cx="40" cy="40" r="3" fill="#38bdf8" />
+</svg>
