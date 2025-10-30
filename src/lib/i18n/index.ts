@@ -3,11 +3,9 @@
  * 提供多语言支持
  */
 
-import { writable, derived, type Readable } from "svelte/store";
+import { logger } from "$lib/utils/logger";
+import { writable, get } from "svelte/store";
 import { zhCN } from "./locales/zh-CN";
-import { enUS } from "./locales/en-US";
-import { jaJP } from "./locales/ja-JP";
-import { koKR } from "./locales/ko-KR";
 
 // 支持的语言类型
 export type Locale = "zh-CN" | "en-US" | "ja-JP" | "ko-KR";
@@ -41,13 +39,40 @@ export const SUPPORTED_LOCALES: LocaleConfig[] = [
 // 默认语言
 export const DEFAULT_LOCALE: Locale = "zh-CN";
 
-// 翻译数据存储（预加载所有语言）
-const translations = writable<Record<Locale, TranslationDict>>({
+// 翻译数据存储（按需加载各语言）
+type TranslationStore = Partial<Record<Locale, TranslationDict>>;
+
+const translations = writable<TranslationStore>({
   "zh-CN": zhCN,
-  "en-US": enUS,
-  "ja-JP": jaJP,
-  "ko-KR": koKR,
 });
+
+const loadedLocales = new Set<Locale>([DEFAULT_LOCALE]);
+
+const localeLoaders: Record<Locale, () => Promise<TranslationDict>> = {
+  "zh-CN": async () => zhCN,
+  "en-US": async () => (await import("./locales/en-US")).enUS,
+  "ja-JP": async () => (await import("./locales/ja-JP")).jaJP,
+  "ko-KR": async () => (await import("./locales/ko-KR")).koKR,
+};
+
+async function ensureLocaleLoaded(locale: Locale): Promise<void> {
+  if (loadedLocales.has(locale)) {
+    return;
+  }
+
+  try {
+    const data = await localeLoaders[locale]?.();
+    if (data) {
+      translations.update((current) => ({
+        ...current,
+        [locale]: data,
+      }));
+      loadedLocales.add(locale);
+    }
+  } catch (error) {
+    logger.error("Failed to load locale", locale, error);
+  }
+}
 
 // 当前语言
 const currentLocale = writable<Locale>(DEFAULT_LOCALE);
@@ -60,11 +85,11 @@ function getNestedValue(
   path: string,
 ): string | undefined {
   const keys = path.split(".");
-  let current: any = obj;
+  let current: unknown = obj;
 
   for (const key of keys) {
-    if (current && typeof current === "object" && key in current) {
-      current = current[key];
+    if (current && typeof current === "object" && current !== null && key in current) {
+      current = (current as Record<string, unknown>)[key];
     } else {
       return undefined;
     }
@@ -74,31 +99,25 @@ function getNestedValue(
 }
 
 /**
- * 翻译函数 - 直接返回函数而不是 store
+ * 翻译函数 - 使用 get() 避免内存泄漏
  */
 function createTranslator(): Translator {
   return (key: string, fallback?: string): string => {
-    let locale: Locale = DEFAULT_LOCALE;
-    let translationData: Record<Locale, TranslationDict> = {
-      "zh-CN": zhCN,
-      "en-US": enUS,
-      "ja-JP": jaJP,
-      "ko-KR": koKR,
-    };
+    // 使用 get() 函数同步读取 store 值，避免创建订阅
+    const locale = get(currentLocale);
+    const translationData = get(translations);
 
-    // 同步读取当前值
-    currentLocale.subscribe((v) => (locale = v))();
-    translations.subscribe((v) => (translationData = v))();
-
-    const translation = getNestedValue(translationData[locale], key);
+    const localeData = translationData[locale];
+    const translation = localeData ? getNestedValue(localeData, key) : undefined;
     if (translation) {
       return translation;
     }
 
     // 尝试使用默认语言
     if (locale !== DEFAULT_LOCALE) {
+      const defaultData = translationData[DEFAULT_LOCALE];
       const defaultTranslation = getNestedValue(
-        translationData[DEFAULT_LOCALE],
+        defaultData ?? zhCN,
         key,
       );
       if (defaultTranslation) {
@@ -122,9 +141,18 @@ export const i18n = {
   locale: {
     subscribe: currentLocale.subscribe,
     set: (locale: Locale) => {
-      if (SUPPORTED_LOCALES.some((l) => l.code === locale)) {
-        currentLocale.set(locale);
+      if (!SUPPORTED_LOCALES.some((l) => l.code === locale)) {
+        return;
       }
+
+      if (loadedLocales.has(locale)) {
+        currentLocale.set(locale);
+        return;
+      }
+
+      void ensureLocaleLoaded(locale).then(() => {
+        currentLocale.set(locale);
+      });
     },
     get: () => {
       let value: Locale = DEFAULT_LOCALE;
@@ -140,13 +168,29 @@ export const i18n = {
   loadTranslations: (locale: Locale, data: TranslationDict) => {
     translations.update((current) => ({
       ...current,
-      [locale]: { ...current[locale], ...data },
+      [locale]: {
+        ...(current[locale] ?? {}),
+        ...data,
+      },
     }));
+    loadedLocales.add(locale);
   },
 
   // 设置所有翻译数据
-  setTranslations: (data: Record<Locale, TranslationDict>) => {
-    translations.set(data);
+  setTranslations: (data: Partial<Record<Locale, TranslationDict>>) => {
+    const next: TranslationStore = {
+      ...data,
+      [DEFAULT_LOCALE]: data[DEFAULT_LOCALE] ?? zhCN,
+    };
+
+    translations.set(next);
+
+    loadedLocales.clear();
+    loadedLocales.add(DEFAULT_LOCALE);
+
+    Object.keys(next).forEach((code) => {
+      loadedLocales.add(code as Locale);
+    });
   },
 
   // 获取支持的语言列表

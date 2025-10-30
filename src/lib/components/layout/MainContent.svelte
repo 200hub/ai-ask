@@ -4,12 +4,19 @@
      */
     import { appState } from "$lib/stores/app.svelte";
     import WelcomePage from "../pages/WelcomePage.svelte";
-    import TranslationPage from "../pages/TranslationPage.svelte";
-    import SettingsModal from "../settings/SettingsModal.svelte";
     import { i18n } from "$lib/i18n";
 
     // 懒加载 AIChat，避免未进入聊天视图时的任何潜在副作用
-    let AIChatComp = $state<any | null>(null);
+    type AIChatComponent = typeof import("../pages/AIChat.svelte").default;
+    let AIChatComp = $state<AIChatComponent | null>(null);
+
+    // 懒加载翻译页，降低初始包体积
+    type TranslationComponent = typeof import("../pages/TranslationPage.svelte").default;
+    let TranslationComp = $state<TranslationComponent | null>(null);
+
+    // 懒加载设置模态框，按需加载设置相关依赖
+    type SettingsModalComponent = typeof import("../settings/SettingsModal.svelte").default;
+    let SettingsModalComp = $state<SettingsModalComponent | null>(null);
 
     const t = i18n.t;
 
@@ -18,6 +25,24 @@
             (async () => {
                 const mod = await import("../pages/AIChat.svelte");
                 AIChatComp = mod.default;
+            })();
+        }
+    });
+
+    $effect(() => {
+        if (appState.currentView === "translation" && !TranslationComp) {
+            (async () => {
+                const mod = await import("../pages/TranslationPage.svelte");
+                TranslationComp = mod.default;
+            })();
+        }
+    });
+
+    $effect(() => {
+        if (appState.showSettings && !SettingsModalComp) {
+            (async () => {
+                const mod = await import("../settings/SettingsModal.svelte");
+                SettingsModalComp = mod.default;
             })();
         }
     });
@@ -33,11 +58,21 @@
             <div class="loading-chat">{t("chat.loading")}</div>
         {/if}
     {:else if appState.currentView === "translation"}
-        <TranslationPage />
+        {#if TranslationComp}
+            <TranslationComp />
+        {:else}
+            <div class="loading-chat">{t("common.loading")}</div>
+        {/if}
     {/if}
 
     {#if appState.showSettings}
-        <SettingsModal />
+        {#if SettingsModalComp}
+            <SettingsModalComp />
+        {:else}
+            <div class="settings-loading-backdrop">
+                <div class="settings-loading-message">{t("common.loading")}</div>
+            </div>
+        {/if}
     {/if}
 
     {#if appState.error}
@@ -151,6 +186,25 @@
         align-items: center;
         justify-content: center;
         color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+
+    .settings-loading-backdrop {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: rgba(0, 0, 0, 0.45);
+        z-index: 9998;
+    }
+
+    .settings-loading-message {
+        padding: 1rem 1.5rem;
+        border-radius: 0.5rem;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+        box-shadow: var(--shadow-lg);
         font-size: 0.875rem;
     }
 </style>

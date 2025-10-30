@@ -8,6 +8,30 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig({
   plugins: [sveltekit()],
 
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) {
+            return;
+          }
+
+          if (id.includes("lucide-svelte")) {
+            return "vendor-icons";
+          }
+
+          if (id.includes("@tauri-apps")) {
+            return "vendor-tauri";
+          }
+
+          if (id.includes("svelte")) {
+            return "vendor-svelte";
+          }
+        },
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors
