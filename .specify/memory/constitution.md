@@ -1,50 +1,131 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# AI Ask Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Svelte 5 Runes Only (NON-NEGOTIABLE)
+All reactive state MUST use Svelte 5 Runes: `$state`, `$derived`, `$effect`. Svelte 4 store patterns (`writable`, `readable`, `derived`) are strictly PROHIBITED in new code. Store pattern: `class Store { value = $state(0); } export const store = new Store();`
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+**Rationale**: Maintain consistency with Svelte 5's reactive paradigm and avoid mixing reactive patterns.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Child Webview Isolation Architecture
+Frontend coordinates via `ChildWebviewProxy` wrapper → Rust manages actual webviews via `invoke()` commands. Direct creation of `WebviewWindow` in frontend code is PROHIBITED. This ensures proper separation of concerns and security boundaries between main window and AI platform webviews.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**Required Pattern**:
+- Frontend: Uses proxy methods (`ensure()`, `show()`, `hide()`, `close()`, `setFocus()`, `updateBounds()`)
+- Backend: Rust provides commands (`ensure_child_webview`, `show_child_webview`, `hide_child_webview`, etc.)
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. Pure CSS with Custom Properties
+NO CSS frameworks (especially Tailwind CSS). All styling MUST use CSS custom properties defined in `src/lib/styles/base.css`. Theme variables: `--bg-primary`, `--text-primary`, `--accent-color`, etc. Use `rem` units for spacing (< 1rem default). Scoped styles in `<style>` blocks.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+**Rationale**: Lightweight, maintainable, supports light/dark themes without framework overhead.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. i18n First (NON-NEGOTIABLE)
+All user-facing text MUST use i18n keys via `i18n.t()` function. Pattern: `import { i18n } from '$lib/i18n'; const t = i18n.t;`. Four locales required: `zh-CN` (default), `en-US`, `ja-JP`, `ko-KR`. When adding/modifying text, ALL four locale files MUST be updated with matching keys using dot notation (`settings.general.title`).
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**Rationale**: Multi-language support is a core feature; hardcoded strings are unacceptable.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. Structured Logging Only
+Use `logger` from `$lib/utils/logger` for all logging. `console.log` is PROHIBITED. Logger behavior: Dev logs all levels; Prod logs errors/warnings only. This ensures proper log management and debugging capabilities across environments.
+
+### VI. Context-Driven Development
+Before implementing any feature:
+1. Use Context7 to understand existing patterns, dependencies, and interfaces
+2. If requirements are unclear, ASK for clarification rather than assume
+3. If uncertain about APIs, SEARCH official documentation
+4. Pattern: Read → Clarify → Implement
+
+**Rationale**: Avoid assumptions, reduce rework, ensure compatibility with existing codebase.
+
+### VII. Test-Driven Quality
+Unit tests MUST be created for new functions, utilities, and store methods. Tests live in `src/lib/__tests__/` with `.test.ts` or `.test.svelte.ts` extensions. Use Vitest framework. Coverage must include: happy paths, edge cases, errors, reactive state changes.
+
+## Technical Constraints
+
+### SPA Architecture
+- `src/routes/+layout.ts` MUST set `export const ssr = false;`
+- All routing is client-side only
+- Use `@sveltejs/adapter-static` for builds
+
+### Window Visibility Coordination
+Two flows for hiding main window (MUST be maintained):
+
+1. **User close button flow**: Frontend DOM event `hideAllWebviews` → Frontend hides children → Frontend calls `appWindow.hide()`
+2. **Tray/hotkey flow**: Rust emits Tauri event `hideAllWebviews` → Frontend hides children → Rust waits 100ms → Rust hides main
+
+**Show flow**: Rust shows main → emits `restoreWebviews` → Frontend restores children
+
+### Drag Region Rules
+- Mark with `data-tauri-drag-region` attribute OR `-webkit-app-region: drag` CSS
+- NEVER apply to interactive elements (buttons, inputs, links)
+
+### State Management Pattern
+- All stores in `src/lib/stores/*.svelte.ts` using Runes
+- Export singleton instances: `export const store = new Store();`
+- Use `@tauri-apps/plugin-store` for persistence via `src/lib/utils/storage.ts` helpers
+
+## Development Standards
+
+### Code Organization
+- Import order: Svelte/external → Tauri → internal
+- Component structure: imports → props → state → derived → effects → functions → template → styles
+- Naming: Components (PascalCase), files (kebab-case/PascalCase), variables (camelCase), constants (UPPER_SNAKE_CASE)
+
+### Error Handling
+- All errors MUST be handled with try-catch blocks
+- User-facing errors via `appState.setError()` with friendly messages
+- No silent failures
+
+### TypeScript Standards
+- Proper typing for all functions and variables
+- Minimize `any` usage (requires strong justification if used)
+- No implicit any
+
+### Accessibility Requirements
+- Semantic HTML elements
+- ARIA labels on icon buttons
+- Keyboard navigation support
+- Test at different window sizes
+
+## Task Completion Checklist
+
+Every task completion MUST verify:
+
+### Code Quality
+- ✅ No unused imports or code
+- ✅ No duplicate logic (extract to reusable functions)
+- ✅ Uses `logger` instead of `console.log`
+- ✅ Proper error handling with user-friendly messages
+- ✅ CSS uses custom properties (no hardcoded colors)
+
+### i18n Compliance
+- ✅ All four locale files updated with matching keys
+- ✅ No hardcoded strings in UI
+
+### Testing
+- ✅ Unit tests created in `src/lib/__tests__/`
+- ✅ Tests cover: happy paths, edge cases, errors, reactivity
+- ✅ All tests pass: `pnpm test`
+
+### Quality Gates
+- ✅ `pnpm run check` → 0 errors (TypeScript & Svelte validation)
+- ✅ `pnpm tauri dev` → starts without errors
+- ✅ Proper TypeScript types (minimal `any`)
+- ✅ Accessibility verified
+- ✅ Drag regions correct (never on interactive elements)
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+### Amendment Process
+1. Propose amendment with rationale
+2. Document impact on existing code
+3. Require approval before implementation
+4. Update this constitution with version bump
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+### Enforcement
+- All code reviews MUST verify compliance with these principles
+- Non-compliance requires immediate correction
+- Exceptions require documented justification and approval
+
+### Precedence
+This constitution supersedes individual preferences, convenience shortcuts, and "quick fixes" that violate established principles. When in doubt, follow the constitution.
+

@@ -104,7 +104,7 @@
             i18n.locale.set(locale);
             currentLocale = locale;
             // 保存到配置
-            await configStore.updateConfig({ locale });
+            await configStore.update({ locale });
         } catch (error) {
             console.error("Failed to change locale:", error);
         }

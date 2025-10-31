@@ -19,7 +19,7 @@
 
 ## 📖 项目简介
 
-AI Ask 是一个基于 **Tauri 2.0** + **Svelte 5** 构建的现代化桌面应用，提供统一、优雅的界面来访问多个 AI 平台，无需在浏览器标签间频繁切换。
+AI Ask 是一个基于 **Tauri 2.x** + **Svelte 5** 构建的现代化桌面应用，提供统一、优雅的界面来访问多个 AI 平台，无需在浏览器标签间频繁切换。
 
 ### 🎯 核心价值
 
@@ -102,6 +102,10 @@ AI Ask 是一个基于 **Tauri 2.0** + **Svelte 5** 构建的现代化桌面应�
   - 前端：SvelteKit 2.x + Svelte 5（Runes API）+ TypeScript 5.6 + Vite 6
   - 后端：Tauri 2.0（Rust 1.70+）
   - UI：纯 CSS，使用项目变量；图标 lucide-svelte
+- 后端模块化
+  - `window_control`：集中处理主窗口显示/隐藏、托盘交互、全局快捷键
+  - `webview`：维护所有子 WebView 生命周期、代理切换与边界同步
+  - `proxy`：封装代理解析与连通性测试工具，关键流程输出调试日志
 - 路由与渲染
   - SvelteKit 文件路由
   - 适配器：@sveltejs/adapter-static
@@ -119,6 +123,7 @@ AI Ask 是一个基于 **Tauri 2.0** + **Svelte 5** 构建的现代化桌面应�
 - 主窗口移动/缩放/分辨率变化时，Webview 自动重排与重算布局
 - 隐藏/显示流程带缓冲（事件 → 同步隐藏 Webview → 再隐藏主窗口），减少闪烁
 - 全局与页面日志（带前缀），便于排查
+- 主窗口解析过程增加 trace/warn 日志，辅助定位托盘或窗口丢失的边缘问题
 
 ### 质量基线
 - 类型检查：svelte-check 全通过（0 error）
@@ -194,28 +199,6 @@ pnpm tauri build
 - macOS: DMG、App Bundle
 - Linux: DEB、AppImage、RPM
 
-### 添加新功能
-
-详细的开发指南请参考 `AGENTS.md` 文档，包含：
-- 添加新 AI 平台
-- 添加新翻译服务
-- 创建新组件
-- 添加国际化翻译
-- 调试技巧
-
-## 📚 参考文档
-
-### 项目文档
-
-- [AGENTS.md](./AGENTS.md) - AI 任务指导文档
-- [CHANGELOG.md](./CHANGELOG.md) - 版本更新日志
-
-### 官方文档
-
-- [Svelte 5 文档](https://svelte-5-preview.vercel.app/)
-- [SvelteKit 文档](https://kit.svelte.dev/)
-- [Tauri 文档](https://tauri.app/)
-- [TypeScript 文档](https://www.typescriptlang.org/)
 
 ## ⚖️ 许可证
 

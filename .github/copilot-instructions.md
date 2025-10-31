@@ -1,64 +1,161 @@
-# Copilot Instructions — AI Ask
+# Instructions — AI Ask
 
-These instructions help AI coding agents work productively in this repo. Focus on these concrete patterns and workflows; avoid introducing foreign paradigms.
+These instructions help AI coding agents work productively in this repo. Focus on core architectural patterns and critical constraints; avoid over-specification of implementation details.
 
-## Big picture
+## Big Picture
 
-- App type: Desktop app using Tauri 2.0 (Rust) + SvelteKit 2 + Svelte 5 Runes (SPA, no SSR) with @sveltejs/adapter-static.
-- Frontend root: `src/` (routes, lib/components, stores, i18n, utils, styles). Backend root: `src-tauri/` (Rust, config, icons).
-- Major flow: Svelte SPA renders the main window; individual AI platforms load in independent Tauri WebviewWindow children managed by `src/lib/components/pages/AIChat.svelte`.
-- Why this structure: SPA keeps UI simple/fast; child webviews isolate each AI site, preserve sessions, and allow fine control (show/hide, always-on-top, bounds) based on main-window geometry.
+- **Tech stack**: Tauri 2.x (Rust backend) + SvelteKit 2 (SPA mode) + Svelte 5 Runes
+- **Architecture**: Main window (Svelte SPA) + child webviews (one per AI platform, managed by Rust)
+- **Why**: SPA for fast UI; child webviews isolate AI sites (sessions, proxy, security)
+- **Key pattern**: Frontend coordinates via `ChildWebviewProxy` wrapper → Rust manages actual webviews via `invoke()` commands
 
-## Core conventions
+## Core Conventions
 
-- Svelte 5 Runes only. Do not use Svelte 4 stores.
-  - Example store: `class Something { value = $state(0); } export const something = new Something();`
-  - Read as plain props/fields; use `$effect` and `$derived` for reactivity.
-- Routing: SPA only. `src/routes/+layout.ts` sets `export const ssr = false;`.
-- Styling: pure CSS with repo variables; use rem units. See `src/lib/styles/base.css`.
-- i18n: use direct translator function, not a store. Example:
-  - `import { i18n } from '$lib/i18n'; const t = i18n.t;` then `t('common.confirm')`.
-- Naming: components PascalCase; files kebab/Pascal; variables camelCase; constants UPPER_SNAKE_CASE.
+### Svelte 5 Runes Only
+- Use `$state`, `$derived`, `$effect` for all reactive state
+- Example: `class Store { value = $state(0); } export const store = new Store();`
+- **Do NOT** introduce Svelte 4 `writable`/`readable`/`derived` patterns in new code
 
-## Key components and cross-cutting patterns
+### SPA Mode
+- `src/routes/+layout.ts` sets `export const ssr = false;`
+- All routing is client-side only
 
-- Webviews lifecycle: `src/lib/components/pages/AIChat.svelte`
-  - Manages a Map<platformId, WebviewWindow>; creates, positions, shows/hides; syncs always-on-top with focus.
-  - Listens main window events: resize/move/scale, `tauri://focus|blur`, `tauri://window-event` (`minimized`/`hidden`).
-  - Custom event `hideAllWebviews` is emitted from Rust before hiding the main window; handler calls `hideAllWebviews()`.
-- Window chrome & tray: `src/lib/components/layout/Header.svelte` (drag region, close→hide). Rust tray/global shortcuts in `src-tauri/src/lib.rs`.
-  - Tray left-click and global shortcut toggle show/hide; before hide, Rust emits `hideAllWebviews` to ensure child webviews hide first.
-- Platforms management: `src/lib/stores/platforms.svelte.ts` and `src/lib/components/settings/PlatformSettings.svelte`.
-  - Sorting uses `sortOrder` swap (not array index). Trigger reactivity with spread assignment and persist via storage utils.
-- App state & config stores live under `src/lib/stores/*.svelte.ts` using Runes.
+### Styling: Pure CSS with Custom Properties
+- **NO Tailwind or other CSS frameworks**
+- Use CSS variables defined in `src/lib/styles/base.css`: `--bg-primary`, `--text-primary`, `--accent-color`, etc.
+- Supports light/dark themes via `.dark` class
+- Use `rem` units; minimal spacing (< 1rem default)
+- Scoped styles in `<style>` blocks
 
-## External deps / integration
+### i18n
+- Use `i18n.t()` function (NOT a store subscription)
+- Pattern: `import { i18n } from '$lib/i18n'; const t = i18n.t;`
+- Four locales: `zh-CN` (default), `en-US`, `ja-JP`, `ko-KR`
+- All user-facing text must use i18n keys (dot notation: `settings.general.title`)
+- Update all four locale files when adding keys
 
-- Tauri plugins: `tauri_plugin_store`, `tauri_plugin_global_shortcut`, `tauri_plugin_shell`, `tauri_plugin_opener`.
-- Frontend uses `@tauri-apps/api/webviewWindow` for WebviewWindow control and `@tauri-apps/api/webviewWindow`. Rust emits window events consumed by frontend.
+### Naming
+- Components: PascalCase
+- Files: kebab-case or PascalCase
+- Variables: camelCase
+- Constants: UPPER_SNAKE_CASE
 
-## Developer workflows
+## Critical Architecture Patterns
 
-- Typecheck: `pnpm run check` (runs svelte-kit sync + svelte-check).
-- Dev run: `pnpm tauri dev` (starts Vite and Tauri together).
-- Build: `pnpm tauri build`.
-- Icons: place SVG at `src-tauri/icons/app-icon.svg`, then generate via `npx @tauri-apps/cli icon src-tauri/icons/app-icon.svg`.
+### Child Webview Management
+- **Frontend**: `ChildWebviewProxy` wrapper (from `src/lib/utils/childWebview.ts`)
+- **Backend**: Rust manages actual webviews via commands: `ensure_child_webview`, `show_child_webview`, `hide_child_webview`, etc.
+- **Never** create `WebviewWindow` directly in frontend code
+- Proxy methods: `ensure()`, `show()`, `hide()`, `close()`, `setFocus()`, `updateBounds()`
 
-## Project-specific do/don't
+### Window Visibility Coordination
+Two flows for hiding main window:
 
-- Do: Use Runes ($state/$derived/$effect) for all state. Keep SSR disabled.
-- Do: Use CSS variables and rem; minimal spacing (< 1rem by default). Mark drag regions with `data-tauri-drag-region` and disable on buttons.
-- Do: For window visibility, propagate via events: Rust emits `hideAllWebviews` → frontend hides children → Rust hides main.
-- Don’t: Introduce Svelte 4 `writable`/`$store` patterns. Don’t add SSR-only features.
+1. **User clicks close button** (Header):
+   - Frontend dispatches DOM event `hideAllWebviews`
+   - Frontend hides child webviews
+   - Frontend calls `appWindow.hide()`
 
-## Adding features (examples)
+2. **Tray/hotkey triggered** (Rust):
+   - Rust emits Tauri event `hideAllWebviews`
+   - Frontend hides child webviews
+   - Rust waits 100ms
+   - Rust hides main window
 
-- New component: place under `src/lib/components/...`; define a Props interface; wire i18n via `i18n.t`; follow the Svelte 5 structure order (imports → props → state → derived → effects → functions → lifecycle → template → styles).
-- New store: create `*.svelte.ts` class with `$state` fields and async methods; export a singleton.
-- New i18n keys: add to all four locale files in `src/lib/i18n/locales/` (zh-CN, en-US, ja-JP, ko-KR) with consistent key paths.
+**Show flow**: Rust shows main → emits `restoreWebviews` → frontend restores children
 
-## Quality gates (green-before-done)
+### Drag Regions
+- Mark with `data-tauri-drag-region` attribute (or `-webkit-app-region: drag` CSS)
+- **Never** apply to interactive elements (buttons, inputs, links)
 
-- PASS: `pnpm run check` shows 0 errors. PASS: `pnpm tauri dev` starts without runtime errors. PASS build via `pnpm tauri build` when applicable.
+### State Management (Stores)
+- All stores in `src/lib/stores/*.svelte.ts` using Runes
+- Export singleton instance: `export const appState = new AppState();`
+- Use `@tauri-apps/plugin-store` for persistence via `src/lib/utils/storage.ts` helpers
 
-References: `AGENTS.md` (full conventions), `src/lib/components/pages/AIChat.svelte`, `src/lib/components/layout/Header.svelte`, `src/lib/stores/*.svelte.ts`, `src-tauri/src/lib.rs`, `src/routes/+layout.ts`.
+### Logging
+- Use `logger` from `$lib/utils/logger` (NOT `console.log`)
+- Dev: logs all; Prod: logs errors/warnings only
+
+## Project-Specific Rules
+
+### DO
+- Use Runes for all new reactive state
+- Use CSS custom properties from `base.css` for theming
+- Use `i18n.t()` for all user-facing text
+- Use `ChildWebviewProxy` for child webview operations
+- Use `logger` for intentional logging
+- Order imports: Svelte/external → Tauri → internal
+- Follow Svelte 5 component structure: imports → props → state → derived → effects → functions → template → styles
+- Handle errors gracefully with `appState.setError()`
+
+### DON'T
+- Don't add Tailwind CSS or CSS frameworks
+- Don't use Svelte 4 store patterns in new code
+- Don't hardcode user-facing strings
+- Don't use inline styles (prefer scoped styles with CSS variables)
+- Don't manage Tauri webviews directly in frontend
+- Don't use `console.log` (use `logger` instead)
+- Don't use `any` type without strong justification
+
+## Pre-Task Requirements
+
+Before starting any task:
+
+1. **Understand the context**:
+   - Use Context7 to read relevant files and understand existing patterns
+   - Check how similar features are already implemented
+   - Understand dependencies and their interfaces
+
+2. **Clarify uncertainties**:
+   - If task requirements are vague, ask for specific examples or expected behavior
+   - If unsure about API usage, search official documentation
+   - Never assume - always verify
+
+## Task Completion Checklist
+
+After completing each task:
+
+1. **Code Quality**:
+   - Remove unused imports/code
+   - Extract duplicate logic into reusable functions
+   - Use `logger` instead of `console.log`
+   - Proper error handling with user-friendly messages
+   - CSS uses custom properties (no hardcoded colors)
+
+2. **i18n**:
+   - All four locale files updated with matching keys
+   - No hardcoded strings in UI
+
+3. **Testing**:
+   - Create unit tests in `src/lib/__tests__/` (`.test.ts` or `.test.svelte.ts`)
+   - Use Vitest framework
+   - Test happy paths, edge cases, errors, reactive state changes
+   - All tests pass: `pnpm test`
+
+4. **Quality Gates**:
+   - `pnpm run check` → 0 errors
+   - `pnpm tauri dev` → starts without errors
+   - All tests pass
+   - Proper TypeScript types (minimize `any`)
+   - Accessibility: semantic HTML, ARIA labels, keyboard nav
+   - Drag regions correct (never on interactive elements)
+
+## Developer Commands
+
+- **Typecheck**: `pnpm run check`
+- **Dev**: `pnpm tauri dev`
+- **Build**: `pnpm tauri build`
+- **Test**: `pnpm test`
+- **Icons**: `pnpm tauri icon src-tauri/icons/app-icon.svg`
+
+## Adding New Features
+
+- **Component**: Define `type Props = {...}`, use `const t = i18n.t;`, scoped styles with CSS vars
+- **Store**: Class with `$state` fields, async methods, singleton export
+- **i18n keys**: Add to all four locale files with dot notation paths
+- **Rust command**: `#[tauri::command]` in `lib.rs`, register in `.invoke_handler()`, call via `invoke()`
+
+---
+
+Focus on these patterns and constraints. Implementation details will evolve; these principles should remain stable.

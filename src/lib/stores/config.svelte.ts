@@ -33,8 +33,10 @@ class ConfigStore {
 
   /**
    * 更新配置
+   * 
+   * @param updates - 要更新的配置字段
    */
-  async update(updates: Partial<AppConfig>) {
+  async update(updates: Partial<AppConfig>): Promise<void> {
     try {
       this.config = await updateConfig(updates);
 
@@ -46,10 +48,6 @@ class ConfigStore {
       console.error('Failed to update config:', error);
       throw error;
     }
-  }
-
-  async updateConfig(updates: Partial<AppConfig>) {
-    await this.update(updates);
   }
 
   /**
