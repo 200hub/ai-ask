@@ -1,11 +1,11 @@
 <script lang="ts">
     /**
-     * AI对话组件 - WebviewWindow 管理器
+     * AI对话组件 - 子 Webview 管理器
      * 
      * 核心功能:
-     * 1. 管理多个 AI 平台的 WebviewWindow 实例
-     * 2. 处理窗口的创建、定位、显示/隐藏
-     * 3. 同步主窗口和子窗口的状态（位置、尺寸、置顶等）
+     * 1. 管理多个 AI 平台的子 webview 实例
+     * 2. 处理子 webview 的创建、定位、显示/隐藏
+     * 3. 同步主窗口和子 webview 的状态（位置、尺寸）
      * 4. 响应窗口事件和用户交互
      */
     import { onMount, onDestroy } from "svelte";
@@ -59,7 +59,6 @@
                 return;
             }
 
-            console.log(`[${this.id}] 更新边界:`, bounds);
             this.#lastBounds = bounds;
             await invoke("set_child_webview_bounds", {
                 payload: {
@@ -74,7 +73,6 @@
                 return;
             }
 
-            console.log(`[${this.id}] 显示子 webview`);
             await invoke("show_child_webview", {
                 payload: { id: this.id },
             });
@@ -86,7 +84,6 @@
                 return;
             }
 
-            console.log(`[${this.id}] 隐藏子 webview`);
             await invoke("hide_child_webview", {
                 payload: { id: this.id },
             });
@@ -119,7 +116,7 @@
     /** 主窗口实例 */
     const mainWindow = getCurrentWebviewWindow();
     
-    /** WebView 窗口映射表: platformId -> WebView 管理器 */
+    /** 子 webview 映射表: platformId -> 子 webview 代理 */
     let webviewWindows = $state<Map<string, ManagedWebview>>(new Map());
     
     /** 当前激活的平台ID */
@@ -182,13 +179,13 @@
     // ========== WebView 管理核心方法 ==========
     
     /**
-     * 显示指定平台的 WebView 窗口
+     * 显示指定平台的子 webview
      * 
      * 工作流程:
-     * 1. 隐藏其他平台的 WebView
-     * 2. 获取或创建目标平台的 WebView  
-     * 3. 调整窗口位置和尺寸
-     * 4. 显示窗口并获取焦点
+     * 1. 隐藏其他平台的子 webview
+     * 2. 获取或创建目标平台的子 webview
+     * 3. 调整位置和尺寸
+     * 4. 显示并获取焦点
      * 
      * @param platform - 要显示的AI平台配置
      */
@@ -206,7 +203,6 @@
                 webview = await createWebviewForPlatform(platform);
                 webviewWindows.set(platform.id, webview);
             } else if (webview.isVisible() && !shouldRestoreWebviews) {
-                console.log(`平台 ${platform.name} 已经显示，保持当前实例`);
                 await webview.setFocus();
                 scheduleWebviewReflow({ shouldEnsureActiveFront: true });
                 appState.setWebviewLoading(false);
@@ -231,7 +227,7 @@
     }
 
     /**
-     * 隐藏除指定平台外的所有 WebView
+     * 隐藏除指定平台外的所有子 webview
      * 
      * @param excludePlatformId - 需要保持显示的平台ID
      */
@@ -256,16 +252,10 @@
     }
 
     /**
-     * 为指定平台创建新的 WebView 窗口
-     * 
-     * WebView 配置特点:
-     * - 无边框设计，与主窗口融合
-     * - 不在任务栏显示，避免干扰
-     * - 默认置顶，跟随主窗口
-     * - 不可调整大小，由程序控制
+     * 为指定平台创建新的子 webview
      * 
      * @param platform - AI平台配置
-     * @returns Promise<ManagedWebview> - 创建的 WebView 管理实例
+     * @returns Promise<ManagedWebview> - 创建的子 webview 代理实例
      */
     async function createWebviewForPlatform(platform: AIPlatform): Promise<ManagedWebview> {
         const bounds = await calculateWebviewBounds();
@@ -277,15 +267,9 @@
     // ========== WebView 定位计算 ==========
     
     /**
-     * 计算 WebView 窗口的精确边界信息
+     * 计算子 webview 的精确边界信息
      * 
-     * 计算逻辑:
-     * 1. 获取主窗口的位置、尺寸和缩放比例
-     * 2. 定位主内容区域（排除侧边栏和头部）
-     * 3. 转换为物理坐标供 WebView 使用
-     * 4. 处理各种边缘情况和降级方案
-     * 
-     * @returns WebView 窗口的位置、尺寸和缩放信息
+     * @returns 子 webview 的位置、尺寸和缩放信息
      */
     async function calculateWebviewBounds(): Promise<{
         positionLogical: { x: number; y: number };
@@ -324,7 +308,7 @@
 
             // 重要：window.add_child 接受的是相对于父窗口的坐标
             // 不需要加上窗口的屏幕位置，直接使用 getBoundingClientRect 得到的相对坐标
-            const webviewBounds = {
+            return {
                 positionLogical: {
                     x: contentOffsetLeft,
                     y: contentOffsetTop,
@@ -335,14 +319,6 @@
                 },
                 scaleFactor,
             };
-
-            console.log("WebView 边界计算完成:", {
-                scaleFactor,
-                contentOffset: { left: contentOffsetLeft, top: contentOffsetTop },
-                finalBounds: webviewBounds,
-            });
-
-            return webviewBounds;
         } catch (error) {
             console.error("WebView 边界计算失败，使用默认值:", error);
             return {
@@ -353,9 +329,9 @@
         }
     }
 
-    // ========== WebView 定位和布局管理 ==========
+    // ========== 子 webview 定位和布局管理 ==========
     
-    /** WebView 重排配置选项 */
+    /** 重排配置选项 */
     interface WebviewReflowOptions {
         /** 是否确保激活窗口显示在前台 */
         shouldEnsureActiveFront?: boolean;
@@ -370,7 +346,7 @@
     }
 
     /**
-     * 批量调整所有 WebView 的位置和状态
+     * 批量调整所有子 webview 的位置和状态
      * 
      * @param options - 批量定位选项
      */
@@ -409,10 +385,7 @@
     }
 
     /**
-     * 调度 WebView 重排操作（支持防抖）
-     * 
-     * 防抖机制可以避免频繁的窗口调整操作，提升性能。
-     * 在窗口大小变化、移动等高频事件中特别有用。
+     * 调度子 webview 重排操作（支持防抖）
      * 
      * @param options - 重排配置选项
      */
@@ -465,15 +438,10 @@
         }
     }
 
-    // ========== WebView 生命周期管理 ==========
+    // ========== 子 webview 生命周期管理 ==========
     
     /**
-     * 隐藏所有 WebView 窗口
-     * 
-     * 通常在以下情况调用：
-     * - 主窗口失去焦点时
-     * - 应用最小化到托盘时
-     * - 切换到非聊天界面时
+     * 隐藏所有子 webview
      */
     interface HideAllOptions {
         markForRestore?: boolean;
@@ -481,72 +449,42 @@
 
     async function hideAllWebviews({ markForRestore = false }: HideAllOptions = {}) {
         shouldRestoreWebviews = markForRestore;
-        console.log(`开始隐藏所有 WebView，共 ${webviewWindows.size} 个`);
         
-        const hideTasks: Promise<void>[] = [];
-
         try {
             await invoke("hide_all_child_webviews");
         } catch (error) {
             console.error("批量隐藏子 WebView 失败:", error);
         }
 
-        for (const [platformId, webview] of webviewWindows.entries()) {
-            hideTasks.push(
-                (async () => {
-                    try {
-                        console.log(`隐藏 WebView: ${platformId}`);
-                        await webview.hide();
-                        console.log(`WebView ${platformId} 隐藏成功`);
-                    } catch (error) {
-                        console.error(`隐藏 WebView ${platformId} 失败:`, error);
-                    }
-                })()
-            );
-        }
+        const hideTasks = Array.from(webviewWindows.values()).map((webview) =>
+            webview.hide().catch((error) => {
+                console.error("隐藏 WebView 失败:", error);
+            })
+        );
 
         await Promise.all(hideTasks);
-        console.log("所有 WebView 隐藏完成");
     }
 
     /**
-     * 关闭所有 WebView 窗口并清理资源
-     * 
-     * 在应用退出时调用，确保所有子窗口正确关闭
+     * 关闭所有子 webview 并清理资源
      */
     async function closeAllWebviews() {
-        console.log(`开始关闭所有 WebView，共 ${webviewWindows.size} 个`);
-        
-        const closeTasks: Promise<void>[] = [];
-
-        for (const [platformId, webview] of webviewWindows.entries()) {
-            closeTasks.push(
-                (async () => {
-                    try {
-                        await webview.close();
-                        console.log(`WebView ${platformId} 关闭成功`);
-                    } catch (error) {
-                        console.error(`关闭 WebView ${platformId} 失败:`, error);
-                    }
-                })()
-            );
-        }
+        const closeTasks = Array.from(webviewWindows.values()).map((webview) =>
+            webview.close().catch((error) => {
+                console.error("关闭 WebView 失败:", error);
+            })
+        );
 
         await Promise.all(closeTasks);
         
-        // 清理映射表
         webviewWindows.clear();
         shouldRestoreWebviews = false;
-        console.log("所有 WebView 关闭完成");
     }
 
     // ========== 公共接口方法 ==========
     
     /**
-     * 刷新当前激活平台的 WebView
-     * 
-     * 通过关闭现有 WebView 并重新创建来实现完全刷新，
-     * 可以解决页面卡住、登录失效等问题。
+     * 刷新当前激活平台的子 webview
      * 
      * @exposed 供父组件调用
      */
@@ -563,18 +501,11 @@
         }
 
         try {
-            console.log(`开始刷新平台: ${appState.selectedPlatform.name}`);
-            
-            // 关闭旧的 WebView
             await currentWebview.close();
             webviewWindows.delete(activePlatformId);
-
-            // 重新创建并显示
             await showPlatformWebview(appState.selectedPlatform);
-            
-            console.log(`平台 ${appState.selectedPlatform.name} 刷新完成`);
         } catch (error) {
-            console.error(`刷新平台 ${appState.selectedPlatform.name} 失败:`, error);
+            console.error(`刷新平台失败:`, error);
             appState.setError(`刷新 ${appState.selectedPlatform.name} 失败`);
         }
     }
@@ -592,32 +523,21 @@
         }
     }
 
-    /** 处理隐藏所有 WebView 的事件 */
+    /** 处理隐藏所有子 webview 的事件 */
     function handleHideAllWebviewsEvent() {
         void hideAllWebviews({ markForRestore: true });
     }
 
-    /**
-     * 处理主窗口尺寸变化事件
-     * 
-     * @param size - 新的窗口尺寸（可选）
-     */
     function handleMainWindowResize(size?: { width: number; height: number }) {
-        // 当窗口尺寸为0时（通常是最小化），隐藏所有WebView
         if (size && (size.width === 0 || size.height === 0)) {
             void hideAllWebviews({ markForRestore: true });
             return;
         }
 
-        // 正常尺寸变化时，使用防抖重新布局
         scheduleWebviewReflow({ shouldEnsureActiveFront: false, immediate: false });
     }
 
-    /**
-     * 处理主窗口位置移动事件
-     */
     function handleMainWindowMove() {
-        // 窗口移动时，使用防抖调整位置
         scheduleWebviewReflow({ shouldEnsureActiveFront: false, immediate: false });
     }
 
@@ -677,8 +597,6 @@
     }
 
     onMount(() => {
-        console.log("AIChat 组件挂载，开始设置事件监听器");
-
         // ========== DOM 事件监听器 ==========
         
         const domEventHandlers = [
@@ -722,14 +640,11 @@
 
                 // 注册窗口获得焦点监听
                 windowEventUnlisteners.focus = await mainWindow.listen("tauri://focus", () => {
-                    console.log("[事件] 主窗口获得焦点");
                     isMainWindowFocused = true;
-                    // 不再在焦点事件时立即重排，避免频繁触发导致闪烁
                 });
 
                 // 注册窗口失去焦点监听
                 windowEventUnlisteners.blur = await mainWindow.listen("tauri://blur", () => {
-                    console.log("[事件] 主窗口失去焦点");
                     isMainWindowFocused = false;
                 });
 
@@ -738,9 +653,8 @@
                     await closeAllWebviews();
                 });
 
-                // 注册来自 Rust 端的隐藏 WebView 事件（托盘/快捷键触发）
+                // 注册来自 Rust 端的隐藏子 webview 事件（托盘/快捷键触发）
                 windowEventUnlisteners.hideWebviews = await mainWindow.listen("hideAllWebviews", () => {
-                    console.log("收到 Rust 端的 hideAllWebviews 事件");
                     void hideAllWebviews({ markForRestore: true });
                 });
 
@@ -762,7 +676,6 @@
                 windowEventUnlisteners.restoreWebviews = await mainWindow.listen(
                     "restoreWebviews",
                     () => {
-                        console.log("收到 Rust 端的 restoreWebviews 事件");
                         void restoreActiveWebview(true);
                     }
                 );
@@ -772,8 +685,6 @@
                     cleanupAllWindowEvents();
                     return;
                 }
-
-                console.log("Tauri 窗口事件监听器注册完成");
             } catch (error) {
                 console.error("注册 Tauri 窗口事件失败:", error);
             }
@@ -785,7 +696,6 @@
         // ========== 清理函数 ==========
         
         return () => {
-            console.log("AIChat 组件卸载，开始清理资源");
             isComponentDisposed = true;
 
             // 清理 DOM 事件监听器
@@ -795,13 +705,10 @@
 
             // 清理 Tauri 窗口事件监听器
             cleanupAllWindowEvents();
-
-            console.log("AIChat 组件资源清理完成");
         };
     });
 
     onDestroy(async () => {
-        console.log("AIChat 组件销毁，关闭所有 WebView");
         await closeAllWebviews();
     });
 </script>

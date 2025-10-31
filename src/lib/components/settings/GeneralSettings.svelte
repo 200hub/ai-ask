@@ -111,13 +111,10 @@
     }
 
     /**
-     * 清理iframe缓存
+     * 清理缓存（占位功能，子 webview 模式下暂无实际操作）
      */
     function handleClearCache() {
         if (window.confirm(t("general.clearCacheConfirm"))) {
-            // 触发自定义事件通知AIChat组件清理缓存
-            const clearEvent = new CustomEvent("clearIframeCache");
-            window.dispatchEvent(clearEvent);
             window.alert(t("general.clearCacheSuccess"));
         }
     }

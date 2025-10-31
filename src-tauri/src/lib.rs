@@ -77,25 +77,14 @@ struct ChildWebviewIdPayload {
 }
 
 fn resolve_main_window(app: &AppHandle) -> Option<Window> {
-    if let Some(window) = app.get_window("main") {
-        return Some(window);
-    }
-
-    let windows = app.windows();
-    if windows.is_empty() {
-        return None;
-    }
-
-    let labels: Vec<_> = windows.keys().cloned().collect();
-    println!("[窗口解析] 当前可用窗口: {:?}", labels);
-
-    windows.values().next().cloned()
+    app.get_window("main")
+        .or_else(|| app.windows().values().next().cloned())
 }
 
 /// Tauri命令：切换窗口显示状态
 #[tauri::command]
 async fn toggle_window(window: tauri::Window) -> Result<(), String> {
-    toggle_main_window_visibility(&window, "命令 toggle_window").await
+    toggle_main_window_visibility(&window).await
 }
 
 /// Tauri命令：显示窗口
@@ -140,19 +129,13 @@ async fn show_main_window(window: &Window) -> Result<(), String> {
     Ok(())
 }
 
-async fn toggle_main_window_visibility(window: &Window, reason: &str) -> Result<(), String> {
+async fn toggle_main_window_visibility(window: &Window) -> Result<(), String> {
     let is_visible = window.is_visible().map_err(|err| err.to_string())?;
     let is_minimized = window.is_minimized().map_err(|err| err.to_string())?;
-    println!(
-        "[{reason}] 窗口状态: visible={}, minimized={}",
-        is_visible, is_minimized
-    );
 
     if is_visible && !is_minimized {
-        println!("[{reason}] 隐藏主窗口");
         hide_main_window(window).await
     } else {
-        println!("[{reason}] 显示主窗口");
         show_main_window(window).await
     }
 }
@@ -377,11 +360,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         // 设置处理程序
         .setup(|app| {
-            if let Some(main) = app.get_window("main") {
-                println!("[setup] 成功获取主窗口: {}", main.label());
-            } else {
-                println!("[setup] setup 阶段未获取到主窗口");
-            }
             // 创建托盘菜单
             let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let settings_item = MenuItem::with_id(app, "settings", "偏好设置", true, None::<&str>)?;
@@ -400,27 +378,13 @@ pub fn run() {
                         button_state,
                         ..
                     } => {
-                        println!(
-                            "[托盘] 检测到点击事件: button={:?}, state={:?}",
-                            button, button_state
-                        );
                         if button == tauri::tray::MouseButton::Left
                             && button_state == tauri::tray::MouseButtonState::Up
                         {
                             let app = tray.app_handle().clone();
                             tauri::async_runtime::spawn(async move {
-                                println!("[托盘] 开始处理左键点击...");
-
-                                let window_opt = resolve_main_window(&app);
-
-                                if let Some(window) = window_opt {
-                                    if let Err(err) =
-                                        toggle_main_window_visibility(&window, "托盘").await
-                                    {
-                                        println!("[托盘] 切换窗口失败: {}", err);
-                                    }
-                                } else {
-                                    println!("[托盘] 错误: 未找到主窗口");
+                                if let Some(window) = resolve_main_window(&app) {
+                                    let _ = toggle_main_window_visibility(&window).await;
                                 }
                             });
                         }
@@ -432,23 +396,17 @@ pub fn run() {
                 tray.on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = resolve_main_window(app) {
-                            let window_clone = window.clone();
                             tauri::async_runtime::spawn(async move {
-                                if let Err(err) = show_main_window(&window_clone).await {
-                                    println!("[托盘菜单] 显示窗口失败: {}", err);
-                                }
+                                let _ = show_main_window(&window).await;
                             });
                         }
                     }
                     "settings" => {
                         if let Some(window) = resolve_main_window(app) {
-                            let window_clone = window.clone();
                             tauri::async_runtime::spawn(async move {
-                                if let Err(err) = show_main_window(&window_clone).await {
-                                    println!("[托盘菜单] 显示窗口失败: {}", err);
-                                    return;
+                                if show_main_window(&window).await.is_ok() {
+                                    let _ = window.emit("open-settings", ());
                                 }
-                                let _ = window_clone.emit("open-settings", ());
                             });
                         }
                     }
@@ -469,7 +427,6 @@ pub fn run() {
 
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
             if let Ok(shortcut) = shortcut.parse::<Shortcut>() {
-                println!("[快捷键] 注册快捷键: {}", shortcut);
                 let throttle = last_shortcut_trigger.clone();
                 let _ =
                     app.global_shortcut()
@@ -478,31 +435,19 @@ pub fn run() {
                             let now = Instant::now();
                             if let Some(previous) = *last {
                                 if now.duration_since(previous) < Duration::from_millis(350) {
-                                    println!("[快捷键] 忽略快速重复触发");
                                     return;
                                 }
                             }
 
                             *last = Some(now);
 
-                            println!("[快捷键] 快捷键被触发!");
                             let app_handle = handle.clone();
                             tauri::async_runtime::spawn(async move {
-                                let window_opt = resolve_main_window(&app_handle);
-
-                                if let Some(window) = window_opt {
-                                    if let Err(err) =
-                                        toggle_main_window_visibility(&window, "快捷键").await
-                                    {
-                                        println!("[快捷键] 切换窗口失败: {}", err);
-                                    }
-                                } else {
-                                    println!("[快捷键] 错误: 未找到主窗口");
+                                if let Some(window) = resolve_main_window(&app_handle) {
+                                    let _ = toggle_main_window_visibility(&window).await;
                                 }
                             });
                         });
-            } else {
-                println!("[快捷键] 错误: 无法解析快捷键 '{}'", shortcut);
             }
 
             Ok(())
