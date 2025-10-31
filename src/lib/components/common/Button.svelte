@@ -11,7 +11,7 @@
     loading?: boolean;
     class?: string;
     type?: 'button' | 'submit' | 'reset';
-    onclick?: (event: MouseEvent) => void;
+  onclick?: (_event: MouseEvent) => void;
     children?: Snippet;
   }
 

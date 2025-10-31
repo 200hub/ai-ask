@@ -113,7 +113,7 @@
             if (!parsed.protocol.startsWith("http")) {
                 throw new Error();
             }
-        } catch (error) {
+        } catch {
             throw new Error(t("platforms.invalidUrl"));
         }
 
@@ -123,7 +123,7 @@
                 if (!parsed.protocol.startsWith("http")) {
                     throw new Error();
                 }
-            } catch (error) {
+            } catch {
                 throw new Error(t("platforms.invalidUrl"));
             }
         }

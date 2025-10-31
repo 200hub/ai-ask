@@ -88,30 +88,32 @@ Two flows for hiding main window (MUST be maintained):
 
 ## Task Completion Checklist
 
-Every task completion MUST verify:
+Every task completion MUST verify. Do not mark a task complete until `pnpm lint` (runs frontend and Rust style checks) and `pnpm test` both succeed.
 
 ### Code Quality
-- ✅ No unused imports or code
-- ✅ No duplicate logic (extract to reusable functions)
-- ✅ Uses `logger` instead of `console.log`
-- ✅ Proper error handling with user-friendly messages
-- ✅ CSS uses custom properties (no hardcoded colors)
+- No unused imports or code
+- No duplicate logic (extract to reusable functions)
+- Uses `logger` instead of `console.log`
+- Proper error handling with user-friendly messages
+- CSS uses custom properties (no hardcoded colors)
 
 ### i18n Compliance
-- ✅ All four locale files updated with matching keys
-- ✅ No hardcoded strings in UI
+- All four locale files updated with matching keys
+- No hardcoded strings in UI
 
 ### Testing
-- ✅ Unit tests created in `src/lib/__tests__/`
-- ✅ Tests cover: happy paths, edge cases, errors, reactivity
-- ✅ All tests pass: `pnpm test`
+- Unit tests created in `src/lib/__tests__/`
+- Tests cover: happy paths, edge cases, errors, reactivity
+- All tests pass (`pnpm test`)
 
 ### Quality Gates
-- ✅ `pnpm run check` → 0 errors (TypeScript & Svelte validation)
-- ✅ `pnpm tauri dev` → starts without errors
-- ✅ Proper TypeScript types (minimal `any`)
-- ✅ Accessibility verified
-- ✅ Drag regions correct (never on interactive elements)
+- `pnpm run check` -> 0 errors (TypeScript & Svelte validation)
+- `pnpm tauri dev` -> starts without errors
+- `pnpm lint` -> passes (runs frontend ESLint and Rust fmt/clippy)
+- `pnpm test` -> passes
+- Proper TypeScript types (minimal `any`)
+- Accessibility verified
+- Drag regions correct (never on interactive elements)
 
 ## Governance
 

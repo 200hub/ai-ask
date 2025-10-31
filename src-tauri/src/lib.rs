@@ -49,12 +49,13 @@ pub fn run() {
             if let Some(tray) = app.tray_by_id("main") {
                 tray.set_menu(Some(menu))?;
 
-                tray.on_tray_icon_event(move |tray, event| match event {
-                    TrayIconEvent::Click {
+                tray.on_tray_icon_event(move |tray, event| {
+                    if let TrayIconEvent::Click {
                         button,
                         button_state,
                         ..
-                    } => {
+                    } = event
+                    {
                         if button == tauri::tray::MouseButton::Left
                             && button_state == tauri::tray::MouseButtonState::Up
                         {
@@ -67,7 +68,6 @@ pub fn run() {
                             });
                         }
                     }
-                    _ => {}
                 });
 
                 tray.on_menu_event(move |app, event| match event.id.as_ref() {

@@ -9,6 +9,14 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test": "pnpm run test:frontend && pnpm run test:rust",
+    "test:frontend": "vitest run",
+    "test:rust": "cd src-tauri && cargo test",
+    "lint": "pnpm run lint:frontend && pnpm run lint:rust",
+    "lint:frontend": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "lint:rust": "cd src-tauri && cargo fmt --check && cargo clippy -- -D warnings",
+    "lint:rust:fix": "cd src-tauri && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged",
     "tauri": "tauri"
   },
   "license": "MIT",
@@ -21,16 +29,24 @@
     "lucide-svelte": "^0.548.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.38.0",
     "@sveltejs/adapter-static": "^3.0.6",
     "@sveltejs/kit": "^2.9.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tauri-apps/cli": "^2",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
     "autoprefixer": "10",
+    "eslint": "^9.38.0",
+    "eslint-plugin-svelte": "^3.13.0",
+    "jsdom": "^25.0.0",
     "postcss": "8",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
+    "svelte-eslint-parser": "^1.4.0",
     "tailwindcss": "^3.4.18",
     "typescript": "~5.6.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vitest": "^1.6.0"
   }
 }

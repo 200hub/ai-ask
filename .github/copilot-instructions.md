@@ -114,6 +114,8 @@ Before starting any task:
 
 ## Task Completion Checklist
 
+Before reporting any task as complete, you MUST run and pass `pnpm lint` (covers frontend and Rust style checks) and `pnpm test`. Record failures, fix them, and rerun until they succeed.
+
 After completing each task:
 
 1. **Code Quality**:
@@ -134,9 +136,10 @@ After completing each task:
    - All tests pass: `pnpm test`
 
 4. **Quality Gates**:
-   - `pnpm run check` → 0 errors
-   - `pnpm tauri dev` → starts without errors
-   - All tests pass
+   - `pnpm run check` -> 0 errors
+   - `pnpm tauri dev` -> starts without errors
+   - `pnpm lint` -> passes (runs frontend ESLint and Rust fmt/clippy)
+   - `pnpm test` -> passes
    - Proper TypeScript types (minimize `any`)
    - Accessibility: semantic HTML, ARIA labels, keyboard nav
    - Drag regions correct (never on interactive elements)

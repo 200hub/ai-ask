@@ -193,3 +193,59 @@ pub(crate) async fn test_proxy_connection(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_external_url_accepts_valid_http() {
+        let result = parse_external_url("https://example.com/path?query=1");
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.host_str(), Some("example.com"));
+        assert_eq!(parsed.scheme(), "https");
+    }
+
+    #[test]
+    fn parse_external_url_rejects_invalid_input() {
+        let result = parse_external_url("not a url");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_proxy_url_accepts_http_and_socks5() {
+        assert!(parse_proxy_url("http://localhost:8080").is_ok());
+        assert!(parse_proxy_url("socks5://127.0.0.1:1080").is_ok());
+    }
+
+    #[test]
+    fn parse_proxy_url_rejects_unsupported_scheme() {
+        let error = parse_proxy_url("ftp://proxy:21").expect_err("expected unsupported scheme");
+        assert!(error.contains("不支持的代理协议"));
+    }
+
+    #[test]
+    fn sanitize_for_directory_replaces_non_alphanumeric() {
+        let sanitized = sanitize_for_directory("http://127.0.0.1:8080/path?query");
+        assert_eq!(sanitized, "http___127_0_0_1_8080_path_query");
+    }
+
+    #[test]
+    fn sanitize_for_directory_keeps_alphanumeric() {
+        let sanitized = sanitize_for_directory("abcXYZ123");
+        assert_eq!(sanitized, "abcXYZ123");
+    }
+
+    #[test]
+    fn parse_proxy_url_rejects_missing_host() {
+        assert!(parse_proxy_url("http://:8080").is_err());
+    }
+
+    #[test]
+    fn parse_proxy_url_handles_trailing_slash() {
+        let parsed = parse_proxy_url("http://localhost:8080/").expect("expected valid proxy url");
+        assert_eq!(parsed.host_str(), Some("localhost"));
+        assert_eq!(parsed.port_or_known_default(), Some(8080));
+    }
+}
