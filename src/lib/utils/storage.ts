@@ -2,7 +2,7 @@
  * 存储工具类 - 用于配置的持久化
  */
 import { Store } from "@tauri-apps/plugin-store";
-import type { AppConfig } from "../types/config";
+import type { AppConfig, ProxyConfig } from "../types/config";
 import type { AIPlatform, TranslationPlatform } from "../types/platform";
 import { DEFAULT_CONFIG } from "../types/config";
 import {
@@ -19,6 +19,31 @@ const STORAGE_KEYS = {
   TRANSLATION_PLATFORMS: "translation_platforms",
   CUSTOM_PLATFORMS: "custom_platforms",
 };
+
+function normalizeProxyConfig(
+  proxy: (ProxyConfig | { type?: string; host?: string; port?: string }) | null | undefined,
+): ProxyConfig {
+  if (!proxy) {
+    return { type: "system" };
+  }
+
+  const proxyType = (proxy as { type?: string }).type ?? "system";
+
+  if (proxyType === "custom") {
+    return {
+      type: "custom",
+      host: (proxy as { host?: string }).host,
+      port: (proxy as { port?: string }).port,
+    };
+  }
+
+  if (proxyType === "system") {
+    return { type: "system" };
+  }
+
+  // Legacy value (e.g. "none")
+  return { type: "system" };
+}
 
 /**
  * Store实例
@@ -49,8 +74,10 @@ export async function getConfig(): Promise<AppConfig> {
       return DEFAULT_CONFIG;
     }
 
-    // 合并默认配置（防止新增配置项时出现undefined）
-    return { ...DEFAULT_CONFIG, ...config };
+  // 合并默认配置（防止新增配置项时出现undefined）
+  const merged: AppConfig = { ...DEFAULT_CONFIG, ...config };
+  merged.proxy = normalizeProxyConfig(config?.proxy ?? merged.proxy);
+  return merged;
   } catch (error) {
     console.error("Failed to get config:", error);
     return DEFAULT_CONFIG;
@@ -90,6 +117,8 @@ export async function updateConfig(
     if ("proxy" in updates) {
       newConfig.proxy = updates.proxy;
     }
+
+    newConfig.proxy = normalizeProxyConfig(newConfig.proxy);
 
     await saveConfig(newConfig);
     return newConfig;
@@ -285,8 +314,52 @@ export async function getTranslationPlatforms(): Promise<
       await saveTranslationPlatforms(BUILT_IN_TRANSLATION_PLATFORMS);
       return [...BUILT_IN_TRANSLATION_PLATFORMS];
     }
+    const defaultsById = new Map(
+      BUILT_IN_TRANSLATION_PLATFORMS.map((platform) => [platform.id, platform]),
+    );
 
-    return platforms;
+    let hasUpdates = false;
+    const normalized: TranslationPlatform[] = [];
+
+    for (const platform of platforms) {
+      const defaults = defaultsById.get(platform.id);
+      if (!defaults) {
+        // 保留自定义或未知平台
+        normalized.push(platform);
+        continue;
+      }
+
+      const merged: TranslationPlatform = {
+        ...defaults,
+        enabled: platform.enabled,
+      };
+
+      if (
+        platform.name !== defaults.name ||
+        platform.url !== defaults.url ||
+        platform.icon !== defaults.icon ||
+        JSON.stringify(platform.supportLanguages) !==
+          JSON.stringify(defaults.supportLanguages)
+      ) {
+        hasUpdates = true;
+      }
+
+      normalized.push(merged);
+      defaultsById.delete(platform.id);
+    }
+
+    if (defaultsById.size > 0) {
+      for (const platform of defaultsById.values()) {
+        normalized.push({ ...platform });
+        hasUpdates = true;
+      }
+    }
+
+    if (hasUpdates) {
+      await saveTranslationPlatforms(normalized);
+    }
+
+    return normalized;
   } catch (error) {
     console.error("Failed to get translation platforms:", error);
     return [...BUILT_IN_TRANSLATION_PLATFORMS];

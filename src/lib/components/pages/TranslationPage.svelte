@@ -1,12 +1,16 @@
 <script lang="ts">
-    /**
-     * 翻译页面组件 - 嵌入翻译平台网页
-     */
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { appState } from "$lib/stores/app.svelte";
     import { translationStore } from "$lib/stores/translation.svelte";
     import { configStore } from "$lib/stores/config.svelte";
     import { i18n } from "$lib/i18n";
+    import type { TranslationPlatform } from "$lib/types/platform";
+    import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+    import {
+        calculateChildWebviewBounds,
+        ChildWebviewProxy,
+    } from "$lib/utils/childWebview";
+    import { createProxySignature, resolveProxyUrl } from "$lib/utils/proxy";
 
     const t = i18n.t;
 
@@ -20,92 +24,444 @@
         return value;
     }
 
-    let iframeElement = $state<HTMLIFrameElement | null>(null);
-    let isLoading = $state(true);
-    let loadError = $state(false);
+    const mainWindow = getCurrentWebviewWindow();
 
-    /**
-     * 切换翻译平台
-     */
-    function switchPlatform(platformId: string) {
-        translationStore.setCurrentPlatform(platformId);
-        configStore.setCurrentTranslator(platformId);
-        isLoading = true;
-        loadError = false;
-    }
+    let webviewWindows = $state<Map<string, ChildWebviewProxy>>(new Map());
+    let activeTranslatorId = $state<string | null>(null);
+    let isMainWindowFocused = $state(true);
+    let proxySignature = $state(createProxySignature(configStore.config.proxy));
 
-    /**
-     * iframe加载完成
-     */
-    function handleLoad() {
-        isLoading = false;
-        loadError = false;
-    }
+    let isPendingReflow = false;
+    let shouldEnsureActiveFront = false;
+    let shouldRestoreWebviews = false;
+    let isShowingWebview = false;
 
-    /**
-     * iframe加载失败
-     */
-    function handleError() {
-        isLoading = false;
-        loadError = true;
-        appState.setError(t("translation.toastError"));
-    }
+    let isLoading = $state(false);
+    let loadError = $state<string | null>(null);
 
-    /**
-     * 重新加载
-     */
-    function reload() {
-        if (iframeElement && translationStore.currentPlatform) {
-            isLoading = true;
-            loadError = false;
-            iframeElement.src = translationStore.currentPlatform.url;
+    const windowEventUnlisteners = {
+        resize: null as (() => void) | null,
+        move: null as (() => void) | null,
+        scale: null as (() => void) | null,
+        focus: null as (() => void) | null,
+        blur: null as (() => void) | null,
+        close: null as (() => void) | null,
+        windowEvent: null as (() => void) | null,
+        hideWebviews: null as (() => void) | null,
+        restoreWebviews: null as (() => void) | null,
+    };
+
+    const domEventHandlers = [
+        { event: "hideAllWebviews", handler: handleHideAllWebviewsEvent },
+        { event: "resize", handler: () => handleMainWindowResize() },
+        { event: "ensureTranslationVisible", handler: handleEnsureTranslationVisible },
+    ];
+
+    $effect(() => {
+        const signature = createProxySignature(configStore.config.proxy);
+        if (signature !== proxySignature) {
+            proxySignature = signature;
+            void handleProxyConfigChange();
         }
+    });
+
+    $effect(() => {
+        const translator = translationStore.currentPlatform;
+        const currentView = appState.currentView;
+
+        if (!translator || !translator.enabled) {
+            const fallback = translationStore.enabledPlatforms[0];
+            if (fallback) {
+                translationStore.setCurrentPlatform(fallback.id);
+                return;
+            }
+
+            activeTranslatorId = null;
+            isLoading = false;
+            loadError = null;
+            void hideAllWebviews();
+            return;
+        }
+
+        if (currentView !== "translation") {
+            activeTranslatorId = null;
+            isLoading = false;
+            loadError = null;
+            void hideAllWebviews();
+            return;
+        }
+
+        activeTranslatorId = translator.id;
+        void showTranslatorWebview(translator);
+    });
+
+
+
+    async function handleProxyConfigChange() {
+        if (webviewWindows.size === 0) {
+            return;
+        }
+
+        const closeTasks: Promise<void>[] = [];
+
+        for (const [id, webview] of webviewWindows.entries()) {
+            closeTasks.push(
+                webview
+                    .close()
+                    .catch((error) => {
+                        console.error(`关闭翻译 WebView ${id} 失败:`, error);
+                    }),
+            );
+        }
+
+        await Promise.all(closeTasks);
+        webviewWindows = new Map();
+        shouldRestoreWebviews = false;
+
+        if (appState.currentView === "translation" && translationStore.currentPlatform) {
+            await showTranslatorWebview(translationStore.currentPlatform);
+        }
+    }
+
+    async function showTranslatorWebview(platform: TranslationPlatform) {
+        if (isShowingWebview) {
+            return;
+        }
+
+        isShowingWebview = true;
+
+        try {
+            isLoading = true;
+            loadError = null;
+
+            await hideOtherWebviews(platform.id);
+
+            let webview = webviewWindows.get(platform.id);
+            const bounds = await calculateChildWebviewBounds(mainWindow);
+
+            if (!webview) {
+                const proxyUrl = resolveProxyUrl(configStore.config.proxy);
+                webview = new ChildWebviewProxy(`translator-${platform.id}`, platform.url, proxyUrl);
+                webviewWindows.set(platform.id, webview);
+                await webview.ensure(bounds);
+            } else {
+                await webview.updateBounds(bounds);
+            }
+
+            await webview.show();
+            shouldRestoreWebviews = false;
+
+            if (isMainWindowFocused) {
+                await webview.setFocus();
+            }
+
+            isLoading = false;
+        } catch (error) {
+            console.error(`显示翻译平台 ${platform.name} 失败:`, error);
+            isLoading = false;
+            loadError = platform.name;
+            appState.setError(t("translation.toastError"));
+        } finally {
+            isShowingWebview = false;
+        }
+    }
+
+    async function hideOtherWebviews(excludeId: string) {
+        const hidePromises: Promise<void>[] = [];
+
+        for (const [id, webview] of webviewWindows.entries()) {
+            if (id !== excludeId) {
+                hidePromises.push(
+                    (async () => {
+                        try {
+                            await webview.hide();
+                        } catch (error) {
+                            console.error(`隐藏翻译 WebView ${id} 失败:`, error);
+                        }
+                    })(),
+                );
+            }
+        }
+
+        await Promise.all(hidePromises);
+    }
+
+    async function positionAllWebviews({ shouldEnsureActiveFront = false }: { shouldEnsureActiveFront?: boolean } = {}) {
+        if (webviewWindows.size === 0) {
+            return;
+        }
+
+        const bounds = await calculateChildWebviewBounds(mainWindow);
+        const activeWebview = activeTranslatorId ? webviewWindows.get(activeTranslatorId) : null;
+        const tasks: Promise<void>[] = [];
+
+        for (const [, webview] of webviewWindows.entries()) {
+            const isActive = webview === activeWebview;
+
+            tasks.push(
+                (async () => {
+                    await webview.updateBounds(bounds);
+
+                    if (shouldEnsureActiveFront && isActive && isMainWindowFocused) {
+                        try {
+                            await webview.show();
+                            await webview.setFocus();
+                        } catch (error) {
+                            console.error("显示翻译 WebView 失败:", error);
+                        }
+                    }
+                })(),
+            );
+        }
+
+        await Promise.all(tasks);
+    }
+
+    function scheduleWebviewReflow({ shouldEnsureActiveFront: requestActiveFront = false, immediate = false } = {}) {
+        shouldEnsureActiveFront ||= requestActiveFront;
+
+        const execute = () => {
+            const needsFront = shouldEnsureActiveFront;
+            shouldEnsureActiveFront = false;
+
+            positionAllWebviews({ shouldEnsureActiveFront: needsFront }).catch((error) => {
+                console.error("翻译 WebView 重排失败:", error);
+            });
+        };
+
+        if (immediate) {
+            if (isPendingReflow) {
+                isPendingReflow = false;
+            }
+            execute();
+            return;
+        }
+
+        if (isPendingReflow) {
+            return;
+        }
+
+        isPendingReflow = true;
+
+        const run = () => {
+            isPendingReflow = false;
+            execute();
+        };
+
+        if (typeof requestAnimationFrame === "function") {
+            requestAnimationFrame(run);
+        } else {
+            setTimeout(run, 16);
+        }
+    }
+
+    interface HideAllOptions {
+        markForRestore?: boolean;
+    }
+
+    async function hideAllWebviews({ markForRestore = false }: HideAllOptions = {}) {
+        shouldRestoreWebviews = markForRestore;
+
+        const hideTasks = Array.from(webviewWindows.values()).map((webview) =>
+            webview.hide().catch((error) => {
+                console.error("隐藏翻译 WebView 失败:", error);
+            }),
+        );
+
+        await Promise.all(hideTasks);
+    }
+
+    async function closeAllWebviews() {
+        const closeTasks = Array.from(webviewWindows.values()).map((webview) =>
+            webview.close().catch((error) => {
+                console.error("关闭翻译 WebView 失败:", error);
+            }),
+        );
+
+        await Promise.all(closeTasks);
+        webviewWindows.clear();
+        shouldRestoreWebviews = false;
+    }
+
+    async function reloadCurrentTranslator() {
+        if (!activeTranslatorId) {
+            return;
+        }
+
+        const platform = translationStore.getPlatformById(activeTranslatorId);
+        if (!platform) {
+            return;
+        }
+
+        const currentWebview = webviewWindows.get(activeTranslatorId);
+
+        try {
+            if (currentWebview) {
+                await currentWebview.close();
+                webviewWindows.delete(activeTranslatorId);
+            }
+
+            await showTranslatorWebview(platform);
+        } catch (error) {
+            console.error("刷新翻译平台失败:", error);
+            appState.setError(t("translation.toastError"));
+        }
+    }
+
+    function handleHideAllWebviewsEvent() {
+        void hideAllWebviews({ markForRestore: true });
+    }
+
+    function handleEnsureTranslationVisible() {
+        const translator = translationStore.currentPlatform;
+        if (translator && translator.enabled && appState.currentView === "translation") {
+            void showTranslatorWebview(translator);
+        }
+    }
+
+    function handleMainWindowResize(size?: { width: number; height: number }) {
+        if (size && (size.width === 0 || size.height === 0)) {
+            void hideAllWebviews({ markForRestore: true });
+            return;
+        }
+
+        scheduleWebviewReflow({ shouldEnsureActiveFront: false, immediate: false });
+    }
+
+    function handleMainWindowMove() {
+        scheduleWebviewReflow({ shouldEnsureActiveFront: false, immediate: false });
+    }
+
+    async function restoreActiveWebview(force = false) {
+        if (!(force || shouldRestoreWebviews)) {
+            return;
+        }
+
+        if (!translationStore.currentPlatform) {
+            shouldRestoreWebviews = false;
+            return;
+        }
+
+        if (isShowingWebview) {
+            shouldRestoreWebviews = false;
+            return;
+        }
+
+        shouldRestoreWebviews = false;
+
+        const platform = translationStore.currentPlatform;
+        await showTranslatorWebview(platform);
+        scheduleWebviewReflow({ shouldEnsureActiveFront: true });
     }
 
     onMount(() => {
-        // 确保有选中的翻译平台
-        if (
-            !translationStore.currentPlatform &&
-            translationStore.enabledPlatforms.length > 0
-        ) {
-            translationStore.setCurrentPlatform(
-                translationStore.enabledPlatforms[0].id,
-            );
-        }
+        domEventHandlers.forEach(({ event, handler }) => {
+            window.addEventListener(event, handler as EventListener);
+        });
+
+        let isComponentDisposed = false;
+
+        (async () => {
+            try {
+                try {
+                    isMainWindowFocused = await mainWindow.isFocused();
+                } catch (error) {
+                    console.error("获取窗口焦点状态失败:", error);
+                }
+
+                windowEventUnlisteners.resize = await mainWindow.onResized(({ payload }) => {
+                    handleMainWindowResize(payload ?? undefined);
+                });
+
+                windowEventUnlisteners.move = await mainWindow.onMoved(() => {
+                    handleMainWindowMove();
+                });
+
+                windowEventUnlisteners.scale = await mainWindow.onScaleChanged(() => {
+                    handleMainWindowResize();
+                });
+
+                windowEventUnlisteners.focus = await mainWindow.listen("tauri://focus", () => {
+                    isMainWindowFocused = true;
+                });
+
+                windowEventUnlisteners.blur = await mainWindow.listen("tauri://blur", () => {
+                    isMainWindowFocused = false;
+                });
+
+                windowEventUnlisteners.close = await mainWindow.onCloseRequested(async () => {
+                    await closeAllWebviews();
+                });
+
+                windowEventUnlisteners.hideWebviews = await mainWindow.listen("hideAllWebviews", () => {
+                    void hideAllWebviews({ markForRestore: true });
+                });
+
+                windowEventUnlisteners.windowEvent = await mainWindow.listen("tauri://window-event", (event) => {
+                    const payload = event.payload as { event: string } | undefined;
+                    if (payload?.event === "minimized" || payload?.event === "hidden") {
+                        void hideAllWebviews({ markForRestore: true });
+                    }
+
+                    if (payload?.event === "restored" || payload?.event === "shown") {
+                        void restoreActiveWebview(true);
+                    }
+                });
+
+                windowEventUnlisteners.restoreWebviews = await mainWindow.listen("restoreWebviews", () => {
+                    void restoreActiveWebview(true);
+                });
+
+                if (isComponentDisposed) {
+                    cleanupAllWindowEvents();
+                    return;
+                }
+            } catch (error) {
+                console.error("注册翻译窗口事件失败:", error);
+            }
+        })();
+
+        scheduleWebviewReflow({ shouldEnsureActiveFront: true });
+
+        return () => {
+            isComponentDisposed = true;
+            domEventHandlers.forEach(({ event, handler }) => {
+                window.removeEventListener(event, handler as EventListener);
+            });
+            cleanupAllWindowEvents();
+        };
     });
+
+    onDestroy(async () => {
+        await closeAllWebviews();
+    });
+
+    function cleanupEventListener(
+        key: keyof typeof windowEventUnlisteners,
+        unlisten: (() => void) | null,
+    ) {
+        if (unlisten) {
+            unlisten();
+            windowEventUnlisteners[key] = null;
+        }
+    }
+
+    function cleanupAllWindowEvents() {
+        Object.entries(windowEventUnlisteners).forEach(([key, unlisten]) => {
+            cleanupEventListener(key as keyof typeof windowEventUnlisteners, unlisten);
+        });
+    }
+
+    function reload() {
+        void reloadCurrentTranslator();
+    }
 </script>
 
 <div class="translation-container">
-    <!-- 翻译平台选择器 -->
-    <div class="platform-selector">
-        <div class="selector-label">{t("translation.selectorLabel")}</div>
-        <div class="platform-buttons">
-            {#each translationStore.enabledPlatforms as platform (platform.id)}
-                <button
-                    class="platform-btn"
-                    class:active={translationStore.currentPlatform?.id ===
-                        platform.id}
-                    onclick={() => switchPlatform(platform.id)}
-                >
-                    <img
-                        src={platform.icon}
-                        alt={platform.name}
-                        class="platform-btn-icon"
-                        onerror={(e) =>
-                            ((
-                                e.currentTarget as HTMLImageElement
-                            ).style.display = "none")}
-                    />
-                    <span>{platform.name}</span>
-                </button>
-            {/each}
-        </div>
-    </div>
 
     <!-- 翻译内容区域 -->
     <div class="translation-content">
         {#if translationStore.currentPlatform}
-            <!-- 加载状态 -->
             {#if isLoading}
                 <div class="loading-overlay">
                     <div class="loading-spinner">
@@ -124,7 +480,6 @@
                 </div>
             {/if}
 
-            <!-- 错误状态 -->
             {#if loadError}
                 <div class="error-overlay">
                     <div class="error-content">
@@ -143,29 +498,35 @@
                         </svg>
                         <h3 class="error-title">{t("translation.loadErrorTitle")}</h3>
                         <p class="error-message">
-                            {translate("translation.loadErrorMessage", {
-                                name: translationStore.currentPlatform.name,
-                            })}
+                            {translate("translation.loadErrorMessage", { name: loadError })}
                         </p>
                         <button class="reload-btn" onclick={reload}>
                             {t("translation.reload")}
                         </button>
                     </div>
                 </div>
+            {:else if !isLoading}
+                <div class="translation-placeholder">
+                    <svg
+                        class="placeholder-icon"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"
+                        />
+                    </svg>
+                    <p class="placeholder-text">
+                        {translate("translation.externalWindowHint", {
+                            name: translationStore.currentPlatform.name,
+                        })}
+                    </p>
+                </div>
             {/if}
-
-            <!-- WebView iframe -->
-            <iframe
-                bind:this={iframeElement}
-                src={translationStore.currentPlatform.url}
-                title={translationStore.currentPlatform.name}
-                class="translation-iframe"
-                class:hidden={isLoading || loadError}
-                onload={handleLoad}
-                onerror={handleError}
-                allow="clipboard-read; clipboard-write"
-                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
-            ></iframe>
         {:else}
             <div class="no-platform">
                 <svg
@@ -198,82 +559,10 @@
         overflow: hidden;
     }
 
-    .platform-selector {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 1rem 1.5rem;
-        background-color: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
-        flex-shrink: 0;
-    }
-
-    .selector-label {
-        font-size: 0.875rem;
-        font-weight: 500;
-        color: var(--text-secondary);
-        white-space: nowrap;
-    }
-
-    .platform-buttons {
-        display: flex;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-        flex: 1;
-        overflow-x: auto;
-    }
-
-    .platform-buttons::-webkit-scrollbar {
-        height: 4px;
-    }
-
-    .platform-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 1rem;
-        font-size: 0.875rem;
-        color: var(--text-primary);
-        background-color: var(--bg-primary);
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        white-space: nowrap;
-    }
-
-    .platform-btn:hover {
-        border-color: var(--accent-color);
-        background-color: var(--bg-tertiary);
-    }
-
-    .platform-btn.active {
-        background-color: var(--accent-color);
-        color: white;
-        border-color: var(--accent-color);
-    }
-
-    .platform-btn-icon {
-        width: 16px;
-        height: 16px;
-        border-radius: 2px;
-    }
-
     .translation-content {
         flex: 1;
         position: relative;
         overflow: hidden;
-    }
-
-    .translation-iframe {
-        width: 100%;
-        height: 100%;
-        border: none;
-        display: block;
-    }
-
-    .translation-iframe.hidden {
-        display: none;
     }
 
     .loading-overlay {
@@ -395,6 +684,31 @@
 
     .reload-btn:active {
         transform: translateY(0);
+    }
+
+    .translation-placeholder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        color: var(--text-secondary);
+        padding: 0 2rem;
+        text-align: center;
+    }
+
+    .placeholder-icon {
+        width: 48px;
+        height: 48px;
+        color: var(--text-tertiary);
+    }
+
+    .placeholder-text {
+        margin: 0;
+        font-size: 0.9rem;
+        line-height: 1.5;
     }
 
     .no-platform {

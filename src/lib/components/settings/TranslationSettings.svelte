@@ -4,8 +4,8 @@
      */
     import { onMount } from "svelte";
     import { translationStore } from "$lib/stores/translation.svelte";
-    import { configStore } from "$lib/stores/config.svelte";
     import { i18n } from "$lib/i18n";
+    import type { TranslationPlatform } from "$lib/types/platform";
 
     const t = i18n.t;
 
@@ -39,8 +39,25 @@
         }
     }
 
-    function isDefault(id: string) {
-        return translationStore.currentPlatform?.id === id;
+    function formatPlatformNames(platforms: TranslationPlatform[]): string {
+        if (platforms.length === 0) {
+            return "";
+        }
+
+        const locale = i18n.locale.get();
+        if (typeof Intl !== "undefined" && typeof Intl.ListFormat === "function") {
+            try {
+                const formatter = new Intl.ListFormat(locale, {
+                    style: "long",
+                    type: "conjunction",
+                });
+                return formatter.format(platforms.map((platform) => platform.name));
+            } catch (error) {
+                console.error("Failed to format translator list:", error);
+            }
+        }
+
+        return platforms.map((platform) => platform.name).join(", ");
     }
 
     async function togglePlatform(id: string) {
@@ -49,16 +66,6 @@
         } catch (error) {
             console.error("Failed to toggle translation platform:", error);
             window.alert(t("translationSettings.toggleError"));
-        }
-    }
-
-    async function setAsDefault(id: string) {
-        try {
-            translationStore.setCurrentPlatform(id);
-            await configStore.setCurrentTranslator(id);
-        } catch (error) {
-            console.error("Failed to set default translator:", error);
-            window.alert(t("translationSettings.setDefaultError"));
         }
     }
 </script>
@@ -70,6 +77,16 @@
             <p class="group-description">
                 {t("translationSettings.providersDescription")}
             </p>
+            <div class="enabled-summary">
+                <span class="enabled-label">{t("translationSettings.enabledListTitle")}</span>
+                {#if translationStore.enabledPlatforms.length > 0}
+                    <span class="enabled-names">
+                        {formatPlatformNames(translationStore.enabledPlatforms)}
+                    </span>
+                {:else}
+                    <span class="enabled-empty">{t("translationSettings.enabledListEmpty")}</span>
+                {/if}
+            </div>
         </div>
 
         <div class="platform-list">
@@ -88,9 +105,6 @@
                             <div class="platform-details">
                                 <div class="platform-name-row">
                                     <span class="platform-name">{platform.name}</span>
-                                    {#if isDefault(platform.id)}
-                                        <span class="default-badge">{t("translationSettings.defaultBadge")}</span>
-                                    {/if}
                                 </div>
                                 <span class="platform-url">{platform.url}</span>
                                 {#if platform.supportLanguages && platform.supportLanguages.length > 0}
@@ -109,15 +123,6 @@
                         </div>
 
                         <div class="platform-actions">
-                            {#if platform.enabled && !isDefault(platform.id)}
-                                <button
-                                    class="set-default-btn"
-                                    type="button"
-                                    onclick={() => setAsDefault(platform.id)}
-                                >
-                                    {t("translationSettings.setDefault")}
-                                </button>
-                            {/if}
                             <label class="toggle-switch">
                                 <input
                                     type="checkbox"
@@ -189,6 +194,27 @@
         color: var(--text-secondary);
     }
 
+    .enabled-summary {
+        display: flex;
+        gap: 0.5rem;
+        align-items: baseline;
+        flex-wrap: wrap;
+        font-size: 0.85rem;
+    }
+
+    .enabled-label {
+        font-weight: 500;
+        color: var(--text-secondary);
+    }
+
+    .enabled-names {
+        color: var(--text-primary);
+    }
+
+    .enabled-empty {
+        color: var(--text-tertiary);
+    }
+
     .platform-list {
         display: flex;
         flex-direction: column;
@@ -241,17 +267,6 @@
         color: var(--text-primary);
     }
 
-    .default-badge {
-        padding: 0.125rem 0.5rem;
-        font-size: 0.7rem;
-        font-weight: 600;
-        border-radius: 999px;
-        background-color: rgba(59, 130, 246, 0.15);
-        color: var(--accent-color);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
     .platform-url {
         font-size: 0.8125rem;
         color: var(--text-secondary);
@@ -267,24 +282,6 @@
         display: flex;
         align-items: center;
         gap: 0.75rem;
-    }
-
-    .set-default-btn {
-        padding: 0.375rem 0.75rem;
-        font-size: 0.8125rem;
-        font-weight: 500;
-        color: var(--accent-color);
-        background-color: transparent;
-        border: 1px solid var(--accent-color);
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        white-space: nowrap;
-    }
-
-    .set-default-btn:hover {
-        background-color: var(--accent-color);
-        color: white;
     }
 
     .toggle-switch {

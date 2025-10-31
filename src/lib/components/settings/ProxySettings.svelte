@@ -1,7 +1,7 @@
 <script lang="ts">
     /**
      * Proxy settings panel
-     * Supports: no proxy, system proxy, custom proxy
+     * Supports: system proxy, custom proxy
      */
     import { onMount } from "svelte";
     import { invoke } from "@tauri-apps/api/core";
@@ -9,7 +9,7 @@
     import type { ProxyConfig } from "$lib/types/config";
     import { i18n } from "$lib/i18n";
 
-    type ProxyType = "none" | "system" | "custom";
+    type ProxyType = "system" | "custom";
 
     interface ProxyTestResult {
         success: boolean;
@@ -32,7 +32,7 @@
         return value;
     }
 
-    let proxyType = $state<ProxyType>("none");
+    let proxyType = $state<ProxyType>("system");
     let customProxyHost = $state(DEFAULT_PROXY_HOST);
     let customProxyPort = $state(DEFAULT_PROXY_PORT);
     let isSaving = $state(false);
@@ -45,11 +45,7 @@
     function syncFromConfig() {
         const proxy = configStore.config.proxy;
 
-        if (!proxy || proxy.type === "none") {
-            proxyType = "none";
-            customProxyHost = DEFAULT_PROXY_HOST;
-            customProxyPort = DEFAULT_PROXY_PORT;
-        } else if (proxy.type === "system") {
+        if (!proxy || proxy.type === "system") {
             proxyType = "system";
             customProxyHost = DEFAULT_PROXY_HOST;
             customProxyPort = DEFAULT_PROXY_PORT;
@@ -114,13 +110,13 @@
             return;
         }
 
-        let proxyPayload: ProxyConfig | null = null;
+        let proxyPayload: ProxyConfig;
 
         try {
             if (proxyType === "custom") {
                 const { host, port } = validateCustomProxy();
                 proxyPayload = { type: "custom", host, port };
-            } else if (proxyType === "system") {
+            } else {
                 proxyPayload = { type: "system" };
             }
         } catch (error) {
@@ -137,9 +133,7 @@
         saveMessage = null;
 
         try {
-            console.log("Saving proxy config:", proxyPayload);
             await configStore.update({ proxy: proxyPayload });
-            console.log("Proxy config saved successfully");
             saveStatus = "success";
             saveMessage = t("proxy.saveSuccess");
             syncFromConfig();
@@ -224,22 +218,6 @@
         <span class="form-label">{t("proxy.type")}</span>
 
         <div class="radio-group">
-            <label class="radio-option">
-                <input
-                    type="radio"
-                    name="proxy-type"
-                    value="none"
-                    checked={proxyType === "none"}
-                    onchange={() => handleTypeChange("none")}
-                />
-                <div class="radio-content">
-                    <div class="radio-title">{t("proxy.none")}</div>
-                    <div class="radio-description">
-                        {t("proxy.noneDescription")}
-                    </div>
-                </div>
-            </label>
-
             <label class="radio-option">
                 <input
                     type="radio"

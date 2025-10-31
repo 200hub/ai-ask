@@ -2,6 +2,8 @@
 use reqwest::redirect::Policy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{
@@ -27,9 +29,14 @@ struct ProxyTestResult {
     latency: Option<u128>,
 }
 
+struct ManagedWebview {
+    webview: Webview,
+    proxy_url: Option<String>,
+}
+
 #[derive(Default)]
 struct ChildWebviewManager {
-    webviews: Mutex<HashMap<String, Webview>>,
+    webviews: Mutex<HashMap<String, ManagedWebview>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,10 +66,12 @@ struct BoundsPayload {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct EnsureChildWebviewPayload {
     id: String,
     url: String,
     bounds: BoundsPayload,
+    proxy_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,6 +110,46 @@ async fn hide_window(window: tauri::Window) -> Result<(), String> {
 
 fn parse_external_url(url: &str) -> Result<Url, String> {
     Url::parse(url).map_err(|err| err.to_string())
+}
+
+fn parse_proxy_url(url: &str) -> Result<Url, String> {
+    let parsed = Url::parse(url).map_err(|err| err.to_string())?;
+
+    match parsed.scheme() {
+        "http" | "socks5" => Ok(parsed),
+        scheme => Err(format!("不支持的代理协议: {scheme}")),
+    }
+}
+
+fn sanitize_for_directory(input: &str) -> String {
+    input
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect()
+}
+
+/// Returns a unique WebView data directory for the given proxy configuration.
+///
+/// Windows WebView2 instances with different network settings must not share
+/// the same data directory, otherwise the proxy configuration is ignored.
+fn resolve_proxy_data_directory(window: &Window, proxy: Option<&str>) -> Option<PathBuf> {
+    let proxy = proxy?;
+    let resolver = window.app_handle().path();
+    let base_dir = resolver
+        .app_data_dir()
+        .or_else(|_| resolver.app_cache_dir())
+        .ok()?;
+
+    let dir = base_dir
+        .join("webview-proxies")
+        .join(sanitize_for_directory(proxy));
+
+    if let Err(err) = fs::create_dir_all(&dir) {
+        eprintln!("创建代理数据目录失败 {dir:?}: {err}");
+        return None;
+    }
+
+    Some(dir)
 }
 
 fn logical_position(bounds: &BoundsPayload) -> LogicalPosition<f64> {
@@ -154,7 +203,21 @@ async fn ensure_child_webview(
         .lock()
         .map_err(|err| format!("failed to lock webview map: {err}"))?;
 
-    if let Some(webview) = webviews.get(&payload.id) {
+    let requested_proxy = payload.proxy_url.as_deref();
+    let should_recreate = webviews
+        .get(&payload.id)
+        .map(|entry| entry.proxy_url.as_deref() != requested_proxy)
+        .unwrap_or(false);
+
+    if should_recreate {
+        if let Some(entry) = webviews.remove(&payload.id) {
+            let _ = entry.webview.close();
+        }
+    }
+
+    if let Some(entry) = webviews.get(&payload.id) {
+        let webview = &entry.webview;
+
         if let Ok(current_url) = webview.url() {
             if current_url.as_str() != payload.url {
                 webview
@@ -170,17 +233,30 @@ async fn ensure_child_webview(
             .set_size(Size::Logical(size))
             .map_err(|err| err.to_string())?;
     } else {
-        let builder = WebviewBuilder::new(
+        let mut builder = WebviewBuilder::new(
             payload.id.clone(),
             WebviewUrl::External(parse_external_url(&payload.url)?),
         );
+
+        if let Some(proxy_url) = requested_proxy {
+            builder = builder.proxy_url(parse_proxy_url(proxy_url)?);
+            if let Some(data_dir) = resolve_proxy_data_directory(&window, requested_proxy) {
+                builder = builder.data_directory(data_dir);
+            }
+        }
 
         let child = window
             .add_child(builder, position, size)
             .map_err(|err| err.to_string())?;
         let _ = child.hide();
 
-        webviews.insert(payload.id, child);
+        webviews.insert(
+            payload.id,
+            ManagedWebview {
+                webview: child,
+                proxy_url: payload.proxy_url.clone(),
+            },
+        );
     }
 
     Ok(())
@@ -198,11 +274,13 @@ async fn set_child_webview_bounds(
         .webviews
         .lock()
         .map_err(|err| format!("failed to lock webview map: {err}"))?;
-    if let Some(webview) = webviews.get(&payload.id) {
-        webview
+    if let Some(entry) = webviews.get(&payload.id) {
+        entry
+            .webview
             .set_position(Position::Logical(position))
             .map_err(|err| err.to_string())?;
-        webview
+        entry
+            .webview
             .set_size(Size::Logical(size))
             .map_err(|err| err.to_string())?;
     }
@@ -218,9 +296,9 @@ async fn show_child_webview(
         .webviews
         .lock()
         .map_err(|err| format!("failed to lock webview map: {err}"))?;
-    if let Some(webview) = webviews.get(&payload.id) {
-        webview.show().map_err(|err| err.to_string())?;
-        let _ = webview.set_focus();
+    if let Some(entry) = webviews.get(&payload.id) {
+        entry.webview.show().map_err(|err| err.to_string())?;
+        let _ = entry.webview.set_focus();
     }
     Ok(())
 }
@@ -234,8 +312,8 @@ async fn hide_child_webview(
         .webviews
         .lock()
         .map_err(|err| format!("failed to lock webview map: {err}"))?;
-    if let Some(webview) = webviews.get(&payload.id) {
-        webview.hide().map_err(|err| err.to_string())?;
+    if let Some(entry) = webviews.get(&payload.id) {
+        entry.webview.hide().map_err(|err| err.to_string())?;
     }
     Ok(())
 }
@@ -249,8 +327,8 @@ async fn close_child_webview(
         .webviews
         .lock()
         .map_err(|err| format!("failed to lock webview map: {err}"))?;
-    if let Some(webview) = webviews.remove(&payload.id) {
-        webview.close().map_err(|err| err.to_string())?;
+    if let Some(entry) = webviews.remove(&payload.id) {
+        entry.webview.close().map_err(|err| err.to_string())?;
     }
     Ok(())
 }
@@ -264,8 +342,8 @@ async fn focus_child_webview(
         .webviews
         .lock()
         .map_err(|err| format!("failed to lock webview map: {err}"))?;
-    if let Some(webview) = webviews.get(&payload.id) {
-        webview.set_focus().map_err(|err| err.to_string())?;
+    if let Some(entry) = webviews.get(&payload.id) {
+        entry.webview.set_focus().map_err(|err| err.to_string())?;
     }
     Ok(())
 }
@@ -276,8 +354,8 @@ async fn hide_all_child_webviews(state: State<'_, ChildWebviewManager>) -> Resul
         .webviews
         .lock()
         .map_err(|err| format!("failed to lock webview map: {err}"))?;
-    for webview in webviews.values() {
-        let _ = webview.hide();
+    for entry in webviews.values() {
+        let _ = entry.webview.hide();
     }
     Ok(())
 }
@@ -314,10 +392,10 @@ async fn test_proxy_connection(config: ProxyTestConfig) -> Result<ProxyTestResul
             let proxy = reqwest::Proxy::all(&proxy_url).map_err(|err| err.to_string())?;
             client_builder = client_builder.proxy(proxy);
         }
-        "none" => {
-            client_builder = client_builder.no_proxy();
+        "system" | "none" => {}
+        other => {
+            return Err(format!("不支持的代理类型: {other}"));
         }
-        _ => {}
     }
 
     let client = client_builder.build().map_err(|err| err.to_string())?;

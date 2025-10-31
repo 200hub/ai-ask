@@ -23,7 +23,7 @@ export interface AppConfig {
   currentTranslator: string;
 
   // 代理设置
-  proxy?: ProxyConfig | null;
+  proxy?: ProxyConfig;
 
   // 窗口设置
   windowSize: WindowSize;
@@ -37,7 +37,7 @@ export interface AppConfig {
  * 代理配置接口
  */
 export interface ProxyConfig {
-  type: "none" | "system" | "custom";
+  type: "system" | "custom";
   host?: string;
   port?: string;
 }
@@ -70,7 +70,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultPlatform: null,
   lastUsedPlatform: null,
   currentTranslator: "google",
-  proxy: null,
+  proxy: { type: "system" },
   windowSize: {
     width: 1200,
     height: 800,

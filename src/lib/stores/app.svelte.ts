@@ -2,7 +2,7 @@
  * 应用全局状态管理 - 使用 Svelte 5 Runes
  */
 import type { ViewType } from '../types/config';
-import type { AIPlatform, TranslationPlatform } from '../types/platform';
+import type { AIPlatform } from '../types/platform';
 
 /**
  * 应用状态类
@@ -13,9 +13,6 @@ class AppState {
 
   // 当前选中的AI平台
   selectedPlatform = $state<AIPlatform | null>(null);
-
-  // 当前选中的翻译平台
-  selectedTranslator = $state<TranslationPlatform | null>(null);
 
   // 是否显示设置面板
   showSettings = $state<boolean>(false);
@@ -41,10 +38,7 @@ class AppState {
   /**
    * 切换到翻译视图
    */
-  switchToTranslationView(translator?: TranslationPlatform) {
-    if (translator) {
-      this.selectedTranslator = translator;
-    }
+  switchToTranslationView() {
     this.currentView = 'translation';
     this.showSettings = false;
   }
@@ -119,7 +113,6 @@ class AppState {
   reset() {
     this.currentView = 'welcome';
     this.selectedPlatform = null;
-    this.selectedTranslator = null;
     this.showSettings = false;
     this.isLoading = false;
     this.error = null;

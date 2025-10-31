@@ -12,15 +12,25 @@
     import { translationStore } from "$lib/stores/translation.svelte";
     import type { UnlistenFn } from "@tauri-apps/api/event";
     import { listen } from "@tauri-apps/api/event";
+    import { register, unregister, isRegistered } from "@tauri-apps/plugin-global-shortcut";
+    import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
     import "$lib/styles/base.css";
 
     let openSettingsUnlisten: UnlistenFn | null = null;
+    let registeredTranslationHotkey: string | null = null;
 
     onMount(async () => {
         // 初始化所有 stores
         await configStore.init();
         await platformsStore.init();
         await translationStore.init();
+
+        const translatorId = configStore.config.currentTranslator;
+        if (translatorId) {
+            translationStore.setCurrentPlatform(translatorId);
+        } else if (!translationStore.currentPlatform && translationStore.enabledPlatforms.length > 0) {
+            translationStore.setCurrentPlatform(translationStore.enabledPlatforms[0].id);
+        }
 
         // 如果有默认平台或上次使用的平台，自动选择
         const lastPlatformId =
@@ -45,6 +55,79 @@
     onDestroy(() => {
         openSettingsUnlisten?.();
         openSettingsUnlisten = null;
+
+        if (registeredTranslationHotkey) {
+            const hotkey = registeredTranslationHotkey;
+            registeredTranslationHotkey = null;
+            void (async () => {
+                try {
+                    if (await isRegistered(hotkey)) {
+                        await unregister(hotkey);
+                    }
+                } catch (error) {
+                    console.error("Failed to unregister translation hotkey:", error);
+                }
+            })();
+        }
+    });
+
+    async function ensureTranslationHotkeyRegistered(hotkey: string) {
+        if (!hotkey) {
+            return;
+        }
+
+        try {
+            if (registeredTranslationHotkey && registeredTranslationHotkey !== hotkey) {
+                if (await isRegistered(registeredTranslationHotkey)) {
+                    await unregister(registeredTranslationHotkey);
+                }
+                registeredTranslationHotkey = null;
+            }
+
+            if (!registeredTranslationHotkey) {
+                await register(hotkey, () => {
+                    void handleTranslationHotkey();
+                });
+                registeredTranslationHotkey = hotkey;
+            }
+        } catch (error) {
+            console.error("Failed to register translation hotkey:", error);
+        }
+    }
+
+    async function handleTranslationHotkey() {
+        try {
+            appState.switchToTranslationView();
+
+            const appWindow = getCurrentWebviewWindow();
+            const [isVisible, isMinimized] = await Promise.all([
+                appWindow.isVisible().catch(() => false),
+                appWindow.isMinimized().catch(() => false),
+            ]);
+
+            if (isMinimized) {
+                await appWindow.unminimize().catch(() => {});
+            }
+
+            if (!isVisible) {
+                await appWindow.show().catch(() => {});
+            }
+
+            await appWindow.setFocus().catch(() => {});
+
+            window.dispatchEvent(new CustomEvent("ensureTranslationVisible"));
+        } catch (error) {
+            console.error("Failed to handle translation hotkey:", error);
+        }
+    }
+
+    $effect(() => {
+        if (!configStore.initialized) {
+            return;
+        }
+
+        const hotkey = configStore.config.translationHotkey;
+        void ensureTranslationHotkeyRegistered(hotkey);
     });
 </script>
 

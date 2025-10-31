@@ -10,104 +10,11 @@
      */
     import { onMount, onDestroy } from "svelte";
     import { appState } from "$lib/stores/app.svelte";
+    import { configStore } from "$lib/stores/config.svelte";
     import type { AIPlatform } from "$lib/types/platform";
-    import { invoke } from "@tauri-apps/api/core";
     import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-
-    interface ChildWebviewBounds {
-        positionLogical: { x: number; y: number };
-        sizeLogical: { width: number; height: number };
-        scaleFactor: number;
-    }
-
-    const BOUNDS_EPSILON = 0.5;
-
-    function boundsEqual(a: ChildWebviewBounds, b: ChildWebviewBounds): boolean {
-        return (
-            Math.abs(a.positionLogical.x - b.positionLogical.x) < BOUNDS_EPSILON &&
-            Math.abs(a.positionLogical.y - b.positionLogical.y) < BOUNDS_EPSILON &&
-            Math.abs(a.sizeLogical.width - b.sizeLogical.width) < BOUNDS_EPSILON &&
-            Math.abs(a.sizeLogical.height - b.sizeLogical.height) < BOUNDS_EPSILON
-        );
-    }
-
-    class ChildWebviewProxy {
-        #lastBounds: ChildWebviewBounds | null = null;
-        #isVisible = false;
-        private readonly id: string;
-        private readonly url: string;
-
-        constructor(id: string, url: string) {
-            this.id = id;
-            this.url = url;
-        }
-
-        async ensure(bounds: ChildWebviewBounds) {
-            this.#lastBounds = bounds;
-            await invoke("ensure_child_webview", {
-                payload: {
-                    id: this.id,
-                    url: this.url,
-                    bounds,
-                },
-            });
-            this.#isVisible = false;
-        }
-
-        async updateBounds(bounds: ChildWebviewBounds) {
-            if (this.#lastBounds && boundsEqual(this.#lastBounds, bounds)) {
-                return;
-            }
-
-            this.#lastBounds = bounds;
-            await invoke("set_child_webview_bounds", {
-                payload: {
-                    id: this.id,
-                    bounds,
-                },
-            });
-        }
-
-        async show() {
-            if (this.#isVisible) {
-                return;
-            }
-
-            await invoke("show_child_webview", {
-                payload: { id: this.id },
-            });
-            this.#isVisible = true;
-        }
-
-        async hide() {
-            if (!this.#isVisible) {
-                return;
-            }
-
-            await invoke("hide_child_webview", {
-                payload: { id: this.id },
-            });
-            this.#isVisible = false;
-        }
-
-        async close() {
-            await invoke("close_child_webview", {
-                payload: { id: this.id },
-            });
-            this.#isVisible = false;
-            this.#lastBounds = null;
-        }
-
-        async setFocus() {
-            await invoke("focus_child_webview", {
-                payload: { id: this.id },
-            });
-        }
-
-        isVisible(): boolean {
-            return this.#isVisible;
-        }
-    }
+    import { calculateChildWebviewBounds, ChildWebviewProxy } from "$lib/utils/childWebview";
+    import { createProxySignature, resolveProxyUrl } from "$lib/utils/proxy";
 
     type ManagedWebview = ChildWebviewProxy;
 
@@ -124,6 +31,9 @@
     
     /** 主窗口是否获得焦点 */
     let isMainWindowFocused = $state(true);
+
+    /** 当前代理配置签名，用于监听变更 */
+    let proxySignature = $state(createProxySignature(configStore.config.proxy));
     
     // ========== 重新布局相关状态 ==========
     
@@ -152,6 +62,15 @@
     let shouldRestoreWebviews = false;
 
     // ========== 响应式状态监听 ==========
+
+    /** 监听代理配置变化，必要时重建 WebView */
+    $effect(() => {
+        const signature = createProxySignature(configStore.config.proxy);
+        if (signature !== proxySignature) {
+            proxySignature = signature;
+            void handleProxyConfigChange();
+        }
+    });
     
     /** 监听选中平台变化，自动切换显示对应的WebView */
     $effect(() => {
@@ -178,6 +97,32 @@
 
     // ========== WebView 管理核心方法 ==========
     
+    async function handleProxyConfigChange() {
+        if (webviewWindows.size === 0) {
+            return;
+        }
+
+        const closeTasks: Promise<void>[] = [];
+
+        for (const [id, webview] of webviewWindows.entries()) {
+            closeTasks.push(
+                webview
+                    .close()
+                    .catch((error) => {
+                        console.error(`关闭 WebView ${id} 失败:`, error);
+                    }),
+            );
+        }
+
+        await Promise.all(closeTasks);
+        webviewWindows = new Map();
+        shouldRestoreWebviews = false;
+
+        if (appState.currentView === "chat" && appState.selectedPlatform) {
+            await showPlatformWebview(appState.selectedPlatform);
+        }
+    }
+
     /**
      * 显示指定平台的子 webview
      * 
@@ -209,7 +154,7 @@
                 return;
             } else {
                 // 已存在的 webview，更新位置
-                const bounds = await calculateWebviewBounds();
+                const bounds = await calculateChildWebviewBounds(mainWindow);
                 await webview.updateBounds(bounds);
             }
 
@@ -258,8 +203,9 @@
      * @returns Promise<ManagedWebview> - 创建的子 webview 代理实例
      */
     async function createWebviewForPlatform(platform: AIPlatform): Promise<ManagedWebview> {
-        const bounds = await calculateWebviewBounds();
-        const webview = new ChildWebviewProxy(`ai-chat-${platform.id}`, platform.url);
+    const bounds = await calculateChildWebviewBounds(mainWindow);
+    const proxyUrl = resolveProxyUrl(configStore.config.proxy);
+        const webview = new ChildWebviewProxy(`ai-chat-${platform.id}`, platform.url, proxyUrl);
         await webview.ensure(bounds);
         return webview;
     }
@@ -271,63 +217,6 @@
      * 
      * @returns 子 webview 的位置、尺寸和缩放信息
      */
-    async function calculateWebviewBounds(): Promise<{
-        positionLogical: { x: number; y: number };
-        sizeLogical: { width: number; height: number };
-        scaleFactor: number;
-    }> {
-        try {
-            // 获取缩放比例和窗口基础信息
-            const scaleFactor = await mainWindow.scaleFactor();
-            const [outerPosition, outerSize, innerSize] = await Promise.all([
-                mainWindow.outerPosition(),
-                mainWindow.outerSize(),
-                mainWindow.innerSize(),
-            ]);
-
-            // 获取布局元素尺寸
-            const layoutElements = {
-                sidebar: document.querySelector(".sidebar") as HTMLElement | null,
-                header: document.querySelector(".header") as HTMLElement | null,
-                mainContent: document.querySelector(".main-content") as HTMLElement | null,
-            };
-
-            // 计算布局偏移量（逻辑像素）
-            const sidebarWidth = layoutElements.sidebar?.offsetWidth ?? 56;  // 默认侧边栏宽度
-            const headerHeight = layoutElements.header?.offsetHeight ?? 44;  // 默认头部高度
-
-            // 获取主内容区域的精确边界
-            const mainContentRect = layoutElements.mainContent?.getBoundingClientRect();
-            
-            const contentOffsetLeft = mainContentRect?.left ?? sidebarWidth;
-            const contentOffsetTop = mainContentRect?.top ?? headerHeight;
-            const contentWidth = mainContentRect?.width ?? 
-                Math.max(0, innerSize.width / scaleFactor - contentOffsetLeft);
-            const contentHeight = mainContentRect?.height ?? 
-                Math.max(0, innerSize.height / scaleFactor - contentOffsetTop);
-
-            // 重要：window.add_child 接受的是相对于父窗口的坐标
-            // 不需要加上窗口的屏幕位置，直接使用 getBoundingClientRect 得到的相对坐标
-            return {
-                positionLogical: {
-                    x: contentOffsetLeft,
-                    y: contentOffsetTop,
-                },
-                sizeLogical: {
-                    width: contentWidth,
-                    height: contentHeight,
-                },
-                scaleFactor,
-            };
-        } catch (error) {
-            console.error("WebView 边界计算失败，使用默认值:", error);
-            return {
-                positionLogical: { x: 100, y: 100 },
-                sizeLogical: { width: 800, height: 600 },
-                scaleFactor: 1,
-            };
-        }
-    }
 
     // ========== 子 webview 定位和布局管理 ==========
     
@@ -355,7 +244,7 @@
             return;
         }
 
-        const bounds = await calculateWebviewBounds();
+    const bounds = await calculateChildWebviewBounds(mainWindow);
         const activeWebview = activePlatformId ? webviewWindows.get(activePlatformId) : null;
         const positionTasks: Promise<void>[] = [];
 
@@ -449,12 +338,6 @@
 
     async function hideAllWebviews({ markForRestore = false }: HideAllOptions = {}) {
         shouldRestoreWebviews = markForRestore;
-        
-        try {
-            await invoke("hide_all_child_webviews");
-        } catch (error) {
-            console.error("批量隐藏子 WebView 失败:", error);
-        }
 
         const hideTasks = Array.from(webviewWindows.values()).map((webview) =>
             webview.hide().catch((error) => {
@@ -558,7 +441,7 @@
             const existing = webviewWindows.get(platform.id);
 
             if (existing) {
-                const bounds = await calculateWebviewBounds();
+                const bounds = await calculateChildWebviewBounds(mainWindow);
                 await existing.updateBounds(bounds);
                 await existing.show();
                 await existing.setFocus();

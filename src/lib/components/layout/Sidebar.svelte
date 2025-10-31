@@ -5,7 +5,6 @@
     import { Settings, Languages } from "lucide-svelte";
     import { appState } from "$lib/stores/app.svelte";
     import { platformsStore } from "$lib/stores/platforms.svelte";
-    import { translationStore } from "$lib/stores/translation.svelte";
     import { configStore } from "$lib/stores/config.svelte";
     import { i18n } from "$lib/i18n";
 
@@ -32,9 +31,7 @@
      * 打开翻译功能
      */
     function openTranslation() {
-        appState.switchToTranslationView(
-            translationStore.currentPlatform || undefined,
-        );
+        appState.switchToTranslationView();
     }
 
     /**

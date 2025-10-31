@@ -1,8 +1,13 @@
 /**
  * 翻译平台状态管理 - 使用 Svelte 5 Runes
  */
-import type { TranslationPlatform } from '../types/platform';
-import { getTranslationPlatforms, saveTranslationPlatforms, updateTranslationPlatform } from '../utils/storage';
+import type { TranslationPlatform } from "../types/platform";
+import {
+  getTranslationPlatforms,
+  saveTranslationPlatforms,
+  updateTranslationPlatform,
+} from "../utils/storage";
+import { configStore } from "./config.svelte";
 
 /**
  * 翻译平台管理类
@@ -25,12 +30,39 @@ class TranslationStore {
   async init() {
     try {
       this.platforms = await getTranslationPlatforms();
+
+      const enabled = this.platforms.filter((platform) => platform.enabled);
+      if (enabled.length > 1) {
+        const preferredId = configStore.config.currentTranslator;
+        const preferred = preferredId
+          ? enabled.find((platform) => platform.id === preferredId)
+          : undefined;
+        const keep = preferred ?? enabled[0];
+        const disableTargets = enabled.filter((platform) => platform.id !== keep.id);
+
+        if (disableTargets.length > 0) {
+          await Promise.all(
+            disableTargets.map((platform) =>
+              updateTranslationPlatform(platform.id, { enabled: false }),
+            ),
+          );
+          disableTargets.forEach((platform) => {
+            platform.enabled = false;
+          });
+          await configStore.setCurrentTranslator(keep.id);
+        }
+      }
+
+      this.platforms = [...this.platforms];
+
       // 设置默认选中第一个启用的平台
       if (!this.currentPlatform && this.enabledPlatforms.length > 0) {
-        this.currentPlatform = this.enabledPlatforms[0];
+        const active = this.enabledPlatforms[0];
+        this.currentPlatform = active;
+        await configStore.setCurrentTranslator(active.id);
       }
     } catch (error) {
-      console.error('Failed to initialize translation platforms:', error);
+      console.error("Failed to initialize translation platforms:", error);
     }
   }
 
@@ -46,13 +78,40 @@ class TranslationStore {
    */
   async togglePlatform(id: string) {
     const platform = this.getPlatformById(id);
-    if (!platform) return;
+    if (!platform) {
+      return;
+    }
+
+    const willEnable = !platform.enabled;
 
     try {
-      await updateTranslationPlatform(id, { enabled: !platform.enabled });
-      platform.enabled = !platform.enabled;
+      if (willEnable) {
+        const updates: Promise<void>[] = [];
+
+        this.platforms.forEach((item) => {
+          const shouldEnable = item.id === id;
+          if (item.enabled !== shouldEnable) {
+            updates.push(updateTranslationPlatform(item.id, { enabled: shouldEnable }));
+            item.enabled = shouldEnable;
+          }
+        });
+
+        await Promise.all(updates);
+        const next = this.getPlatformById(id) ?? platform;
+        this.currentPlatform = next;
+        await configStore.setCurrentTranslator(next.id);
+      } else {
+        await updateTranslationPlatform(id, { enabled: false });
+        platform.enabled = false;
+
+        const fallback = this.enabledPlatforms[0] ?? null;
+        this.currentPlatform = fallback ?? null;
+        await configStore.setCurrentTranslator(fallback?.id ?? "");
+      }
+
+      this.platforms = [...this.platforms];
     } catch (error) {
-      console.error('Failed to toggle translation platform:', error);
+      console.error("Failed to toggle translation platform:", error);
       throw error;
     }
   }
@@ -77,8 +136,9 @@ class TranslationStore {
       if (index !== -1) {
         this.platforms[index] = { ...this.platforms[index], ...updates };
       }
+      this.platforms = [...this.platforms];
     } catch (error) {
-      console.error('Failed to update translation platform:', error);
+      console.error("Failed to update translation platform:", error);
       throw error;
     }
   }
@@ -90,7 +150,7 @@ class TranslationStore {
     try {
       await saveTranslationPlatforms(this.platforms);
     } catch (error) {
-      console.error('Failed to save translation platforms:', error);
+      console.error("Failed to save translation platforms:", error);
       throw error;
     }
   }

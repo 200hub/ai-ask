@@ -141,7 +141,7 @@ export const BUILT_IN_TRANSLATION_PLATFORMS: TranslationPlatform[] = [
     id: 'google',
     name: 'Google翻译',
     icon: 'https://ssl.gstatic.com/translate/favicon.ico',
-    url: 'https://translate.google.com',
+    url: 'https://translate.google.com/?sl=auto&tl=zh-CN&op=translate',
     enabled: true,
     supportLanguages: ["zh-CN", "en", "ja", "ko", "fr", "de", "es", "ru"],
   },
@@ -149,7 +149,7 @@ export const BUILT_IN_TRANSLATION_PLATFORMS: TranslationPlatform[] = [
     id: 'deepl',
     name: 'DeepL',
     icon: 'https://www.deepl.com/img/favicon/favicon_96.png',
-    url: 'https://www.deepl.com/translator',
+    url: 'https://www.deepl.com/translator#auto/zh/',
     enabled: true,
     supportLanguages: [
       "zh-CN",
