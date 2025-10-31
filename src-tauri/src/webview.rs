@@ -284,7 +284,9 @@ pub(crate) async fn focus_child_webview(
 
 /// 隐藏所有子 WebView
 #[tauri::command]
-pub(crate) async fn hide_all_child_webviews(state: State<'_, ChildWebviewManager>) -> Result<(), String> {
+pub(crate) async fn hide_all_child_webviews(
+    state: State<'_, ChildWebviewManager>,
+) -> Result<(), String> {
     log::debug!("隐藏所有子 webview");
 
     let webviews = state

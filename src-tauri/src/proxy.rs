@@ -62,7 +62,10 @@ pub(crate) fn parse_proxy_url(url: &str) -> Result<Url, String> {
 ///
 /// Windows WebView2 在不同代理配置下需要使用隔离的数据目录，
 /// 否则网络设置会被忽略。
-pub(crate) fn resolve_proxy_data_directory(window: &Window, proxy: Option<&str>) -> Option<PathBuf> {
+pub(crate) fn resolve_proxy_data_directory(
+    window: &Window,
+    proxy: Option<&str>,
+) -> Option<PathBuf> {
     let proxy = proxy?;
     let resolver = window.app_handle().path();
     let base_dir = resolver
@@ -92,7 +95,9 @@ fn sanitize_for_directory(input: &str) -> String {
 
 /// 测试代理连通性
 #[tauri::command]
-pub(crate) async fn test_proxy_connection(config: ProxyTestConfig) -> Result<ProxyTestResult, String> {
+pub(crate) async fn test_proxy_connection(
+    config: ProxyTestConfig,
+) -> Result<ProxyTestResult, String> {
     log::debug!("开始测试代理: type={}", config.proxy_type);
 
     let mut client_builder = reqwest::Client::builder()
