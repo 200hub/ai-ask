@@ -49,21 +49,25 @@
 </script>
 
 <main class="main-content">
-    {#if appState.currentView === "welcome"}
+    <div class="view welcome" class:active={appState.currentView === "welcome"}>
         <WelcomePage />
-    {:else if appState.currentView === "chat"}
+    </div>
+
+    <div class="view chat" class:active={appState.currentView === "chat"}>
         {#if AIChatComp}
             <AIChatComp />
         {:else}
             <div class="loading-chat">{t("chat.loading")}</div>
         {/if}
-    {:else if appState.currentView === "translation"}
+    </div>
+
+    <div class="view translation" class:active={appState.currentView === "translation"}>
         {#if TranslationComp}
             <TranslationComp />
         {:else}
             <div class="loading-chat">{t("common.loading")}</div>
         {/if}
-    {/if}
+    </div>
 
     {#if appState.showSettings}
         {#if SettingsModalComp}
@@ -115,6 +119,18 @@
         position: relative;
         overflow: hidden;
         background-color: var(--bg-primary);
+    }
+
+    .view {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: none;
+    }
+
+    .view.active {
+        display: block;
     }
 
     .error-toast {

@@ -12,14 +12,6 @@
         window.dispatchEvent(new CustomEvent("hideAllWebviews"));
     }
 
-    function notifySuspendWebviewTop() {
-        window.dispatchEvent(new CustomEvent("suspendWebviewTop"));
-    }
-
-    function notifyResumeWebviewTop() {
-        window.dispatchEvent(new CustomEvent("resumeWebviewTop"));
-    }
-
     /**
      * 关闭窗口（实际是隐藏到托盘）
      */
@@ -56,11 +48,7 @@
         {/if}
     </div>
 
-    <div
-        class="header-right"
-        onpointerenter={notifySuspendWebviewTop}
-        onpointerleave={notifyResumeWebviewTop}
-    >
+    <div class="header-right">
         <button
             class="icon-btn hover-close"
             onclick={handleClose}
