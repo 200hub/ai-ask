@@ -12,7 +12,7 @@
     import { platformsStore } from "$lib/stores/platforms.svelte";
     import { translationStore } from "$lib/stores/translation.svelte";
     import type { UnlistenFn } from "@tauri-apps/api/event";
-    import { listen, emit } from "@tauri-apps/api/event";
+    import { listen } from "@tauri-apps/api/event";
     import { register, unregister, isRegistered } from "@tauri-apps/plugin-global-shortcut";
     import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
     import "$lib/styles/base.css";
@@ -22,15 +22,6 @@
     let registeredTranslationHotkey: string | null = null;
 
     function waitForChatViewReady(targetPlatformId: string): Promise<void> {
-        const isReady = () =>
-            appState.currentView === "chat" &&
-            appState.selectedPlatform?.id === targetPlatformId &&
-            !appState.webviewLoading;
-
-        if (isReady()) {
-            return Promise.resolve();
-        }
-
         return new Promise<void>((resolve, reject) => {
             const handler = (event: Event) => {
                 const detail = (event as CustomEvent<{ platformId?: string }>).detail;
@@ -41,7 +32,12 @@
             };
 
             const pollId = window.setInterval(() => {
-                if (isReady()) {
+                const isReady =
+                    appState.currentView === "chat" &&
+                    appState.selectedPlatform?.id === targetPlatformId &&
+                    !appState.webviewLoading;
+                    
+                if (isReady) {
                     cleanup();
                     resolve();
                 }
@@ -96,17 +92,12 @@
 
         // 监听快速问答提交事件
         try {
-            quickAskShowPlatformUnlisten = await listen<{ platformId: string }>("quick-ask-show-platform", async (event) => {
-                console.log("Received quick-ask-show-platform event:", event.payload);
-                const { platformId } = event.payload;
+            quickAskShowPlatformUnlisten = await listen<{ platformId: string; question: string }>("quick-ask-submit", async (event) => {
+                console.log("Received quick-ask-submit event:", event.payload);
+                const { platformId, question } = event.payload;
                 const platform = platformsStore.getPlatformById(platformId);
                 if (!platform) {
                     console.error("Platform not found:", platformId);
-                    await emit("quick-ask-platform-ready", {
-                        platformId,
-                        success: false,
-                        error: "PLATFORM_NOT_FOUND",
-                    });
                     return;
                 }
 
@@ -132,21 +123,54 @@
 
                 try {
                     await waitForChatViewReady(platform.id);
-                    await emit("quick-ask-platform-ready", {
-                        platformId: platform.id,
-                        success: true,
-                    });
-                } catch (readyError) {
-                    console.error("Failed to prepare chat webview:", readyError);
-                    await emit("quick-ask-platform-ready", {
-                        platformId: platform.id,
-                        success: false,
-                        error: readyError instanceof Error ? readyError.message : String(readyError),
-                    });
+                    console.log("Chat webview ready, injecting question...");
+                    
+                    const { injectQuestionToPlatform } = await import("$lib/utils/injection");
+                    
+                    // Retry injection logic
+                    const attemptInjection = async (retries: number): Promise<void> => {
+                        try {
+                            await injectQuestionToPlatform(platformId, question);
+                            console.log("Question injected successfully");
+                        } catch (error) {
+                            const message =
+                                error instanceof Error
+                                    ? error.message
+                                    : typeof error === "string"
+                                        ? error
+                                        : JSON.stringify(error);
+
+                            if (message === "NOT_LOGGED_IN") {
+                                console.warn("Platform requires login", { platformId });
+                                appState.setError(`请先登录 ${platform.name}`);
+                                throw error;
+                            }
+
+                            if (retries > 0 && message.includes("子 webview 不存在")) {
+                                console.warn("Target webview missing, retrying injection", {
+                                    platformId,
+                                    remainingRetries: retries,
+                                });
+                                await new Promise(resolve => setTimeout(resolve, 300));
+                                await attemptInjection(retries - 1);
+                                return;
+                            }
+
+                            throw error;
+                        }
+                    };
+
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    await attemptInjection(2);
+                } catch (injectionError) {
+                    console.error("Failed to inject question:", injectionError);
+                    if (injectionError instanceof Error && injectionError.message !== "NOT_LOGGED_IN") {
+                        appState.setError("注入问题失败，请重试");
+                    }
                 }
             });
         } catch (error) {
-            console.error("Failed to listen for quick-ask-show-platform event:", error);
+            console.error("Failed to listen for quick-ask-submit event:", error);
         }
     });
 

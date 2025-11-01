@@ -37,43 +37,30 @@ vi.mock("$lib/stores/platforms.svelte", () => ({
 
 vi.mock("@tauri-apps/api/event", () => {
   const emit = vi.fn().mockResolvedValue(undefined);
-  const listen = vi.fn(
-    (
-      event: string,
-      handler: (payload: { payload: { platformId: string; success?: boolean } }) => void,
-    ) => {
-    if (event === "quick-ask-platform-ready") {
-      setTimeout(() => {
-        handler({ payload: { platformId: "chatgpt", success: true } });
-      }, 0);
-    }
-    return Promise.resolve(() => {});
-    },
-  );
 
   return {
     emit,
-    listen,
   };
 });
 
-vi.mock("$lib/utils/injection", () => ({
-  injectQuestionToPlatform: vi.fn().mockRejectedValue(new Error("NOT_LOGGED_IN")),
-}));
-
-describe("QuickAsk submit error handling", () => {
+describe("QuickAsk submit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     quickAskStore.close();
   });
 
-  it("sets notLoggedIn error and returns false when platform not logged in", async () => {
+  it("successfully emits quick-ask-submit event with platform and question", async () => {
+    const { emit } = await import("@tauri-apps/api/event");
+    
     await quickAskStore.init();
     quickAskStore.setQuestion("Hello world");
 
     const result = await quickAskStore.submit();
 
-    expect(result).toBe(false);
-    expect(quickAskStore.error).toBe("quickAsk.errors.notLoggedIn");
+    expect(result).toBe(true);
+    expect(emit).toHaveBeenCalledWith("quick-ask-submit", {
+      platformId: "chatgpt",
+      question: "Hello world",
+    });
   });
 });
