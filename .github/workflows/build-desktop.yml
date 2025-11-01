@@ -22,10 +22,7 @@ name: Build Desktop Platforms
 
 on:
   workflow_call:
-    outputs:
-      artifacts:
-        description: "JSON array of artifact names"
-        value: ${{ jobs.build.outputs.artifacts }}
+    # Reusable workflow, no outputs required
 
 jobs:
   build:
@@ -115,7 +112,7 @@ jobs:
       
       # Install Linux dependencies (only on Ubuntu)
       - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-latest'
+        if: ${{ runner.os == 'Linux' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y \
