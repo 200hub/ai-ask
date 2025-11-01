@@ -103,17 +103,10 @@ specs/001-github-release/
 ├── workflows/
 │   ├── release.yml           # 主发布工作流（标签触发）
 │   ├── build-desktop.yml     # 桌面平台构建任务
-│   ├── build-mobile.yml      # 移动平台构建任务（可重用）
-│   └── changelog.yml         # Changelog生成工作流
+│   └── build-mobile.yml      # 移动平台构建任务（可重用）
 └── scripts/
     ├── generate-changelog.js # Changelog生成脚本
-    ├── validate-version.js   # 版本号验证
-    └── upload-assets.js      # 资源上传辅助
-
-scripts/
-└── release/
-    ├── prepare-release.sh    # 本地发布准备脚本
-    └── test-build.sh         # 本地构建测试
+    └── validate-version.js   # 版本号验证
 
 src-tauri/
 ├── tauri.conf.json          # 更新bundle配置
@@ -133,7 +126,7 @@ tests/
 - 主工作流(`release.yml`)负责协调和Release创建
 - 子工作流按平台类型分离（桌面/移动），便于独立测试和维护
 - 辅助脚本放在`.github/scripts/`目录，测试放在`tests/release/`
-- 本地发布脚本放在`scripts/release/`，供开发者手动测试
+- **所有构建完全通过GitHub Actions自动化执行，无本地构建脚本**
 
 ## Phase 0: Research & Design
 
@@ -239,10 +232,9 @@ strategy:
    - macOS: 生成DMG和App Bundle
    - Linux: 生成DEB、AppImage、RPM
 
-5. **本地测试脚本**
-   - 文件: `scripts/release/test-build.sh`
-   - 本地模拟构建流程
-   - 验证构建产物完整性
+5. **配置package.json脚本**
+   - 添加版本验证脚本: `pnpm release:validate`
+   - 所有构建在GitHub Actions中执行
 
 **测试**:
 - 创建测试标签`v0.0.1-test`
@@ -308,10 +300,10 @@ strategy:
    - Android: KEYSTORE_FILE、KEYSTORE_PASSWORD
    - iOS: CERTIFICATE_P12、PROVISIONING_PROFILE
 
-4. **移动平台构建脚本**
-   - Android: `scripts/release/build-android.sh`
-   - iOS: `scripts/release/build-ios.sh`
-   - 处理签名、打包、验证
+4. **移动平台GitHub Actions集成**
+   - 配置Android签名环境变量
+   - 配置iOS证书和provisioning profile
+   - 所有签名和打包在GitHub Actions中自动处理
 
 **测试**:
 - 验证Windows ARM64包生成

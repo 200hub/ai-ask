@@ -11,6 +11,8 @@ description: "Task list for GitHub自动打包发布 feature implementation"
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
+**Note**: 本地构建脚本已移除，所有构建通过 GitHub Actions 自动执行。
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies)
@@ -22,7 +24,6 @@ description: "Task list for GitHub自动打包发布 feature implementation"
 Repository root structure with CI/CD configuration:
 - `.github/workflows/` - GitHub Actions workflows
 - `.github/scripts/` - Build and release scripts
-- `scripts/release/` - Local testing scripts
 - `src-tauri/` - Tauri configuration (existing)
 
 ---
@@ -33,7 +34,7 @@ Repository root structure with CI/CD configuration:
 
 - [x] T001 Create `.github/workflows/` directory for GitHub Actions workflows
 - [x] T002 Create `.github/scripts/` directory for build helper scripts
-- [x] T003 [P] Create `scripts/release/` directory for local testing tools
+- [x] T003 [P] ~~Create `scripts/release/` directory for local testing tools~~ (已移除，无需本地构建脚本)
 - [x] T004 [P] Update `src-tauri/tauri.conf.json` to configure bundle targets (MSI, NSIS, DMG, DEB, AppImage)
 
 ---
@@ -45,8 +46,7 @@ Repository root structure with CI/CD configuration:
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
 - [x] T005 Implement version validation script in `.github/scripts/validate-version.js` (checks tag format and version consistency)
-- [x] T006 [P] Create local build test script in `scripts/release/test-build.sh` (validates builds before pushing)
-- [x] T007 [P] Add release-related npm scripts to `package.json` (version bumping, validation)
+- [x] T006 Update `package.json` with release validation script
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -111,10 +111,8 @@ Repository root structure with CI/CD configuration:
 - [x] T030 [US3] Configure iOS build job in build-mobile.yml (setup Xcode, certificates, provisioning profiles)
 - [x] T031 [US3] Add Android signing configuration in build-mobile.yml (keystore secrets handling)
 - [x] T032 [US3] Add iOS signing configuration in build-mobile.yml (certificate and profile secrets handling)
-- [x] T033 [US3] Create Android build script in `scripts/release/build-android.sh` (Tauri Android build with signing)
-- [x] T034 [US3] Create iOS build script in `scripts/release/build-ios.sh` (Tauri iOS build with signing)
-- [x] T035 [US3] Integrate mobile build job in `.github/workflows/release.yml` (call build-mobile workflow with secrets)
-- [x] T036 [US3] Update quickstart.md with mobile platform setup instructions (keystore, certificates)
+- [x] T033 [US3] Integrate mobile build job in `.github/workflows/release.yml` (call build-mobile workflow with secrets)
+- [x] T034 [US3] Update quickstart.md with mobile platform setup instructions (keystore, certificates)
 
 **Checkpoint**: 所有扩展平台（Windows ARM64、Android、iOS）构建成功并上传到Release
 
@@ -124,14 +122,10 @@ Repository root structure with CI/CD configuration:
 
 **Purpose**: 优化、文档完善和质量改进
 
-- [x] T037 [P] Add comprehensive comments to all workflow YAML files for maintainability
-- [x] T038 [P] Update `quickstart.md` with actual build times and troubleshooting tips
-- [x] T039 [P] Add workflow failure notification setup in release.yml (optional Slack/Discord webhook)
-- [x] T040 [P] Optimize caching strategy in build workflows (reduce build times for repeated runs)
-- [x] T041 [P] Add workflow dispatch manual trigger to release.yml (enable manual releases without tags)
-- [x] T042 [P] Document GitHub Secrets setup in quickstart.md (all required secrets with instructions)
-- [x] T043 Create local release preparation script in `scripts/release/prepare-release.sh` (version bump helper)
-- [x] T044 Validate quickstart.md instructions by performing a complete test release
+- [x] T035 [P] Add comprehensive comments to all workflow YAML files for maintainability
+- [x] T036 [P] Optimize caching strategy in build workflows (reduce build times for repeated runs)
+- [x] T037 [P] Add workflow dispatch manual trigger to release.yml (enable manual releases without tags)
+- [x] T038 [P] Document GitHub Secrets setup in quickstart.md (all required secrets with instructions)
 
 ---
 
@@ -187,8 +181,8 @@ Task T008: "Create main release workflow in .github/workflows/release.yml"
 Task T009: "Create desktop build workflow in .github/workflows/build-desktop.yml"
 
 # 并行配置不同文件:
-Task T006: "Create local build test script in scripts/release/test-build.sh"
-Task T007: "Add release-related npm scripts to package.json"
+Task T005: "Implement version validation script in .github/scripts/validate-version.js"
+Task T006: "Update package.json with release validation script"
 ```
 
 ---
@@ -267,19 +261,12 @@ Task T007: "Add release-related npm scripts to package.json"
     ├── generate-changelog.js    # T018 - Changelog生成脚本
     └── changelog-template.md    # T019 - Changelog模板
 
-scripts/
-└── release/
-    ├── test-build.sh            # T006 - 本地构建测试
-    ├── prepare-release.sh       # T043 - 发布准备辅助
-    ├── build-android.sh         # T033 - Android构建脚本
-    └── build-ios.sh             # T034 - iOS构建脚本
-
 src-tauri/
 └── tauri.conf.json              # T004 - 更新bundle配置
 
-package.json                      # T007 - 添加发布相关scripts
+package.json                      # T006 - 添加发布相关scripts
 
 specs/001-github-release/
-├── quickstart.md                # T038, T042 - 使用文档更新
+├── quickstart.md                # T034, T038 - 使用文档更新
 └── tasks.md                     # 本文件
 ```

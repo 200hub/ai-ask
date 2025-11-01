@@ -105,20 +105,19 @@ git push --tags
    ./AI-Ask_1.0.1_x86_64.AppImage
    ```
 
-## 本地测试（推送前验证）
+## 版本验证（推送前检查）
 
-在推送标签前，可以本地测试构建：
+在推送标签前，可以本地验证版本号一致性：
 
 ```bash
-# 测试桌面平台构建
-./scripts/release/test-build.sh
+# 验证版本号格式和一致性
+pnpm release:validate
 
-# 或手动测试单个平台
-pnpm tauri build --target x86_64-pc-windows-msvc  # Windows
-pnpm tauri build --target x86_64-apple-darwin      # macOS Intel
-pnpm tauri build --target aarch64-apple-darwin     # macOS ARM
-pnpm tauri build --target x86_64-unknown-linux-gnu # Linux
+# 手动测试本地构建（可选，非发布流程必需）
+pnpm tauri build
 ```
+
+**注意**: 所有正式构建都在GitHub Actions中自动执行，本地构建仅用于开发调试。
 
 ## 手动触发构建
 

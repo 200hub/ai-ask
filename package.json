@@ -18,8 +18,7 @@
     "lint:rust": "cd src-tauri && cargo fmt --check && cargo clippy -- -D warnings",
     "lint:rust:fix": "cd src-tauri && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged",
     "tauri": "tauri",
-    "release:validate": "node .github/scripts/validate-version.js",
-    "release:test": "bash scripts/release/test-build.sh"
+    "release:validate": "node .github/scripts/validate-version.js"
   },
   "license": "MIT",
   "dependencies": {
