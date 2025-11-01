@@ -1,0 +1,344 @@
+# Implementation Plan: GitHub自动打包发布
+
+**Branch**: `001-github-release` | **Date**: 2025-11-01 | **Spec**: [spec.md](spec.md)  
+**Input**: Feature specification from `/specs/001-github-release/spec.md`
+
+## Summary
+
+为AI Ask项目添加GitHub Actions CI/CD流程，实现：
+1. 当推送版本标签（如v1.0.0）时自动触发多平台构建
+2. 生成Windows (x64、ARM64)、macOS、Linux、Android、iOS平台的安装包
+3. 自动解析git commit历史生成结构化的changelog
+4. 创建GitHub Release并上传所有构建产物
+
+技术方案采用GitHub Actions作为CI/CD平台，利用Tauri的跨平台构建能力，结合conventional commits规范生成changelog。
+
+## Technical Context
+
+**Language/Version**: 
+- Frontend: TypeScript 5.6 + Svelte 5
+- Backend: Rust 1.70+
+- Node.js: 20.x LTS (for build scripts)
+
+**Primary Dependencies**: 
+- Tauri CLI 2.x (跨平台构建)
+- @tauri-apps/cli (Node.js wrapper)
+- GitHub Actions (CI/CD平台)
+- conventional-changelog-cli (changelog生成)
+
+**Storage**: N/A (构建产物存储在GitHub Release)
+
+**Testing**: 
+- 前端: Vitest
+- Rust: cargo test
+- 集成测试: 手动验证安装包可安装性
+
+**Target Platform**: 
+- Windows 10/11 (x64, ARM64)
+- macOS 11+ (Intel, Apple Silicon)
+- Linux (Ubuntu 20.04+, DEB/AppImage/RPM)
+- Android 8.0+ (API 26+) [P3]
+- iOS 13.0+ [P3]
+
+**Project Type**: Desktop/Mobile应用 - Tauri跨平台架构
+
+**Performance Goals**: 
+- P1平台（Windows x64、macOS、Linux）构建时间 < 10分钟
+- 所有平台并行构建总时间 < 20分钟
+- Release创建后5分钟内可下载
+
+**Constraints**: 
+- GitHub Actions免费版限制：2000分钟/月
+- macOS runner成本较高（计费倍数）
+- iOS构建需要Apple开发者账号和证书
+- Android构建需要签名密钥
+
+**Scale/Scope**: 
+- 支持5-7个目标平台
+- 每个版本生成8-12个构建产物（不同格式）
+- changelog支持解析100+ commits
+
+## Constitution Check
+
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+
+### 检查项目
+
+✅ **Svelte 5 Runes Only**: 本功能不涉及前端状态管理，无冲突  
+✅ **Child Webview Isolation**: 本功能为CI/CD流程，不涉及webview架构  
+✅ **Pure CSS**: 本功能无UI组件  
+✅ **i18n First**: 本功能无用户界面文本  
+✅ **Structured Logging**: 构建日志由GitHub Actions管理  
+✅ **Context-Driven Development**: 已分析现有package.json和tauri.conf.json配置  
+✅ **Test-Driven Quality**: 将为build scripts创建测试
+
+**结论**: 所有constitution检查通过，无违规项。
+
+## Project Structure
+
+### Documentation (this feature)
+
+```text
+specs/001-github-release/
+├── plan.md              # 本文件
+├── research.md          # 工作流配置研究、平台构建参数
+├── data-model.md        # N/A (无数据模型)
+├── quickstart.md        # 发布流程快速指南
+├── contracts/           # N/A (无API契约)
+└── tasks.md             # 任务分解
+```
+
+### Source Code (repository root)
+
+```text
+.github/
+├── workflows/
+│   ├── release.yml           # 主发布工作流（标签触发）
+│   ├── build-desktop.yml     # 桌面平台构建任务
+│   ├── build-mobile.yml      # 移动平台构建任务（可重用）
+│   └── changelog.yml         # Changelog生成工作流
+└── scripts/
+    ├── generate-changelog.js # Changelog生成脚本
+    ├── validate-version.js   # 版本号验证
+    └── upload-assets.js      # 资源上传辅助
+
+scripts/
+└── release/
+    ├── prepare-release.sh    # 本地发布准备脚本
+    └── test-build.sh         # 本地构建测试
+
+src-tauri/
+├── tauri.conf.json          # 更新bundle配置
+└── Cargo.toml               # 版本同步
+
+package.json                  # 添加发布相关scripts
+
+tests/
+└── release/
+    ├── changelog.test.js    # Changelog生成测试
+    └── version.test.js      # 版本验证测试
+```
+
+**Structure Decision**: 
+
+采用GitHub Actions工作流模块化结构：
+- 主工作流(`release.yml`)负责协调和Release创建
+- 子工作流按平台类型分离（桌面/移动），便于独立测试和维护
+- 辅助脚本放在`.github/scripts/`目录，测试放在`tests/release/`
+- 本地发布脚本放在`scripts/release/`，供开发者手动测试
+
+## Phase 0: Research & Design
+
+### Research Areas
+
+1. **Tauri跨平台构建配置**
+   - Windows: MSI vs NSIS配置差异
+   - macOS: DMG vs App Bundle，代码签名要求
+   - Linux: DEB/AppImage/RPM打包参数
+   - ARM架构支持：Windows ARM64、macOS Apple Silicon
+   - 移动平台：Android Gradle配置、iOS Xcode项目设置
+
+2. **GitHub Actions矩阵策略**
+   - 平台矩阵定义（os、arch、target）
+   - Runner选择：ubuntu-latest、windows-latest、macos-latest
+   - 跨平台依赖安装（Node.js、Rust、Tauri CLI）
+   - 缓存策略（cargo、npm缓存）
+
+3. **Changelog自动化方案**
+   - conventional commits规范解析
+   - commit类型映射（feat → Features, fix → Bug Fixes）
+   - 版本范围确定（上一个tag到当前tag）
+   - changelog格式模板（Markdown）
+
+4. **敏感信息管理**
+   - GitHub Secrets存储签名证书
+   - 环境变量注入方式
+   - iOS证书和provisioning profile处理
+   - Android keystore管理
+
+**输出**: `research.md` - 详细记录各平台构建参数、工作流最佳实践、签名配置方案
+
+### Design Decisions
+
+#### 工作流触发策略
+- **主触发器**: 推送符合`v*.*.*`模式的标签
+- **手动触发**: workflow_dispatch支持手动运行
+- **分支限制**: 仅main分支的标签触发发布
+
+#### 构建矩阵设计
+```yaml
+strategy:
+  matrix:
+    platform:
+      - os: ubuntu-latest
+        target: x86_64-unknown-linux-gnu
+        artifact: linux-x64
+      - os: windows-latest
+        target: x86_64-pc-windows-msvc
+        artifact: windows-x64
+      - os: macos-latest
+        target: x86_64-apple-darwin
+        artifact: macos-intel
+      - os: macos-latest
+        target: aarch64-apple-darwin
+        artifact: macos-arm64
+```
+
+#### Changelog生成流程
+1. 获取上一个版本标签（git describe）
+2. 提取commit范围（git log）
+3. 按conventional commits解析
+4. 分类汇总（Features、Fixes、Breaking Changes）
+5. 生成Markdown格式
+
+#### 失败处理策略
+- 单个平台失败不阻断其他平台
+- 使用`continue-on-error: true`配置
+- 汇总结果，创建部分Release并标注失败平台
+
+**输出**: `quickstart.md` - 发布流程操作指南（如何创建标签、触发构建、处理失败）
+
+## Phase 1: Implementation - MVP (P1 Platforms)
+
+### User Story 1: 自动构建多平台安装包
+
+**目标**: 实现Windows x64、macOS、Linux平台的自动构建和发布
+
+**任务分解**:
+
+1. **创建主发布工作流**
+   - 文件: `.github/workflows/release.yml`
+   - 触发条件: 标签推送`v*.*.*`
+   - 调用桌面构建子工作流
+   - 汇总构建产物
+   - 创建GitHub Release
+
+2. **实现桌面平台构建**
+   - 文件: `.github/workflows/build-desktop.yml`
+   - 矩阵构建: Windows x64、macOS Intel/ARM、Linux
+   - 安装依赖: Node.js、Rust、Tauri CLI
+   - 执行构建: `pnpm tauri build`
+   - 上传artifacts
+
+3. **版本号验证脚本**
+   - 文件: `.github/scripts/validate-version.js`
+   - 验证tag格式（语义化版本）
+   - 检查package.json和tauri.conf.json版本一致性
+
+4. **配置构建参数**
+   - 更新`src-tauri/tauri.conf.json`: 配置bundle targets
+   - Windows: 同时生成MSI和NSIS
+   - macOS: 生成DMG和App Bundle
+   - Linux: 生成DEB、AppImage、RPM
+
+5. **本地测试脚本**
+   - 文件: `scripts/release/test-build.sh`
+   - 本地模拟构建流程
+   - 验证构建产物完整性
+
+**测试**:
+- 创建测试标签`v0.0.1-test`
+- 验证所有P1平台构建成功
+- 验证Release页面显示所有安装包
+- 下载并安装每个平台的包，验证应用启动
+
+### User Story 2: 自动生成版本说明
+
+**目标**: 根据commit历史生成结构化changelog
+
+**任务分解**:
+
+1. **Changelog生成脚本**
+   - 文件: `.github/scripts/generate-changelog.js`
+   - 获取commit范围（上一个tag到当前tag）
+   - 解析conventional commits格式
+   - 按类型分组（Features、Bug Fixes、Breaking Changes）
+   - 生成Markdown输出
+
+2. **集成到发布工作流**
+   - 在release.yml中调用changelog生成
+   - 将changelog作为Release Notes内容
+   - 首次发布时处理无上一个tag的情况
+
+3. **Changelog模板**
+   - 文件: `.github/scripts/changelog-template.md`
+   - 定义输出格式
+   - 包含版本号、日期、分类内容
+
+4. **测试用例**
+   - 文件: `tests/release/changelog.test.js`
+   - 测试commit解析逻辑
+   - 测试分类汇总
+   - 测试边界情况（无commit、非规范commit）
+
+**测试**:
+- 准备多个符合conventional commits的测试commit
+- 生成changelog并验证格式
+- 验证不同类型commit正确分类
+- 验证Release Notes显示完整内容
+
+## Phase 2: Extended Platforms (P3)
+
+### User Story 3: 扩展平台支持
+
+**目标**: 添加Windows ARM64、Android、iOS构建支持
+
+**任务分解**:
+
+1. **Windows ARM64支持**
+   - 更新build-desktop.yml矩阵
+   - 添加`aarch64-pc-windows-msvc` target
+   - 配置ARM64编译参数
+
+2. **移动平台构建工作流**
+   - 文件: `.github/workflows/build-mobile.yml`
+   - Android构建: 配置Gradle、签名密钥
+   - iOS构建: 配置Xcode、证书、provisioning profile
+
+3. **签名密钥管理**
+   - 配置GitHub Secrets
+   - Android: KEYSTORE_FILE、KEYSTORE_PASSWORD
+   - iOS: CERTIFICATE_P12、PROVISIONING_PROFILE
+
+4. **移动平台构建脚本**
+   - Android: `scripts/release/build-android.sh`
+   - iOS: `scripts/release/build-ios.sh`
+   - 处理签名、打包、验证
+
+**测试**:
+- 验证Windows ARM64包生成
+- 验证Android APK/AAB签名和可安装性
+- 验证iOS IPA可通过TestFlight分发
+
+## Dependencies & Order
+
+1. **Phase 0 (Research)** → 必须首先完成，提供技术决策依据
+2. **Phase 1 - US1 (多平台构建)** → 核心功能，阻塞US2和US3
+3. **Phase 1 - US2 (Changelog)** → 依赖US1的工作流框架，但可并行开发
+4. **Phase 2 - US3 (扩展平台)** → 依赖US1稳定后再扩展
+
+**并行开发建议**:
+- US1的工作流框架完成后，US2可并行开发changelog脚本
+- US3的移动平台可在US1和US2稳定后独立开发
+
+## Complexity Tracking
+
+> 无constitution违规项，此节为空。
+
+## Risks & Mitigation
+
+| 风险 | 影响 | 缓解措施 |
+|------|------|----------|
+| GitHub Actions构建时间超限 | 超出免费额度 | 优化缓存策略，减少重复构建；考虑付费plan |
+| iOS构建需要macOS runner | 成本高（10x计费） | 限制iOS构建频率；考虑使用self-hosted runner |
+| 移动平台签名证书管理复杂 | 安全风险、配置困难 | 详细文档化流程；使用GitHub Secrets加密存储 |
+| 不同平台构建失败率不一致 | 发布不完整 | 实现部分Release创建；失败平台清晰标注 |
+| Conventional commits不规范 | Changelog质量差 | 提供commit规范文档；实现fallback处理 |
+
+## Success Metrics
+
+- [ ] P1平台构建成功率 > 95%
+- [ ] 单次发布完成时间 < 15分钟（P1平台）
+- [ ] Changelog覆盖率 100%（所有commit）
+- [ ] 安装包可用性 100%（下载后可安装启动）
+- [ ] 发布流程文档完整性（quickstart.md）
