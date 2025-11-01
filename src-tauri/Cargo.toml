@@ -1,6 +1,6 @@
 [package]
 name = "ai-ask"
-version = "1.0.0"
+version = "0.0.2-test"
 description = "AI Ask - 一个简洁高效的AI问答助手"
 authors = ["AI Ask Team"]
 edition = "2021"
