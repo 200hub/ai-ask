@@ -136,6 +136,7 @@ export default [
       "src-tauri/gen/",
       "**/*.config.js",
       "**/*.config.ts",
+      ".github/scripts/**",  // Exclude CI scripts from type checking
     ],
   },
 ];

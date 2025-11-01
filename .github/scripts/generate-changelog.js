@@ -8,8 +8,8 @@
  * Categorizes commits by type (feat, fix, perf, etc.) and generates Markdown output
  */
 
-const { execSync } = require('child_process');
-const fs = require('fs');
+import { execSync } from 'child_process';
+import fs from 'fs';
 
 // Get the previous git tag
 function getPreviousTag() {
