@@ -55,11 +55,15 @@
         close: null as (() => void) | null,
         windowEvent: null as (() => void) | null,
         hideWebviews: null as (() => void) | null,
+        hideWebviewsNoRestore: null as (() => void) | null,
         restoreWebviews: null as (() => void) | null,
     };
 
     /** 标记是否需要在恢复主窗口时恢复 WebView */
     let shouldRestoreWebviews = false;
+
+    /** 是否抑制下一次 WebView 恢复 */
+    let suppressNextRestore = false;
 
     // ========== 响应式状态监听 ==========
 
@@ -147,23 +151,28 @@
             if (!webview) {
                 webview = await createWebviewForPlatform(platform);
                 webviewWindows.set(platform.id, webview);
+                
+                // 3. 显示窗口并获取焦点
+                await webview.show();
+                await webview.setFocus();
+                notifyWebviewReady(platform.id);
+                shouldRestoreWebviews = false;
+                appState.setWebviewLoading(false);
             } else if (webview.isVisible() && !shouldRestoreWebviews) {
                 await webview.setFocus();
+                notifyWebviewReady(platform.id);
                 scheduleWebviewReflow({ shouldEnsureActiveFront: true });
                 appState.setWebviewLoading(false);
-                return;
             } else {
-                // 已存在的 webview，更新位置
+                // 已存在的 webview，更新位置并显示
                 const bounds = await calculateChildWebviewBounds(mainWindow);
                 await webview.updateBounds(bounds);
+                await webview.show();
+                await webview.setFocus();
+                notifyWebviewReady(platform.id);
+                shouldRestoreWebviews = false;
+                appState.setWebviewLoading(false);
             }
-
-            // 3. 显示窗口并获取焦点
-            await webview.show();
-            await webview.setFocus();
-            shouldRestoreWebviews = false;
-
-            appState.setWebviewLoading(false);
         } catch (error) {
             console.error(`显示平台 ${platform.name} 的 WebView 失败:`, error);
             appState.setError(`加载 ${platform.name} 失败`);
@@ -338,6 +347,9 @@
 
     async function hideAllWebviews({ markForRestore = false }: HideAllOptions = {}) {
         shouldRestoreWebviews = markForRestore;
+        if (!markForRestore) {
+            suppressNextRestore = true;
+        }
 
         const hideTasks = Array.from(webviewWindows.values()).map((webview) =>
             webview.hide().catch((error) => {
@@ -411,6 +423,28 @@
         void hideAllWebviews({ markForRestore: true });
     }
 
+    /** 无恢复隐藏（用于设置/Quick Ask 这类覆盖 UI） */
+    function handleHideAllWebviewsNoRestoreEvent() {
+        suppressNextRestore = true;
+        void hideAllWebviews({ markForRestore: false });
+    }
+
+    function handleEnsureChatVisible(event?: Event) {
+        const detail = (event as CustomEvent<{ platformId?: string }> | undefined)?.detail;
+        const targetPlatformId = detail?.platformId;
+        const currentPlatform = appState.selectedPlatform;
+
+        if (!currentPlatform) {
+            return;
+        }
+
+        if (targetPlatformId && targetPlatformId !== currentPlatform.id) {
+            return;
+        }
+
+        void showPlatformWebview(currentPlatform);
+    }
+
     function handleMainWindowResize(size?: { width: number; height: number }) {
         if (size && (size.width === 0 || size.height === 0)) {
             void hideAllWebviews({ markForRestore: true });
@@ -425,6 +459,11 @@
     }
 
     async function restoreActiveWebview(force = false) {
+        if (suppressNextRestore) {
+            suppressNextRestore = false;
+            return;
+        }
+
         if (!(force || shouldRestoreWebviews)) {
             return;
         }
@@ -445,6 +484,7 @@
                 await existing.updateBounds(bounds);
                 await existing.show();
                 await existing.setFocus();
+                notifyWebviewReady(platform.id);
             } else {
                 await showPlatformWebview(platform);
             }
@@ -453,6 +493,18 @@
         } catch (error) {
             console.error("恢复 WebView 失败:", error);
         }
+    }
+
+    function notifyWebviewReady(platformId: string) {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        window.dispatchEvent(
+            new CustomEvent("chatWebviewReady", {
+                detail: { platformId },
+            })
+        );
     }
 
     // ========== 组件生命周期 ==========
@@ -485,6 +537,8 @@
         const domEventHandlers = [
             { event: "refreshWebview", handler: handleRefreshEvent as EventListener },
             { event: "hideAllWebviews", handler: handleHideAllWebviewsEvent },
+            { event: "hideAllWebviewsNoRestore", handler: handleHideAllWebviewsNoRestoreEvent },
+            { event: "ensureChatVisible", handler: handleEnsureChatVisible as EventListener },
             { event: "resize", handler: () => handleMainWindowResize() },
         ];
 
@@ -536,10 +590,19 @@
                     await closeAllWebviews();
                 });
 
-                // 注册来自 Rust 端的隐藏子 webview 事件（托盘/快捷键触发）
+                // 注册来自 Rust 端的隐藏子 webview 事件（托盘/快捷键触发，标记恢复）
                 windowEventUnlisteners.hideWebviews = await mainWindow.listen("hideAllWebviews", () => {
                     void hideAllWebviews({ markForRestore: true });
                 });
+
+                // 注册不标记恢复的隐藏事件（设置/Quick Ask 覆盖 UI）
+                windowEventUnlisteners.hideWebviewsNoRestore = await mainWindow.listen(
+                    "hideAllWebviewsNoRestore",
+                    () => {
+                        suppressNextRestore = true;
+                        void hideAllWebviews({ markForRestore: false });
+                    }
+                );
 
                 // 注册窗口事件监听（最小化、隐藏等）
                 windowEventUnlisteners.windowEvent = await mainWindow.listen(

@@ -38,6 +38,8 @@
      * 打开设置
      */
     function openSettings() {
+        // 隐藏所有子 WebView，避免遮挡设置页（不标记恢复）
+        window.dispatchEvent(new Event("hideAllWebviewsNoRestore"));
         appState.openSettings();
     }
 

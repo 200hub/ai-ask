@@ -204,6 +204,38 @@ class PlatformsStore {
   async reload() {
     await this.init();
   }
+
+  /**
+   * 设置快速问答平台（单选）
+   * 
+   * @param id - 平台ID，null表示取消选择
+   */
+  async setQuickAskPlatform(id: string | null): Promise<void> {
+    const { logger } = await import('$lib/utils/logger');
+    const { quickAskStore } = await import('$lib/stores/quick-ask.svelte');
+    
+    logger.debug('[PlatformsStore] 设置快速问答平台', { id });
+    
+    try {
+      await quickAskStore.setSelectedPlatform(id);
+      logger.info('[PlatformsStore] 快速问答平台已更新', { platformId: id });
+    } catch (error) {
+      logger.error('[PlatformsStore] 设置快速问答平台失败', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * 获取当前快速问答平台
+   * 从 quickAskStore 读取 selectedPlatformId 并返回对应平台
+   * 
+   * @param selectedPlatformId - 当前选中的平台ID（来自 quickAskStore）
+   * @returns 当前快速问答平台，如果未设置则返回null
+   */
+  getQuickAskPlatform(selectedPlatformId: string | null): AIPlatform | null {
+    if (!selectedPlatformId) return null;
+    return this.getPlatformById(selectedPlatformId) || null;
+  }
 }
 
 /**

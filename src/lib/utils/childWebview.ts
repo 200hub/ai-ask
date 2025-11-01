@@ -92,12 +92,19 @@ export class ChildWebviewProxy {
         }
 
         this.#lastBounds = bounds;
-        await invoke("set_child_webview_bounds", {
-            payload: {
-                id: this.id,
-                bounds,
-            },
-        });
+        try {
+            await invoke("set_child_webview_bounds", {
+                payload: {
+                    id: this.id,
+                    bounds,
+                },
+            });
+        } catch (error) {
+            // Suppress callback ID errors in development
+            if (!(error instanceof Error && error.message.includes("callback id"))) {
+                throw error;
+            }
+        }
     }
 
     async show() {
@@ -105,10 +112,17 @@ export class ChildWebviewProxy {
             return;
         }
 
-        await invoke("show_child_webview", {
-            payload: { id: this.id },
-        });
-        this.#isVisible = true;
+        try {
+            await invoke("show_child_webview", {
+                payload: { id: this.id },
+            });
+            this.#isVisible = true;
+        } catch (error) {
+            // Suppress callback ID errors in development
+            if (!(error instanceof Error && error.message.includes("callback id"))) {
+                throw error;
+            }
+        }
     }
 
     async hide() {
@@ -116,24 +130,45 @@ export class ChildWebviewProxy {
             return;
         }
 
-        await invoke("hide_child_webview", {
-            payload: { id: this.id },
-        });
-        this.#isVisible = false;
+        try {
+            await invoke("hide_child_webview", {
+                payload: { id: this.id },
+            });
+            this.#isVisible = false;
+        } catch (error) {
+            // Suppress callback ID errors in development
+            if (!(error instanceof Error && error.message.includes("callback id"))) {
+                throw error;
+            }
+        }
     }
 
     async close() {
-        await invoke("close_child_webview", {
-            payload: { id: this.id },
-        });
-        this.#isVisible = false;
-        this.#lastBounds = null;
+        try {
+            await invoke("close_child_webview", {
+                payload: { id: this.id },
+            });
+            this.#isVisible = false;
+            this.#lastBounds = null;
+        } catch (error) {
+            // Suppress callback ID errors in development
+            if (!(error instanceof Error && error.message.includes("callback id"))) {
+                throw error;
+            }
+        }
     }
 
     async setFocus() {
-        await invoke("focus_child_webview", {
-            payload: { id: this.id },
-        });
+        try {
+            await invoke("focus_child_webview", {
+                payload: { id: this.id },
+            });
+        } catch (error) {
+            // Suppress callback ID errors in development
+            if (!(error instanceof Error && error.message.includes("callback id"))) {
+                throw error;
+            }
+        }
     }
 
     isVisible(): boolean {

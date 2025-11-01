@@ -9,6 +9,7 @@
     import PlatformSettings from "./PlatformSettings.svelte";
     import ProxySettings from "./ProxySettings.svelte";
     import TranslationSettings from "./TranslationSettings.svelte";
+    import QuickAskSettings from "./QuickAskSettings.svelte";
     import AboutSettings from "./AboutSettings.svelte";
     import Button from "../common/Button.svelte";
     import { i18n } from "$lib/i18n";
@@ -20,6 +21,7 @@
     const tabs: Array<{ id: SettingsTab; labelKey: string; icon: string }> = [
         { id: "general", labelKey: "settings.general", icon: "⚙️" },
         { id: "platforms", labelKey: "settings.platforms", icon: "🤖" },
+        { id: "quickask", labelKey: "quickAsk.settingsTitle", icon: "⚡" },
         { id: "proxy", labelKey: "settings.proxy", icon: "🌐" },
         { id: "translation", labelKey: "settings.translation", icon: "🌍" },
         { id: "about", labelKey: "settings.about", icon: "ℹ️" },
@@ -81,6 +83,8 @@
                 <GeneralSettings />
             {:else if currentTab === "platforms"}
                 <PlatformSettings />
+            {:else if currentTab === "quickask"}
+                <QuickAskSettings />
             {:else if currentTab === "proxy"}
                 <ProxySettings />
             {:else if currentTab === "translation"}

@@ -96,10 +96,12 @@ export default [
         Event: "readonly",
         CustomEvent: "readonly",
         MouseEvent: "readonly",
+        KeyboardEvent: "readonly",
         HTMLElement: "readonly",
         HTMLImageElement: "readonly",
         HTMLInputElement: "readonly",
         HTMLSelectElement: "readonly",
+        HTMLTextAreaElement: "readonly",
         EventListener: "readonly",
         // Svelte 5 Runes
         $state: "readonly",

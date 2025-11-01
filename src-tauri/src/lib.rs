@@ -4,6 +4,7 @@
 //! 子 WebView 生命周期管理、代理测试、系统托盘与快捷键支持。
 
 mod proxy;
+mod quick_ask;
 mod webview;
 mod window_control;
 
@@ -17,13 +18,19 @@ use tauri::{
 };
 
 use proxy::test_proxy_connection;
+use quick_ask::{
+    close_quick_ask_window, inject_question_to_platform, open_quick_ask_window,
+    register_double_shift_hotkey,
+};
 use webview::{
-    close_child_webview, ensure_child_webview, focus_child_webview, hide_all_child_webviews,
-    hide_child_webview, set_child_webview_bounds, show_child_webview, ChildWebviewManager,
+    clear_child_webview_fragment, close_child_webview, ensure_child_webview, focus_child_webview,
+    get_child_webview_fragment, hide_all_child_webviews, hide_child_webview,
+    inject_script_to_child_webview, quick_ask_via_hash, set_child_webview_bounds,
+    show_child_webview, ChildWebviewManager,
 };
 use window_control::{
-    hide_main_window, hide_window, resolve_main_window, show_main_window, show_window,
-    toggle_main_window_visibility, toggle_window,
+    hide_main_window, hide_window, resolve_main_window, show_main_window,
+    show_main_window_without_restore, show_window, toggle_main_window_visibility, toggle_window,
 };
 
 /// 应用程序主入口点
@@ -36,6 +43,7 @@ pub fn run() {
         .manage(ChildWebviewManager::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
@@ -83,7 +91,9 @@ pub fn run() {
                         log::debug!("托盘菜单: 打开设置");
                         if let Some(window) = resolve_main_window(app) {
                             tauri::async_runtime::spawn(async move {
-                                if show_main_window(&window).await.is_ok() {
+                                // 先隐藏所有子 webview，避免恢复
+                                let _ = window.emit("hideAllWebviewsNoRestore", ());
+                                if show_main_window_without_restore(&window).await.is_ok() {
                                     let _ = window.emit("open-settings", ());
                                 }
                             });
@@ -108,6 +118,7 @@ pub fn run() {
             if let Ok(shortcut) = shortcut.parse::<Shortcut>() {
                 log::info!("注册全局快捷键: {}", shortcut);
                 let throttle = last_shortcut_trigger.clone();
+                let handle_for_main_toggle = handle.clone();
                 let _ =
                     app.global_shortcut()
                         .on_shortcut(shortcut, move |_app, _event, _shortcut| {
@@ -127,13 +138,17 @@ pub fn run() {
                             *last = Some(now);
                             log::debug!("快捷键被触发");
 
-                            let app_handle = handle.clone();
+                            let app_handle = handle_for_main_toggle.clone();
                             tauri::async_runtime::spawn(async move {
                                 if let Some(window) = resolve_main_window(&app_handle) {
                                     let _ = toggle_main_window_visibility(&window).await;
                                 }
                             });
                         });
+            }
+
+            if let Err(err) = register_double_shift_hotkey(&handle) {
+                log::error!("注册快速问答全局快捷键失败: {}", err);
             }
 
             log::info!("应用设置完成");
@@ -162,6 +177,13 @@ pub fn run() {
             close_child_webview,
             focus_child_webview,
             hide_all_child_webviews,
+            quick_ask_via_hash,
+            get_child_webview_fragment,
+            clear_child_webview_fragment,
+            open_quick_ask_window,
+            close_quick_ask_window,
+            inject_script_to_child_webview,
+            inject_question_to_platform,
             test_proxy_connection
         ])
         .run(tauri::generate_context!())

@@ -34,6 +34,7 @@
     let isPendingReflow = false;
     let shouldEnsureActiveFront = false;
     let shouldRestoreWebviews = false;
+    let suppressNextRestore = false;
     let isShowingWebview = false;
 
     let isLoading = $state(false);
@@ -48,11 +49,13 @@
         close: null as (() => void) | null,
         windowEvent: null as (() => void) | null,
         hideWebviews: null as (() => void) | null,
+        hideWebviewsNoRestore: null as (() => void) | null,
         restoreWebviews: null as (() => void) | null,
     };
 
     const domEventHandlers = [
         { event: "hideAllWebviews", handler: handleHideAllWebviewsEvent },
+        { event: "hideAllWebviewsNoRestore", handler: handleHideAllWebviewsNoRestoreEvent },
         { event: "resize", handler: () => handleMainWindowResize() },
         { event: "ensureTranslationVisible", handler: handleEnsureTranslationVisible },
     ];
@@ -261,6 +264,9 @@
 
     async function hideAllWebviews({ markForRestore = false }: HideAllOptions = {}) {
         shouldRestoreWebviews = markForRestore;
+        if (!markForRestore) {
+            suppressNextRestore = true;
+        }
 
         const hideTasks = Array.from(webviewWindows.values()).map((webview) =>
             webview.hide().catch((error) => {
@@ -312,6 +318,11 @@
         void hideAllWebviews({ markForRestore: true });
     }
 
+    function handleHideAllWebviewsNoRestoreEvent() {
+        suppressNextRestore = true;
+        void hideAllWebviews({ markForRestore: false });
+    }
+
     function handleEnsureTranslationVisible() {
         const translator = translationStore.currentPlatform;
         if (translator && translator.enabled && appState.currentView === "translation") {
@@ -333,6 +344,11 @@
     }
 
     async function restoreActiveWebview(force = false) {
+        if (suppressNextRestore) {
+            suppressNextRestore = false;
+            return;
+        }
+
         if (!(force || shouldRestoreWebviews)) {
             return;
         }
@@ -396,6 +412,14 @@
                 windowEventUnlisteners.hideWebviews = await mainWindow.listen("hideAllWebviews", () => {
                     void hideAllWebviews({ markForRestore: true });
                 });
+
+                windowEventUnlisteners.hideWebviewsNoRestore = await mainWindow.listen(
+                    "hideAllWebviewsNoRestore",
+                    () => {
+                        suppressNextRestore = true;
+                        void hideAllWebviews({ markForRestore: false });
+                    },
+                );
 
                 windowEventUnlisteners.windowEvent = await mainWindow.listen("tauri://window-event", (event) => {
                     const payload = event.payload as { event: string } | undefined;

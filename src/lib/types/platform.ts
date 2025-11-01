@@ -10,6 +10,7 @@ export interface AIPlatform {
   isCustom: boolean;       // 是否自定义平台
   sortOrder: number;       // 排序权重
   userAgent?: string;      // 自定义User Agent（可选）
+  quickAskEnabled?: boolean; // 是否作为快速问答平台（单选，可选字段以兼容旧数据）
 }
 
 /**

@@ -7,15 +7,7 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [sveltekit()],
-  test: {
-    globals: true,
-    environment: "jsdom",
-    setupFiles: "src/lib/__tests__/setup.ts",
-    coverage: {
-      reporter: ["text", "lcov"],
-      include: ["src/lib/**/*.{ts,svelte}"]
-    }
-  },
+  // Vitest config moved to vitest.config.ts to satisfy Vite typings
 
   build: {
     rollupOptions: {

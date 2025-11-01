@@ -6,6 +6,7 @@
     import Header from "$lib/components/layout/Header.svelte";
     import Sidebar from "$lib/components/layout/Sidebar.svelte";
     import MainContent from "$lib/components/layout/MainContent.svelte";
+    import QuickAsk from "$lib/components/pages/QuickAsk.svelte";
     import { appState } from "$lib/stores/app.svelte";
     import { configStore } from "$lib/stores/config.svelte";
     import { platformsStore } from "$lib/stores/platforms.svelte";
@@ -17,6 +18,7 @@
     import "$lib/styles/base.css";
 
     let openSettingsUnlisten: UnlistenFn | null = null;
+    let quickAskShowPlatformUnlisten: UnlistenFn | null = null;
     let registeredTranslationHotkey: string | null = null;
 
     onMount(async () => {
@@ -50,11 +52,37 @@
         } catch (error) {
             console.error("Failed to listen for open-settings event:", error);
         }
+
+        // 监听快速问答提交事件
+        try {
+            quickAskShowPlatformUnlisten = await listen<{ platformId: string }>("quick-ask-show-platform", async (event) => {
+                console.log("Received quick-ask-show-platform event:", event.payload);
+                const { platformId } = event.payload;
+                const platform = platformsStore.getPlatformById(platformId);
+                if (platform) {
+                    console.log("Showing main window and switching to platform:", platform.name);
+                    // 显示主窗口
+                    const appWindow = getCurrentWebviewWindow();
+                    await appWindow.show();
+                    await appWindow.setFocus();
+                    
+                    // 切换到聊天视图并显示对应平台
+                    appState.switchToChatView(platform);
+                } else {
+                    console.error("Platform not found:", platformId);
+                }
+            });
+        } catch (error) {
+            console.error("Failed to listen for quick-ask-show-platform event:", error);
+        }
     });
 
     onDestroy(() => {
         openSettingsUnlisten?.();
         openSettingsUnlisten = null;
+
+        quickAskShowPlatformUnlisten?.();
+        quickAskShowPlatformUnlisten = null;
 
         if (registeredTranslationHotkey) {
             const hotkey = registeredTranslationHotkey;
@@ -84,6 +112,20 @@
                 registeredTranslationHotkey = null;
             }
 
+            if (registeredTranslationHotkey === hotkey) {
+                // Ensure cached state与实际注册状态一致
+                if (!(await isRegistered(hotkey))) {
+                    registeredTranslationHotkey = null;
+                } else {
+                    return;
+                }
+            }
+
+            if (await isRegistered(hotkey)) {
+                registeredTranslationHotkey = hotkey;
+                return;
+            }
+
             if (!registeredTranslationHotkey) {
                 await register(hotkey, () => {
                     void handleTranslationHotkey();
@@ -92,6 +134,7 @@
             }
         } catch (error) {
             console.error("Failed to register translation hotkey:", error);
+            registeredTranslationHotkey = null;
         }
     }
 
@@ -138,6 +181,8 @@
         <MainContent />
     </div>
 </div>
+
+<QuickAsk />
 
 <style>
     .app-container {

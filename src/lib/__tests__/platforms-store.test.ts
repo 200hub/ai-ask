@@ -64,6 +64,54 @@ const storageMocks = {
 
 vi.mock("$lib/utils/storage", () => storageMocks);
 
+vi.mock("$lib/utils/logger", () => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+  log: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+vi.mock("$lib/stores/config.svelte", () => ({
+  configStore: {
+    initialized: true,
+    config: {
+      quickAsk: {
+        enabled: true,
+        selectedPlatformId: "chatgpt",
+        hotkeyInterval: 400,
+        voiceEnabled: false,
+      },
+    },
+    init: vi.fn(),
+    update: vi.fn(),
+  },
+}));
+
+// Extend storage mocks to include config methods
+const configStorageMocks = {
+  getConfig: vi.fn(async () => ({
+    quickAsk: {
+      enabled: true,
+      selectedPlatformId: "chatgpt",
+      hotkeyInterval: 400,
+      voiceEnabled: false,
+    },
+  })),
+  updateConfig: vi.fn(async (updates) => ({
+    ...updates,
+  })),
+};
+
+Object.assign(storageMocks, configStorageMocks);
+
 let platformsStore: typeof import("$lib/stores/platforms.svelte")["platformsStore"];
 
 beforeEach(async () => {
@@ -157,5 +205,28 @@ describe("PlatformsStore", () => {
     expect(platformsStore.getPlatformById(custom.id)).toBeUndefined();
 
     await expect(platformsStore.removePlatform("chatgpt")).rejects.toThrow("只能删除自定义平台");
+  });
+
+  it("sets quick ask platform via store delegation", async () => {
+    // This test verifies that setQuickAskPlatform delegates to quickAskStore
+    await platformsStore.setQuickAskPlatform("chatgpt");
+    
+    // Since we're testing delegation, we need to import quickAskStore to verify
+    const { quickAskStore } = await import("$lib/stores/quick-ask.svelte");
+    expect(quickAskStore.selectedPlatformId).toBe("chatgpt");
+  });
+
+  it("retrieves quick ask platform by id", () => {
+    const platform = platformsStore.getQuickAskPlatform("chatgpt");
+    expect(platform).toBeDefined();
+    expect(platform?.id).toBe("chatgpt");
+    expect(platform?.name).toBe("ChatGPT");
+
+    const nullPlatform = platformsStore.getQuickAskPlatform(null);
+    expect(nullPlatform).toBeNull();
+
+    // getQuickAskPlatform returns null for non-existent IDs (not undefined)
+    const nonExistent = platformsStore.getQuickAskPlatform("nonexistent");
+    expect(nonExistent).toBeNull();
   });
 });

@@ -8,3 +8,20 @@ node_modules
 !.env.example
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+# Rust build artifacts
+/target/
+/src-tauri/target/
+**/*.rlib
+**/*.dSYM/
+
+# Logs & coverage
+*.log
+logs/
+coverage/
+
+# IDE/editor
+.idea/
+.vscode/
+
+# Dist outputs
+/dist/

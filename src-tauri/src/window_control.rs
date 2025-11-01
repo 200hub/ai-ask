@@ -39,8 +39,16 @@ pub(crate) async fn hide_main_window(window: &Window) -> Result<(), String> {
     Ok(())
 }
 
-/// 显示主窗口（并恢复焦点与最小化状态）
+/// 显示主窗口
 pub(crate) async fn show_main_window(window: &Window) -> Result<(), String> {
+    show_main_window_with_options(window, true).await
+}
+
+/// 显示主窗口（可配置是否恢复 WebView）
+pub(crate) async fn show_main_window_with_options(
+    window: &Window,
+    restore_webviews: bool,
+) -> Result<(), String> {
     log::debug!("显示主窗口");
 
     if window.is_minimized().map_err(|err| {
@@ -63,10 +71,17 @@ pub(crate) async fn show_main_window(window: &Window) -> Result<(), String> {
         err.to_string()
     })?;
 
-    let _ = window.emit("restoreWebviews", ());
+    if restore_webviews {
+        let _ = window.emit("restoreWebviews", ());
+    }
 
     log::debug!("主窗口已显示");
     Ok(())
+}
+
+/// 显示主窗口但跳过 WebView 恢复
+pub(crate) async fn show_main_window_without_restore(window: &Window) -> Result<(), String> {
+    show_main_window_with_options(window, false).await
 }
 
 /// 切换主窗口的可见状态

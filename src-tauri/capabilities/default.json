@@ -73,6 +73,8 @@
     "store:allow-values",
     "store:allow-entries",
     "store:allow-length",
+    "clipboard-manager:default",
+    "clipboard-manager:allow-read-text",
     "shell:allow-open",
     "shell:default",
     "global-shortcut:default",

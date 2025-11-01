@@ -31,6 +31,14 @@ export interface AppConfig {
 
   // 其他设置
   firstRun: boolean;
+
+  // 快速问答设置
+  quickAsk: {
+    enabled: boolean;
+    selectedPlatformId: string | null;
+    hotkeyInterval: number; // ms
+    voiceEnabled: boolean;
+  };
 }
 
 /**
@@ -77,6 +85,12 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   windowPosition: null,
   firstRun: true,
+  quickAsk: {
+    enabled: true,
+    selectedPlatformId: null,
+    hotkeyInterval: 400,
+    voiceEnabled: false,
+  },
 };
 
 /**
@@ -87,6 +101,7 @@ export type SettingsTab =
   | "platforms"
   | "proxy"
   | "translation"
+  | "quickask"
   | "about";
 
 /**

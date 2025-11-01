@@ -1,0 +1,8 @@
+node_modules/
+dist/
+build/
+.svelte-kit/
+coverage/
+src-tauri/target/
+target/
+build/
