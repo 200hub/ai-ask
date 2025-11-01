@@ -8,3 +8,22 @@ node_modules
 !.env.example
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Rust / Tauri
+target/
+*.rs.bk
+*.rlib
+*.prof*
+
+# Build artifacts
+dist/
+*.log
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db

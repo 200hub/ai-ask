@@ -1,0 +1,254 @@
+name: Release
+
+# Main release workflow triggered by version tags
+# Coordinates validation, building, changelog generation, and GitHub Release creation
+#
+# Workflow Steps:
+#   1. Validate: Check version format and consistency across files
+#   2. Changelog: Generate structured changelog from conventional commits
+#   3. Build Desktop: Build Windows (x64, ARM64), macOS (Intel, ARM), Linux (x64)
+#   4. Build Mobile: Build Android (APK/AAB) and iOS (IPA) if secrets are configured
+#   5. Release: Create GitHub Release with all artifacts and generated changelog
+#
+# Platform Support:
+#   - Windows: x64, ARM64 (MSI, NSIS installers)
+#   - macOS: Intel, Apple Silicon (DMG, App bundle)
+#   - Linux: x64 (DEB, AppImage)
+#   - Android: APK, AAB (requires signing secrets)
+#   - iOS: IPA (requires signing secrets)
+#
+# Required Secrets for Mobile (optional):
+#   - ANDROID_KEYSTORE, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#   - IOS_CERTIFICATE_P12, IOS_CERTIFICATE_PASSWORD, IOS_PROVISIONING_PROFILE
+
+on:
+  # Trigger on version tags (v*.*.*)
+  push:
+    tags:
+      - 'v*.*.*'
+  
+  # Allow manual trigger with version input
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (without v prefix, e.g., 1.0.0)'
+        required: true
+        type: string
+
+# Required permissions
+permissions:
+  contents: write  # For creating releases and uploading assets
+
+jobs:
+  # Step 1: Validate version consistency
+  validate:
+    name: Validate Version
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Validate version format and consistency
+        run: node .github/scripts/validate-version.js
+  
+  # Step 2: Generate changelog
+  changelog:
+    name: Generate Changelog
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      changelog: ${{ steps.generate.outputs.changelog }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for changelog generation
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Generate changelog
+        id: generate
+        run: node .github/scripts/generate-changelog.js
+      
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: CHANGELOG.md
+          retention-days: 5
+  
+  # Step 3: Build desktop platforms
+  build-desktop:
+    name: Build Desktop Platforms
+    needs: validate
+    uses: ./.github/workflows/build-desktop.yml
+  
+  # Step 3b: Build mobile platforms (optional, requires secrets)
+  build-mobile:
+    name: Build Mobile Platforms
+    needs: validate
+    uses: ./.github/workflows/build-mobile.yml
+    secrets: inherit
+  
+  # Step 4: Create GitHub Release with artifacts
+  release:
+    name: Create GitHub Release
+    needs: [validate, changelog, build-desktop, build-mobile]
+    if: always() && needs.validate.result == 'success' && needs.changelog.result == 'success'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Get version from tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+            echo "TAG=v${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+            echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+      
+      # Download all build artifacts
+      - name: Download Linux x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x64
+          path: artifacts/linux-x64
+        continue-on-error: true
+      
+      - name: Download Windows x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: artifacts/windows-x64
+        continue-on-error: true
+      
+      - name: Download macOS Intel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-intel
+          path: artifacts/macos-intel
+        continue-on-error: true
+      
+      - name: Download macOS ARM64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-arm64
+          path: artifacts/macos-arm64
+        continue-on-error: true
+      
+      - name: Download Windows ARM64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-arm64
+          path: artifacts/windows-arm64
+        continue-on-error: true
+      
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android
+          path: artifacts/android
+        continue-on-error: true
+      
+      - name: Download iOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ios
+          path: artifacts/ios
+        continue-on-error: true
+      
+      # Download generated changelog
+      - name: Download changelog
+        uses: actions/download-artifact@v4
+        with:
+          name: changelog
+      
+      # Generate release notes with changelog
+      - name: Generate release notes with changelog
+        id: release-notes
+        run: |
+          cat << 'EOF_HEADER' > RELEASE_NOTES.md
+          # AI Ask ${{ steps.version.outputs.TAG }}
+          
+          ## 📦 Downloads
+          
+          Choose the appropriate installer for your platform:
+          
+          - **Windows**: MSI or NSIS installer
+          - **macOS**: DMG or App bundle (Universal binary supports both Intel and Apple Silicon)
+          - **Linux**: DEB package or AppImage
+          
+          ## 🚀 Installation
+          
+          ### Windows
+          1. Download the MSI or NSIS installer
+          2. Run the installer and follow the prompts
+          
+          ### macOS
+          1. Download the DMG file
+          2. Open the DMG and drag AI Ask to Applications
+          3. Right-click and select "Open" on first launch (due to Gatekeeper)
+          
+          ### Linux
+          
+          **Debian/Ubuntu (DEB):**
+          ```bash
+          sudo dpkg -i ai-ask_${{ steps.version.outputs.VERSION }}_amd64.deb
+          ```
+          
+          **AppImage:**
+          ```bash
+          chmod +x AI-Ask_${{ steps.version.outputs.VERSION }}_x86_64.AppImage
+          ./AI-Ask_${{ steps.version.outputs.VERSION }}_x86_64.AppImage
+          ```
+          
+          ---
+          
+          EOF_HEADER
+          
+          # Append generated changelog
+          cat CHANGELOG.md >> RELEASE_NOTES.md
+          
+          # Set output for GitHub Actions (escape for multiline)
+          {
+            echo 'NOTES<<EOF_NOTES'
+            cat RELEASE_NOTES.md
+            echo 'EOF_NOTES'
+          } >> $GITHUB_OUTPUT
+      
+      # List all artifacts for debugging
+      - name: List artifacts
+        run: |
+          echo "📦 Available artifacts:"
+          find artifacts -type f -exec echo "  {}" \;
+      
+      # Create GitHub Release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: AI Ask ${{ steps.version.outputs.TAG }}
+          body: ${{ steps.release-notes.outputs.NOTES }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.TAG, '-') }}
+          files: |
+            artifacts/**/*
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

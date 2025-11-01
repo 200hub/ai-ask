@@ -31,10 +31,10 @@ Repository root structure with CI/CD configuration:
 
 **Purpose**: Create directory structure and prepare configuration files
 
-- [ ] T001 Create `.github/workflows/` directory for GitHub Actions workflows
-- [ ] T002 Create `.github/scripts/` directory for build helper scripts
-- [ ] T003 [P] Create `scripts/release/` directory for local testing tools
-- [ ] T004 [P] Update `src-tauri/tauri.conf.json` to configure bundle targets (MSI, NSIS, DMG, DEB, AppImage)
+- [x] T001 Create `.github/workflows/` directory for GitHub Actions workflows
+- [x] T002 Create `.github/scripts/` directory for build helper scripts
+- [x] T003 [P] Create `scripts/release/` directory for local testing tools
+- [x] T004 [P] Update `src-tauri/tauri.conf.json` to configure bundle targets (MSI, NSIS, DMG, DEB, AppImage)
 
 ---
 
@@ -44,9 +44,9 @@ Repository root structure with CI/CD configuration:
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Implement version validation script in `.github/scripts/validate-version.js` (checks tag format and version consistency)
-- [ ] T006 [P] Create local build test script in `scripts/release/test-build.sh` (validates builds before pushing)
-- [ ] T007 [P] Add release-related npm scripts to `package.json` (version bumping, validation)
+- [x] T005 Implement version validation script in `.github/scripts/validate-version.js` (checks tag format and version consistency)
+- [x] T006 [P] Create local build test script in `scripts/release/test-build.sh` (validates builds before pushing)
+- [x] T007 [P] Add release-related npm scripts to `package.json` (version bumping, validation)
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -60,16 +60,16 @@ Repository root structure with CI/CD configuration:
 
 ### Implementation for User Story 1
 
-- [ ] T008 [P] [US1] Create main release workflow in `.github/workflows/release.yml` (tag trigger, job orchestration)
-- [ ] T009 [P] [US1] Create desktop build workflow in `.github/workflows/build-desktop.yml` (matrix: Windows x64, macOS Intel/ARM, Linux)
-- [ ] T010 [US1] Configure tauri-action in build-desktop.yml with proper caching (Cargo, pnpm)
-- [ ] T011 [US1] Add platform matrix strategy to build-desktop.yml (os, target, artifact naming)
-- [ ] T012 [US1] Configure Linux dependencies installation step in build-desktop.yml (webkit2gtk, libgtk-3, etc.)
-- [ ] T013 [US1] Setup artifact upload steps in build-desktop.yml (separate artifacts per platform)
-- [ ] T014 [US1] Integrate validation job in release.yml (call validate-version.js script)
-- [ ] T015 [US1] Add desktop build job orchestration in release.yml (call build-desktop workflow)
-- [ ] T016 [US1] Implement Release creation job in release.yml (download artifacts, create GitHub Release with tauri-action)
-- [ ] T017 [US1] Configure workflow permissions in release.yml (contents: write for Release creation)
+- [x] T008 [P] [US1] Create main release workflow in `.github/workflows/release.yml` (tag trigger, job orchestration)
+- [x] T009 [P] [US1] Create desktop build workflow in `.github/workflows/build-desktop.yml` (matrix: Windows x64, macOS Intel/ARM, Linux)
+- [x] T010 [US1] Configure tauri-action in build-desktop.yml with proper caching (Cargo, pnpm)
+- [x] T011 [US1] Add platform matrix strategy to build-desktop.yml (os, target, artifact naming)
+- [x] T012 [US1] Configure Linux dependencies installation step in build-desktop.yml (webkit2gtk, libgtk-3, etc.)
+- [x] T013 [US1] Setup artifact upload steps in build-desktop.yml (separate artifacts per platform)
+- [x] T014 [US1] Integrate validation job in release.yml (call validate-version.js script)
+- [x] T015 [US1] Add desktop build job orchestration in release.yml (call build-desktop workflow)
+- [x] T016 [US1] Implement Release creation job in release.yml (download artifacts, create GitHub Release with tauri-action)
+- [x] T017 [US1] Configure workflow permissions in release.yml (contents: write for Release creation)
 
 **Checkpoint**: 推送测试标签后，所有P1平台（Windows x64、macOS、Linux）构建成功，GitHub Release页面显示所有安装包可下载
 
@@ -83,15 +83,15 @@ Repository root structure with CI/CD configuration:
 
 ### Implementation for User Story 2
 
-- [ ] T018 [P] [US2] Create changelog generation script in `.github/scripts/generate-changelog.js` (parse conventional commits)
-- [ ] T019 [P] [US2] Create changelog template in `.github/scripts/changelog-template.md` (Markdown format structure)
-- [ ] T020 [US2] Implement commit parsing logic in generate-changelog.js (feat:, fix:, perf:, breaking changes)
-- [ ] T021 [US2] Implement commit categorization in generate-changelog.js (group by type)
-- [ ] T022 [US2] Implement Markdown generation in generate-changelog.js (format with emojis and structure)
-- [ ] T023 [US2] Handle edge cases in generate-changelog.js (no previous tag, non-conventional commits)
-- [ ] T024 [US2] Add changelog generation job to `.github/workflows/release.yml` (between validate and release jobs)
-- [ ] T025 [US2] Pass changelog output to release job in release.yml (job outputs mechanism)
-- [ ] T026 [US2] Update release creation step in release.yml to use generated changelog as body
+- [x] T018 [P] [US2] Create changelog generation script in `.github/scripts/generate-changelog.js` (parse conventional commits)
+- [x] T019 [P] [US2] Create changelog template in `.github/scripts/changelog-template.md` (Markdown format structure)
+- [x] T020 [US2] Implement commit parsing logic in generate-changelog.js (feat:, fix:, perf:, breaking changes)
+- [x] T021 [US2] Implement commit categorization in generate-changelog.js (group by type)
+- [x] T022 [US2] Implement Markdown generation in generate-changelog.js (format with emojis and structure)
+- [x] T023 [US2] Handle edge cases in generate-changelog.js (no previous tag, non-conventional commits)
+- [x] T024 [US2] Add changelog generation job to `.github/workflows/release.yml` (between validate and release jobs)
+- [x] T025 [US2] Pass changelog output to release job in release.yml (job outputs mechanism)
+- [x] T026 [US2] Update release creation step in release.yml to use generated changelog as body
 
 **Checkpoint**: 推送标签后，Release Notes自动包含从上一个标签到当前标签的所有commit，按类别清晰分组
 
@@ -105,16 +105,16 @@ Repository root structure with CI/CD configuration:
 
 ### Implementation for User Story 3
 
-- [ ] T027 [P] [US3] Update desktop build matrix in `.github/workflows/build-desktop.yml` to add Windows ARM64 target (aarch64-pc-windows-msvc)
-- [ ] T028 [P] [US3] Create mobile build workflow in `.github/workflows/build-mobile.yml` (Android and iOS builds)
-- [ ] T029 [US3] Configure Android build job in build-mobile.yml (setup Android SDK, Gradle configuration)
-- [ ] T030 [US3] Configure iOS build job in build-mobile.yml (setup Xcode, certificates, provisioning profiles)
-- [ ] T031 [US3] Add Android signing configuration in build-mobile.yml (keystore secrets handling)
-- [ ] T032 [US3] Add iOS signing configuration in build-mobile.yml (certificate and profile secrets handling)
-- [ ] T033 [US3] Create Android build script in `scripts/release/build-android.sh` (Tauri Android build with signing)
-- [ ] T034 [US3] Create iOS build script in `scripts/release/build-ios.sh` (Tauri iOS build with signing)
-- [ ] T035 [US3] Integrate mobile build job in `.github/workflows/release.yml` (call build-mobile workflow with secrets)
-- [ ] T036 [US3] Update quickstart.md with mobile platform setup instructions (keystore, certificates)
+- [x] T027 [P] [US3] Update desktop build matrix in `.github/workflows/build-desktop.yml` to add Windows ARM64 target (aarch64-pc-windows-msvc)
+- [x] T028 [P] [US3] Create mobile build workflow in `.github/workflows/build-mobile.yml` (Android and iOS builds)
+- [x] T029 [US3] Configure Android build job in build-mobile.yml (setup Android SDK, Gradle configuration)
+- [x] T030 [US3] Configure iOS build job in build-mobile.yml (setup Xcode, certificates, provisioning profiles)
+- [x] T031 [US3] Add Android signing configuration in build-mobile.yml (keystore secrets handling)
+- [x] T032 [US3] Add iOS signing configuration in build-mobile.yml (certificate and profile secrets handling)
+- [x] T033 [US3] Create Android build script in `scripts/release/build-android.sh` (Tauri Android build with signing)
+- [x] T034 [US3] Create iOS build script in `scripts/release/build-ios.sh` (Tauri iOS build with signing)
+- [x] T035 [US3] Integrate mobile build job in `.github/workflows/release.yml` (call build-mobile workflow with secrets)
+- [x] T036 [US3] Update quickstart.md with mobile platform setup instructions (keystore, certificates)
 
 **Checkpoint**: 所有扩展平台（Windows ARM64、Android、iOS）构建成功并上传到Release
 
@@ -124,14 +124,14 @@ Repository root structure with CI/CD configuration:
 
 **Purpose**: 优化、文档完善和质量改进
 
-- [ ] T037 [P] Add comprehensive comments to all workflow YAML files for maintainability
-- [ ] T038 [P] Update `quickstart.md` with actual build times and troubleshooting tips
-- [ ] T039 [P] Add workflow failure notification setup in release.yml (optional Slack/Discord webhook)
-- [ ] T040 [P] Optimize caching strategy in build workflows (reduce build times for repeated runs)
-- [ ] T041 [P] Add workflow dispatch manual trigger to release.yml (enable manual releases without tags)
-- [ ] T042 [P] Document GitHub Secrets setup in quickstart.md (all required secrets with instructions)
-- [ ] T043 Create local release preparation script in `scripts/release/prepare-release.sh` (version bump helper)
-- [ ] T044 Validate quickstart.md instructions by performing a complete test release
+- [x] T037 [P] Add comprehensive comments to all workflow YAML files for maintainability
+- [x] T038 [P] Update `quickstart.md` with actual build times and troubleshooting tips
+- [x] T039 [P] Add workflow failure notification setup in release.yml (optional Slack/Discord webhook)
+- [x] T040 [P] Optimize caching strategy in build workflows (reduce build times for repeated runs)
+- [x] T041 [P] Add workflow dispatch manual trigger to release.yml (enable manual releases without tags)
+- [x] T042 [P] Document GitHub Secrets setup in quickstart.md (all required secrets with instructions)
+- [x] T043 Create local release preparation script in `scripts/release/prepare-release.sh` (version bump helper)
+- [x] T044 Validate quickstart.md instructions by performing a complete test release
 
 ---
 

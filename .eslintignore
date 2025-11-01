@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+.svelte-kit/
+
+# Scripts (plain JS, not TypeScript)
+.github/scripts/
+scripts/
+
+# Generated files
+*.min.js
+
+# Test files
+*.test.js

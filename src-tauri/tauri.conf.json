@@ -41,7 +41,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "nsis", "deb", "appimage", "dmg", "app"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -53,6 +53,19 @@
     "copyright": "© 2025 AI Ask",
     "category": "Productivity",
     "shortDescription": "AI问答助手",
-    "longDescription": "一个简洁高效的AI问答助手，支持多平台切换和翻译功能"
+    "longDescription": "一个简洁高效的AI问答助手，支持多平台切换和翻译功能",
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.13"
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
   }
 }
