@@ -24,6 +24,17 @@ name: Build Mobile Platforms
 
 on:
   workflow_call:
+    inputs:
+      enable_android:
+        description: 'Enable Android build when true (computed by caller)'
+        required: false
+        type: boolean
+        default: false
+      enable_ios:
+        description: 'Enable iOS build when true (computed by caller)'
+        required: false
+        type: boolean
+        default: false
     secrets:
       ANDROID_KEYSTORE:
         description: 'Base64 encoded Android keystore file'
@@ -57,8 +68,7 @@ jobs:
   build-android:
     name: Build Android
     runs-on: ubuntu-latest
-    # Only run if Android secrets are configured
-    if: ${{ secrets.ANDROID_KEYSTORE != '' }}
+    # Will internally check for required secrets and skip steps if missing
     
     steps:
       - name: Checkout repository
@@ -90,9 +100,20 @@ jobs:
       
       - name: Install frontend dependencies
         run: pnpm install
+
+      - name: Check Android signing secrets
+        id: android_guard
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE }}" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+            echo "Android signing secrets detected; Android build will proceed."
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "Android signing secrets not found; skipping Android build steps."
+          fi
       
       - name: Setup Android keystore
-        if: ${{ secrets.ANDROID_KEYSTORE != '' }}
+        if: ${{ steps.android_guard.outputs.enabled == 'true' }}
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > ${{ github.workspace }}/ai-ask.keystore
           echo "KEYSTORE_PATH=${{ github.workspace }}/ai-ask.keystore" >> $GITHUB_ENV
@@ -101,12 +122,14 @@ jobs:
           echo "KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> $GITHUB_ENV
       
       - name: Build Android APK/AAB
+        if: ${{ steps.android_guard.outputs.enabled == 'true' }}
         run: |
           pnpm tauri android init
           pnpm tauri android build --release
       
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
+        if: ${{ steps.android_guard.outputs.enabled == 'true' }}
         with:
           name: android
           path: |
@@ -118,8 +141,7 @@ jobs:
   build-ios:
     name: Build iOS
     runs-on: macos-latest
-    # Only run if iOS secrets are configured
-    if: ${{ secrets.IOS_CERTIFICATE_P12 != '' }}
+    # Will internally check for required secrets and skip steps if missing
     
     steps:
       - name: Checkout repository
@@ -142,9 +164,20 @@ jobs:
       
       - name: Install frontend dependencies
         run: pnpm install
+
+      - name: Check iOS signing secrets
+        id: ios_guard
+        run: |
+          if [ -n "${{ secrets.IOS_CERTIFICATE_P12 }}" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+            echo "iOS signing secrets detected; iOS build will proceed."
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "iOS signing secrets not found; skipping iOS build steps."
+          fi
       
       - name: Setup iOS certificates
-        if: ${{ secrets.IOS_CERTIFICATE_P12 != '' }}
+        if: ${{ steps.ios_guard.outputs.enabled == 'true' }}
         run: |
           # Create keychain
           security create-keychain -p "" build.keychain
@@ -167,12 +200,14 @@ jobs:
             ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
       
       - name: Build iOS IPA
+        if: ${{ steps.ios_guard.outputs.enabled == 'true' }}
         run: |
           pnpm tauri ios init
           pnpm tauri ios build --release
       
       - name: Upload iOS artifacts
         uses: actions/upload-artifact@v4
+        if: ${{ steps.ios_guard.outputs.enabled == 'true' }}
         with:
           name: ios
           path: |
