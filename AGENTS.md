@@ -2,6 +2,10 @@
 
 These instructions help AI coding agents work productively in this repo. Focus on core architectural patterns and critical constraints; avoid over-specification of implementation details.
 
+## Language Preference
+
+- 请尽量使用中文进行回复与说明；仅在用户明确要求或上下文确有需要时再改用其他语言。
+
 ## Big Picture
 
 - **Tech stack**: Tauri 2.x (Rust backend) + SvelteKit 2 (SPA mode) + Svelte 5 Runes

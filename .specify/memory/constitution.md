@@ -2,6 +2,9 @@
 
 ## Core Principles
 
+### 0. 中文优先沟通
+所有说明、解释与指令编写时必须优先使用中文进行表述；仅在用户明确要求或任务本身涉及其他语言时，方可切换到对应语言。
+
 ### I. Svelte 5 Runes Only (NON-NEGOTIABLE)
 All reactive state MUST use Svelte 5 Runes: `$state`, `$derived`, `$effect`. Svelte 4 store patterns (`writable`, `readable`, `derived`) are strictly PROHIBITED in new code. Store pattern: `class Store { value = $state(0); } export const store = new Store();`
 
