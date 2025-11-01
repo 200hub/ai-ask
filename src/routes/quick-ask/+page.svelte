@@ -36,16 +36,6 @@ $effect(() => {
 async function handleSubmit() {
 	const success = await quickAskStore.submit();
 	if (success) {
-		// Notify main window to show platform and switch view
-		const selectedPlatformId = quickAskStore.selectedPlatformId;
-		if (selectedPlatformId) {
-			const { emit } = await import("@tauri-apps/api/event");
-			await emit("quick-ask-show-platform", { platformId: selectedPlatformId }).catch((err) => {
-				logger.error("Failed to emit show platform event", err);
-			});
-			logger.info("Emitted show platform event for:", selectedPlatformId);
-		}
-
 		// Close window via Tauri command
 		await invoke("close_quick_ask_window").catch((err) => {
 			logger.error("Failed to close Quick Ask window", err);

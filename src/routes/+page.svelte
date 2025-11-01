@@ -2,7 +2,7 @@
     /**
      * AI Ask 主页面
      */
-    import { onMount, onDestroy } from "svelte";
+    import { onMount, onDestroy, tick } from "svelte";
     import Header from "$lib/components/layout/Header.svelte";
     import Sidebar from "$lib/components/layout/Sidebar.svelte";
     import MainContent from "$lib/components/layout/MainContent.svelte";
@@ -12,7 +12,7 @@
     import { platformsStore } from "$lib/stores/platforms.svelte";
     import { translationStore } from "$lib/stores/translation.svelte";
     import type { UnlistenFn } from "@tauri-apps/api/event";
-    import { listen } from "@tauri-apps/api/event";
+    import { listen, emit } from "@tauri-apps/api/event";
     import { register, unregister, isRegistered } from "@tauri-apps/plugin-global-shortcut";
     import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
     import "$lib/styles/base.css";
@@ -20,6 +20,47 @@
     let openSettingsUnlisten: UnlistenFn | null = null;
     let quickAskShowPlatformUnlisten: UnlistenFn | null = null;
     let registeredTranslationHotkey: string | null = null;
+
+    function waitForChatViewReady(targetPlatformId: string): Promise<void> {
+        const isReady = () =>
+            appState.currentView === "chat" &&
+            appState.selectedPlatform?.id === targetPlatformId &&
+            !appState.webviewLoading;
+
+        if (isReady()) {
+            return Promise.resolve();
+        }
+
+        return new Promise<void>((resolve, reject) => {
+            const handler = (event: Event) => {
+                const detail = (event as CustomEvent<{ platformId?: string }>).detail;
+                if (detail?.platformId === targetPlatformId) {
+                    cleanup();
+                    resolve();
+                }
+            };
+
+            const pollId = window.setInterval(() => {
+                if (isReady()) {
+                    cleanup();
+                    resolve();
+                }
+            }, 100);
+
+            const timeoutId = window.setTimeout(() => {
+                cleanup();
+                reject(new Error("CHAT_WEBVIEW_READY_TIMEOUT"));
+            }, 8000);
+
+            const cleanup = () => {
+                window.removeEventListener("chatWebviewReady", handler as EventListener);
+                clearInterval(pollId);
+                clearTimeout(timeoutId);
+            };
+
+            window.addEventListener("chatWebviewReady", handler as EventListener);
+        });
+    }
 
     onMount(async () => {
         // 初始化所有 stores
@@ -59,17 +100,49 @@
                 console.log("Received quick-ask-show-platform event:", event.payload);
                 const { platformId } = event.payload;
                 const platform = platformsStore.getPlatformById(platformId);
-                if (platform) {
-                    console.log("Showing main window and switching to platform:", platform.name);
-                    // 显示主窗口
+                if (!platform) {
+                    console.error("Platform not found:", platformId);
+                    await emit("quick-ask-platform-ready", {
+                        platformId,
+                        success: false,
+                        error: "PLATFORM_NOT_FOUND",
+                    });
+                    return;
+                }
+
+                console.log("Showing main window and switching to platform:", platform.name);
+
+                try {
                     const appWindow = getCurrentWebviewWindow();
                     await appWindow.show();
                     await appWindow.setFocus();
-                    
-                    // 切换到聊天视图并显示对应平台
-                    appState.switchToChatView(platform);
-                } else {
-                    console.error("Platform not found:", platformId);
+                } catch (windowError) {
+                    console.error("Failed to show main window:", windowError);
+                }
+
+                appState.switchToChatView(platform);
+
+                await tick();
+
+                window.dispatchEvent(
+                    new CustomEvent("ensureChatVisible", {
+                        detail: { platformId: platform.id },
+                    }),
+                );
+
+                try {
+                    await waitForChatViewReady(platform.id);
+                    await emit("quick-ask-platform-ready", {
+                        platformId: platform.id,
+                        success: true,
+                    });
+                } catch (readyError) {
+                    console.error("Failed to prepare chat webview:", readyError);
+                    await emit("quick-ask-platform-ready", {
+                        platformId: platform.id,
+                        success: false,
+                        error: readyError instanceof Error ? readyError.message : String(readyError),
+                    });
                 }
             });
         } catch (error) {

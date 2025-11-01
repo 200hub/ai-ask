@@ -35,14 +35,27 @@ vi.mock("$lib/stores/platforms.svelte", () => ({
   },
 }));
 
-vi.mock("$lib/stores/app.svelte", () => ({
-  appState: {
-    currentView: "chat",
-    selectedPlatform: { id: "chatgpt", name: "ChatGPT" },
-    webviewLoading: false,
-    switchToChatView: vi.fn(),
-  },
-}));
+vi.mock("@tauri-apps/api/event", () => {
+  const emit = vi.fn().mockResolvedValue(undefined);
+  const listen = vi.fn(
+    (
+      event: string,
+      handler: (payload: { payload: { platformId: string; success?: boolean } }) => void,
+    ) => {
+    if (event === "quick-ask-platform-ready") {
+      setTimeout(() => {
+        handler({ payload: { platformId: "chatgpt", success: true } });
+      }, 0);
+    }
+    return Promise.resolve(() => {});
+    },
+  );
+
+  return {
+    emit,
+    listen,
+  };
+});
 
 vi.mock("$lib/utils/injection", () => ({
   injectQuestionToPlatform: vi.fn().mockRejectedValue(new Error("NOT_LOGGED_IN")),

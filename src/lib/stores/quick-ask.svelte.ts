@@ -90,6 +90,81 @@ class QuickAskStore {
 		}
 	}
 
+	private async ensurePlatformReady(platformId: string): Promise<void> {
+		if (typeof window === "undefined") {
+			return;
+		}
+
+		const { emit, listen } = await import("@tauri-apps/api/event");
+
+		await new Promise<void>((resolve, reject) => {
+			let resolved = false;
+			let timeoutId: ReturnType<typeof setTimeout> | undefined;
+			let unlisten: (() => void) | null = null;
+
+			const cleanup = () => {
+				if (timeoutId) {
+					clearTimeout(timeoutId);
+					timeoutId = undefined;
+				}
+
+				if (unlisten) {
+					unlisten();
+					unlisten = null;
+				}
+			};
+
+			const settle = (result: "resolve" | "reject", error?: unknown) => {
+				if (resolved) {
+					return;
+				}
+				resolved = true;
+				cleanup();
+				if (result === "resolve") {
+					resolve();
+				} else {
+					reject(error instanceof Error ? error : new Error(String(error ?? "PLATFORM_READY_FAILED")));
+				}
+			};
+
+			const startListening = async () => {
+				try {
+					unlisten = await listen<{ platformId: string; success?: boolean; error?: string }>(
+						"quick-ask-platform-ready",
+						(event) => {
+							if (event.payload.platformId !== platformId) {
+								return;
+							}
+
+							if (event.payload.success === false) {
+								settle("reject", event.payload.error ?? "PLATFORM_READY_FAILED");
+								return;
+							}
+
+							settle("resolve");
+						},
+					);
+
+					try {
+						await emit("quick-ask-show-platform", { platformId });
+					} catch (emitError) {
+						settle("reject", emitError);
+					}
+				} catch (listenError) {
+					settle("reject", listenError);
+				}
+			};
+
+			startListening().catch((error) => {
+				settle("reject", error);
+			});
+
+			timeoutId = setTimeout(() => {
+				settle("reject", new Error("PLATFORM_READY_TIMEOUT"));
+			}, 10000);
+		});
+	}
+
 	private async loadConfigFromStore(): Promise<void> {
 		if (!configStore.initialized) {
 			await configStore.init();
@@ -220,12 +295,8 @@ class QuickAskStore {
 		this.#state.error = null;
 
 		try {
-			const [{ appState }, { platformsStore }] = await Promise.all([
-				import("$lib/stores/app.svelte"),
-				import("$lib/stores/platforms.svelte"),
-			]);
+			const { platformsStore } = await import("$lib/stores/platforms.svelte");
 
-			// 确保 platformsStore 已加载平台列表
 			if (!platformsStore.platforms || platformsStore.platforms.length === 0) {
 				logger.debug("Platforms not loaded yet, initializing...");
 				await platformsStore.init();
@@ -244,88 +315,13 @@ class QuickAskStore {
 				return false;
 			}
 
-			logger.debug("Preparing to show platform for quick ask", {
+			logger.debug("Requesting main window to prepare platform for quick ask", {
 				platformId: platform.id,
 			});
 
-			appState.switchToChatView(platform);
+			await this.ensurePlatformReady(platform.id);
 
-			const waitForChatWebviewReady = async (): Promise<void> => {
-				if (typeof window === "undefined") {
-					return;
-				}
-
-				logger.debug("Starting to wait for chat webview readiness", {
-					platformId: platform.id,
-					currentView: appState.currentView,
-					selectedPlatform: appState.selectedPlatform?.id,
-					webviewLoading: appState.webviewLoading,
-				});
-
-				const isReady = () =>
-					appState.currentView === "chat" &&
-					appState.selectedPlatform?.id === platform.id &&
-					!appState.webviewLoading;
-
-				await new Promise<void>((resolve, reject) => {
-					let settled = false;
-					let cleanup: () => void;
-
-					const onReady = (event: Event) => {
-						const detail = (event as CustomEvent<{ platformId: string }>).detail;
-						logger.debug("Received chatWebviewReady event", {
-							eventPlatformId: detail?.platformId,
-							targetPlatformId: platform.id,
-						});
-						if (detail?.platformId === platform.id) {
-							settled = true;
-							cleanup();
-							logger.debug("Chat webview ready via event", {
-								platformId: platform.id,
-							});
-							resolve();
-						}
-					};
-
-					const checkInterval = setInterval(() => {
-						if (isReady()) {
-							settled = true;
-							cleanup();
-							logger.debug("Chat webview ready via polling", {
-								platformId: platform.id,
-							});
-							resolve();
-						}
-					}, 100);
-
-					const timeoutId = setTimeout(() => {
-						if (!settled) {
-							cleanup();
-							logger.error("Chat webview not ready within timeout", {
-								platformId: platform.id,
-								currentView: appState.currentView,
-								selectedPlatform: appState.selectedPlatform?.id,
-								webviewLoading: appState.webviewLoading,
-							});
-							reject(new Error("WEBVIEW_NOT_READY"));
-						}
-					}, 8000);
-
-					cleanup = () => {
-						window.removeEventListener("chatWebviewReady", onReady as EventListener);
-						clearInterval(checkInterval);
-						clearTimeout(timeoutId);
-					};
-
-					window.addEventListener("chatWebviewReady", onReady as EventListener);
-				});
-
-				logger.info("Chat webview ready for quick ask", {
-					platformId: platform.id,
-				});
-			};
-
-			await waitForChatWebviewReady();
+			logger.info("Platform ready for quick ask", { platformId: platform.id });
 
 			const { injectQuestionToPlatform } = await import("$lib/utils/injection");
 
