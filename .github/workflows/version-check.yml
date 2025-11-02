@@ -1,0 +1,145 @@
+name: Version Check and Auto Release
+
+# 监听 tauri.conf.json 的版本变更，自动同步版本号并创建 tag 触发 release
+#
+# 工作流程：
+#   1. 监听 main 分支的 push 事件
+#   2. 检查 src-tauri/tauri.conf.json 是否有变更
+#   3. 如果版本号发生变化，自动同步到其他文件
+#   4. 创建新的版本 tag
+#   5. 触发 release 工作流
+#
+# 版本号管理：
+#   - 单一真实来源：src-tauri/tauri.conf.json
+#   - 自动同步目标：package.json, Cargo.toml, constants.ts
+#   - Tag 格式：v{version} (例如：v1.0.0)
+#
+# 注意事项：
+#   - 只在 main 分支触发
+#   - 需要有 GITHUB_TOKEN 权限创建 tag
+#   - 版本号必须符合 semver 规范
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src-tauri/tauri.conf.json'
+
+permissions:
+  contents: write  # 需要写权限来创建 tag 和提交变更
+
+jobs:
+  check-version:
+    name: Check Version and Create Tag
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # 需要至少两个 commit 来比较变更
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      # 检查版本号是否有变化
+      - name: Check if version changed
+        id: version-check
+        run: |
+          # 获取当前版本
+          CURRENT_VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "Current version: $CURRENT_VERSION"
+          
+          # 获取上一个 commit 的版本
+          git checkout HEAD~1 -- src-tauri/tauri.conf.json 2>/dev/null || true
+          if [ -f src-tauri/tauri.conf.json.old ]; then
+            PREVIOUS_VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version" 2>/dev/null || echo "none")
+          else
+            PREVIOUS_VERSION="none"
+          fi
+          
+          # 恢复当前版本
+          git checkout HEAD -- src-tauri/tauri.conf.json
+          
+          echo "Previous version: $PREVIOUS_VERSION"
+          
+          # 检查版本是否变化
+          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version unchanged: $CURRENT_VERSION"
+          fi
+      
+      # 同步版本号到其他文件
+      - name: Sync version to other files
+        if: steps.version-check.outputs.changed == 'true'
+        run: |
+          echo "Synchronizing version ${{ steps.version-check.outputs.version }} to all files..."
+          pnpm run version:sync
+      
+      # 配置 Git
+      - name: Configure Git
+        if: steps.version-check.outputs.changed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+      
+      # 提交版本同步的变更
+      - name: Commit version sync changes
+        if: steps.version-check.outputs.changed == 'true'
+        run: |
+          git add package.json src-tauri/Cargo.toml src/lib/utils/constants.ts
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: sync version to ${{ steps.version-check.outputs.version }}"
+            git push origin main
+          fi
+      
+      # 检查 tag 是否已存在
+      - name: Check if tag exists
+        if: steps.version-check.outputs.changed == 'true'
+        id: tag-check
+        run: |
+          TAG_NAME="v${{ steps.version-check.outputs.version }}"
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG_NAME already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG_NAME does not exist"
+          fi
+      
+      # 创建新的 tag
+      - name: Create version tag
+        if: steps.version-check.outputs.changed == 'true' && steps.tag-check.outputs.exists == 'false'
+        run: |
+          TAG_NAME="v${{ steps.version-check.outputs.version }}"
+          echo "Creating tag $TAG_NAME"
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+          git push origin "$TAG_NAME"
+          echo "Tag $TAG_NAME created and pushed"
+      
+      # 输出结果
+      - name: Summary
+        if: steps.version-check.outputs.changed == 'true'
+        run: |
+          echo "✅ Version updated to ${{ steps.version-check.outputs.version }}"
+          echo "✅ All files synchronized"
+          echo "✅ Tag v${{ steps.version-check.outputs.version }} created"
+          echo "🚀 Release workflow will be triggered automatically"
