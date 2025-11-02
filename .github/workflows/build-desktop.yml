@@ -145,10 +145,44 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
       
+      # Sanitize version for Windows MSI (must be numeric-only pre-release identifier)
+      - name: Sanitize version for Windows MSI
+        if: ${{ runner.os == 'Windows' }}
+        shell: bash
+        run: |
+          # Read current version from tauri.conf.json
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "Original version: $VERSION"
+          
+          # Transform version for Windows MSI compatibility
+          # Examples:
+          #   0.0.1-alpha.1 -> 0.0.1-1
+          #   1.0.0-beta.2 -> 1.0.0-2
+          #   1.0.0-rc.3 -> 1.0.0-3
+          #   1.0.0 -> 1.0.0 (unchanged)
+          
+          if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-([a-z]+)\.([0-9]+)$ ]]; then
+            # Format: x.y.z-alpha.n -> x.y.z-n
+            BASE="${BASH_REMATCH[1]}"
+            NUM="${BASH_REMATCH[3]}"
+            SANITIZED_VERSION="${BASE}-${NUM}"
+            echo "Sanitized version: $SANITIZED_VERSION"
+            
+            # Update tauri.conf.json
+            node -e "const fs=require('fs'); const config=require('./src-tauri/tauri.conf.json'); config.version='${SANITIZED_VERSION}'; fs.writeFileSync('./src-tauri/tauri.conf.json', JSON.stringify(config, null, 2));"
+            
+            # Update package.json
+            node -e "const fs=require('fs'); const pkg=require('./package.json'); pkg.version='${SANITIZED_VERSION}'; fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2));"
+            
+            # Update Cargo.toml
+            sed -i "s/^version = \".*\"/version = \"${SANITIZED_VERSION}\"/" src-tauri/Cargo.toml
+            
+            echo "✅ Version sanitized for Windows MSI: $VERSION -> $SANITIZED_VERSION"
+          else
+            echo "✅ Version is already MSI-compatible: $VERSION"
+          fi
+      
       # Build Tauri application
-      # Note: Version in package.json must follow semver rules:
-      # - Pre-release identifiers for Windows MSI must be numeric-only and <= 65535
-      # - Examples: 1.0.0, 1.0.0-1, 1.0.0-beta.2 (NOT 1.0.0-test or 1.0.0-alpha)
       - name: Build Tauri application
         run: pnpm tauri build --target ${{ matrix.target }}
       

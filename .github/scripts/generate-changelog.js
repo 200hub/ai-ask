@@ -291,11 +291,15 @@ function main() {
   console.log(`  Other: ${categories.style.length + categories.test.length + categories.chore.length + categories.others.length}`);
   console.log('');
   
-  // Output for GitHub Actions (multiline string)
+  // Output current version changelog for GitHub Actions
   if (process.env.GITHUB_OUTPUT) {
-    // Escape newlines for GitHub Actions output
-    const output = changelog.replace(/\n/g, '%0A').replace(/\r/g, '');
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, `changelog=${output}\n`);
+    // Escape special characters for GitHub Actions multiline output
+    const escapedChangelog = changelog
+      .replace(/%/g, '%25')
+      .replace(/\n/g, '%0A')
+      .replace(/\r/g, '%0D');
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `current_changelog<<EOF\n${changelog}\nEOF\n`);
+    console.log('📄 Current version changelog saved to GITHUB_OUTPUT\n');
   }
   
   // Append to existing CHANGELOG.md or create new one
