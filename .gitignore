@@ -19,9 +19,6 @@ target/
 dist/
 *.log
 
-# Temporary changelog files
-CHANGELOG_CURRENT.md
-
 # IDEs
 .idea/
 .vscode/
