@@ -50,6 +50,7 @@
 所有其他文件的版本号会自动同步：
 - ✅ `package.json`
 - ✅ `src-tauri/Cargo.toml`
+- ✅ `src-tauri/Cargo.lock` (ai-ask 包版本)
 - ✅ `src/lib/utils/constants.ts` (APP_INFO.version)
 
 ### 自动化流程
@@ -99,6 +100,7 @@ pnpm run version:sync
 这会自动更新：
 - `package.json` → `"version": "1.0.1"`
 - `src-tauri/Cargo.toml` → `version = "1.0.1"`
+- `src-tauri/Cargo.lock` → `version = "1.0.1"` (ai-ask 包)
 - `src/lib/utils/constants.ts` → `APP_INFO.version: "1.0.1"`
 
 #### 1.2 确保Commits符合规范
