@@ -121,19 +121,22 @@ jobs:
             librsvg2-dev \
             patchelf
           
-          set +e
+          # Try to install WebKitGTK in order of preference (newest to oldest)
+          # Ubuntu 24.04+ uses libwebkit2gtk-4.1-dev
+          # Ubuntu 22.04 uses libwebkit2gtk-4.0-dev
+          # Some systems may use libwebkitgtk-6.0-dev
+          FOUND_PACKAGE=""
           for package in libwebkit2gtk-4.1-dev libwebkitgtk-6.0-dev libwebkit2gtk-4.0-dev; do
             echo "Attempting to install ${package}..."
-            if sudo apt-get install -y "${package}"; then
-              echo "Installed ${package}"
+            if sudo apt-get install -y "${package}" 2>/dev/null; then
+              echo "Successfully installed ${package}"
               FOUND_PACKAGE=1
               break
             fi
           done
-          set -e
           
-          if [ -z "${FOUND_PACKAGE:-}" ]; then
-            echo "Failed to install any supported WebKitGTK development package." >&2
+          if [ -z "${FOUND_PACKAGE}" ]; then
+            echo "Error: Failed to install any supported WebKitGTK development package." >&2
             echo "Tried: libwebkit2gtk-4.1-dev, libwebkitgtk-6.0-dev, libwebkit2gtk-4.0-dev" >&2
             exit 1
           fi
@@ -142,11 +145,15 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      # Sanitize version for Windows MSI/WiX
+      # MSI requires pre-release identifier to be numeric-only and <= 65535
+      # Example: 0.0.2-test -> 0.0.2-0 (semver) and 0.0.2.0 (WiX)
+      # Example: 0.0.2-alpha1 -> 0.0.2-1 (semver) and 0.0.2.1 (WiX)
       - name: Sanitize Windows bundle version
         if: ${{ runner.os == 'Windows' }}
         shell: bash
         run: |
-          WINDOWS_ENV=$(node <<'NODE'
+          node <<'NODE' >> $GITHUB_ENV
           const fs = require('fs');
           const path = require('path');
           const pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'));
@@ -172,9 +179,8 @@ jobs:
           console.log(`WINDOWS_SEMVER=${sanitizedSemver}`);
           console.log(`WINDOWS_WIX_VERSION=${wixVersion}`);
           NODE
-          )
-          printf '%s\n' "${WINDOWS_ENV}" | tee -a "$GITHUB_ENV"
-          printf 'Computed Windows versions:\n%s\n' "${WINDOWS_ENV}"
+          
+          echo "Computed Windows versions: WINDOWS_SEMVER=$WINDOWS_SEMVER, WINDOWS_WIX_VERSION=$WINDOWS_WIX_VERSION"
       
       # Build application
       - name: Build Tauri application (Windows)

@@ -239,13 +239,11 @@ jobs:
           cat CHANGELOG.md >> RELEASE_NOTES.md
           
           # Set output for GitHub Actions (escape for multiline)
-          python <<'PY' >> "$GITHUB_OUTPUT"
-          from pathlib import Path
-          notes = Path("RELEASE_NOTES.md").read_text()
-          print("NOTES<<__AI_ASK_NOTES__")
-          print(notes, end="" if notes.endswith("\n") else "\n")
-          print("__AI_ASK_NOTES__")
-          PY
+          {
+            echo "NOTES<<__AI_ASK_RELEASE_NOTES_EOF__"
+            cat RELEASE_NOTES.md
+            echo "__AI_ASK_RELEASE_NOTES_EOF__"
+          } >> "$GITHUB_OUTPUT"
       
       # List all artifacts for debugging
       - name: List artifacts
