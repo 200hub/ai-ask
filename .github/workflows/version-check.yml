@@ -77,7 +77,15 @@ jobs:
       # 安装依赖（仅在版本变更时）
       - name: Install dependencies
         if: steps.version-check.outputs.changed == 'true'
-        run: pnpm install --frozen-lockfile
+        run: |
+          # 检查 lockfile 是否存在
+          if [ -f "pnpm-lock.yaml" ]; then
+            echo "Installing with frozen lockfile..."
+            pnpm install --frozen-lockfile
+          else
+            echo "No lockfile found, installing without freeze..."
+            pnpm install --no-frozen-lockfile
+          fi
       
       # 同步版本号到其他文件
       - name: Sync version to other files
