@@ -8,6 +8,7 @@
  * 同步目标：
  * - package.json
  * - src-tauri/Cargo.toml
+ * - src-tauri/Cargo.lock (ai-ask 包版本)
  * - src/lib/utils/constants.ts (APP_INFO.version)
  * 
  * 使用方法：
@@ -128,6 +129,40 @@ function updateCargoToml(version) {
 }
 
 /**
+ * 更新 Cargo.lock 版本号
+ */
+function updateCargoLock(version) {
+  try {
+    const cargoLockPath = resolve(rootDir, 'src-tauri/Cargo.lock');
+    let cargoLock = readFileSync(cargoLockPath, 'utf8');
+    
+    // 匹配 ai-ask 包的版本行
+    // 格式: [[package]]\nname = "ai-ask"\nversion = "x.x.x"
+    const versionRegex = /(\[\[package\]\]\s*\nname\s*=\s*"ai-ask"\s*\nversion\s*=\s*)"([^"]*)"/;
+    const match = cargoLock.match(versionRegex);
+    
+    if (!match) {
+      throw new Error('ai-ask version not found in Cargo.lock');
+    }
+    
+    const currentVersion = match[2];
+    
+    if (currentVersion === version) {
+      logInfo(`Cargo.lock version is already ${version}`);
+      return false;
+    }
+    
+    cargoLock = cargoLock.replace(versionRegex, `$1"${version}"`);
+    writeFileSync(cargoLockPath, cargoLock, 'utf8');
+    logSuccess(`Updated Cargo.lock: ${currentVersion} -> ${version}`);
+    return true;
+  } catch (error) {
+    logError(`Failed to update Cargo.lock: ${error.message}`);
+    return false;
+  }
+}
+
+/**
  * 更新 constants.ts 中的 APP_INFO.version
  */
 function updateConstantsTs(version) {
@@ -175,6 +210,7 @@ function main() {
   const results = {
     packageJson: updatePackageJson(version),
     cargoToml: updateCargoToml(version),
+    cargoLock: updateCargoLock(version),
     constantsTs: updateConstantsTs(version),
   };
   
