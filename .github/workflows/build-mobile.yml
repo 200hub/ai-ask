@@ -1,0 +1,216 @@
+name: Build Mobile Platforms
+
+# Reusable workflow for building mobile platforms (Android & iOS)
+# Called by release.yml
+# Requires signing secrets to be configured
+#
+# Platform Requirements:
+#   Android:
+#     - Runs on Ubuntu runners
+#     - Requires Android SDK and Java 17
+#     - Needs signing secrets: ANDROID_KEYSTORE, passwords, key alias
+#     - Outputs: APK (direct install), AAB (Google Play)
+#   
+#   iOS:
+#     - Runs on macOS runners (expensive, 10x billing rate)
+#     - Requires Xcode and iOS certificates
+#     - Needs signing secrets: IOS_CERTIFICATE_P12, provisioning profile
+#     - Outputs: IPA (TestFlight/App Store)
+#
+# Conditional Execution:
+#   - Builds only run if corresponding secrets are configured
+#   - Missing secrets result in job being skipped (not failed)
+#   - Desktop builds proceed independently
+
+on:
+  workflow_call:
+    inputs:
+      enable_android:
+        description: 'Enable Android build when true (computed by caller)'
+        required: false
+        type: boolean
+        default: false
+      enable_ios:
+        description: 'Enable iOS build when true (computed by caller)'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      ANDROID_KEYSTORE:
+        description: 'Base64 encoded Android keystore file'
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        description: 'Android keystore password'
+        required: false
+      ANDROID_KEY_ALIAS:
+        description: 'Android key alias'
+        required: false
+      ANDROID_KEY_PASSWORD:
+        description: 'Android key password'
+        required: false
+      IOS_CERTIFICATE_P12:
+        description: 'Base64 encoded iOS certificate'
+        required: false
+      IOS_CERTIFICATE_PASSWORD:
+        description: 'iOS certificate password'
+        required: false
+      IOS_PROVISIONING_PROFILE:
+        description: 'Base64 encoded iOS provisioning profile'
+        required: false
+      APPLE_ID:
+        description: 'Apple ID for notarization'
+        required: false
+      APPLE_ID_PASSWORD:
+        description: 'Apple ID app-specific password'
+        required: false
+
+jobs:
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-latest
+    # Will internally check for required secrets and skip steps if missing
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+      
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Check Android signing secrets
+        id: android_guard
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE }}" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+            echo "Android signing secrets detected; Android build will proceed."
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "Android signing secrets not found; skipping Android build steps."
+          fi
+      
+      - name: Setup Android keystore
+        if: ${{ steps.android_guard.outputs.enabled == 'true' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > ${{ github.workspace }}/ai-ask.keystore
+          echo "KEYSTORE_PATH=${{ github.workspace }}/ai-ask.keystore" >> $GITHUB_ENV
+          echo "KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> $GITHUB_ENV
+      
+      - name: Build Android APK/AAB
+        if: ${{ steps.android_guard.outputs.enabled == 'true' }}
+        run: |
+          pnpm tauri android init
+          pnpm tauri android build --release
+      
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ steps.android_guard.outputs.enabled == 'true' }}
+        with:
+          name: android
+          path: |
+            src-tauri/gen/android/app/build/outputs/apk/release/*.apk
+            src-tauri/gen/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: warn
+          retention-days: 5
+  
+  build-ios:
+    name: Build iOS
+    runs-on: macos-latest
+    # Will internally check for required secrets and skip steps if missing
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios
+      
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Check iOS signing secrets
+        id: ios_guard
+        run: |
+          if [ -n "${{ secrets.IOS_CERTIFICATE_P12 }}" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+            echo "iOS signing secrets detected; iOS build will proceed."
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "iOS signing secrets not found; skipping iOS build steps."
+          fi
+      
+      - name: Setup iOS certificates
+        if: ${{ steps.ios_guard.outputs.enabled == 'true' }}
+        run: |
+          # Create keychain
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          
+          # Import certificate
+          echo "${{ secrets.IOS_CERTIFICATE_P12 }}" | base64 -d > certificate.p12
+          security import certificate.p12 \
+            -k build.keychain \
+            -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
+            -T /usr/bin/codesign
+          
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          
+          # Install provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.IOS_PROVISIONING_PROFILE }}" | base64 -d > \
+            ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+      
+      - name: Build iOS IPA
+        if: ${{ steps.ios_guard.outputs.enabled == 'true' }}
+        run: |
+          pnpm tauri ios init
+          pnpm tauri ios build --release
+      
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ steps.ios_guard.outputs.enabled == 'true' }}
+        with:
+          name: ios
+          path: |
+            src-tauri/gen/apple/build/arm64/*.ipa
+          if-no-files-found: warn
+          retention-days: 5

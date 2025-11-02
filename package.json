@@ -1,6 +1,6 @@
 {
   "name": "ai-ask",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "AI Ask - 一个简洁高效的AI问答助手",
   "type": "module",
   "scripts": {
@@ -17,7 +17,9 @@
     "lint:fix": "eslint src --fix",
     "lint:rust": "cd src-tauri && cargo fmt --check && cargo clippy -- -D warnings",
     "lint:rust:fix": "cd src-tauri && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "version:sync": "node .github/scripts/sync-version.js",
+    "release:validate": "node .github/scripts/validate-version.js"
   },
   "license": "MIT",
   "dependencies": {

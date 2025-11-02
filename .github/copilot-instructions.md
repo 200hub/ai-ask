@@ -1,4 +1,4 @@
-# Instructions — AI Ask
+﻿# Instructions — AI Ask
 
 These instructions help AI coding agents work productively in this repo. Focus on core architectural patterns and critical constraints; avoid over-specification of implementation details.
 
