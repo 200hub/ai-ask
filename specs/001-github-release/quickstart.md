@@ -167,10 +167,10 @@ git push origin main
 
 **构建阶段**:
 - ✅ Validate Version: 验证版本号格式和一致性
+- ✅ Generate Release Notes: 基于 conventional commits 生成“当前版本”说明（不落地文件）
 - ✅ Build Desktop: 构建Windows、macOS、Linux平台
 - ✅ Build Mobile (可选): 构建Android、iOS平台
-- ✅ Generate Changelog: 生成版本更新说明
-- ✅ Create Release: 创建GitHub Release并上传文件
+- ✅ Create Release: 创建GitHub Release并上传文件（使用上一步生成的定制化 Release Notes）
 
 ### 4. 验证发布
 
@@ -179,7 +179,7 @@ git push origin main
 1. 访问GitHub仓库的**Releases**页面
 2. 找到刚创建的版本（如v1.0.1）
 3. 验证内容：
-   - ✅ Release Notes包含完整的changelog
+   - ✅ Release Notes 为本仓库按 conventional commits 自动生成的“当前版本”说明（不保存到仓库）
    - ✅ 所有平台的安装包都已上传
    - ✅ 文件名格式正确（如`AI-Ask_1.0.1_x64.msi`）
 
@@ -291,14 +291,6 @@ git push origin v0.0.2
    git tag v1.0.1
    git push origin v1.0.1
    ```
-
-### Changelog缺失或不完整
-
-**原因**: Commits不符合conventional commits格式
-
-**解决方案**:
-1. 确保commits使用规范格式（feat:, fix:, etc.）
-2. 如已推送非规范commits，手动编辑Release Notes补充
 
 ## 高级配置
 

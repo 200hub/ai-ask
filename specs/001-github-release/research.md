@@ -678,9 +678,6 @@ function main() {
   
   // 输出到GitHub Actions
   console.log(`::set-output name=changelog::${changelog}`);
-  
-  // 也写入文件
-  require('fs').writeFileSync('CHANGELOG.md', changelog);
 }
 
 main();

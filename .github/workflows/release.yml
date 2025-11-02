@@ -1,14 +1,13 @@
-name: Release
+# Release
 
 # Main release workflow triggered by version tags
-# Coordinates validation, building, changelog generation, and GitHub Release creation
+# Coordinates validation, building, and GitHub Release creation
 #
 # Workflow Steps:
 #   1. Validate: Check version format and consistency across files
-#   2. Changelog: Generate structured changelog from conventional commits
-#   3. Build Desktop: Build Windows (x64, ARM64), macOS (Intel, ARM), Linux (x64)
-#   4. Build Mobile: Build Android (APK/AAB) and iOS (IPA) if secrets are configured
-#   5. Release: Create GitHub Release with all artifacts and generated changelog
+#   2. Build Desktop: Build Windows (x64, ARM64), macOS (Intel, ARM), Linux (x64)
+#   3. Build Mobile: Build Android (APK/AAB) and iOS (IPA) if secrets are configured
+#   4. Release: Create GitHub Release with all artifacts (use GitHub auto-generated notes)
 #
 # Platform Support:
 #   - Windows: x64, ARM64 (MSI, NSIS installers)
@@ -62,36 +61,26 @@ jobs:
       - name: Validate version format and consistency
         run: node .github/scripts/validate-version.js
   
-  # Step 2: Generate changelog
-  changelog:
-    name: Generate Changelog
+  # Step 2: Generate custom release notes (no file writes)
+  release-notes:
+    name: Generate Release Notes
     needs: validate
     runs-on: ubuntu-latest
     outputs:
-      current_changelog: ${{ steps.generate.outputs.current_changelog }}
-    
+      notes: ${{ steps.generate.outputs.notes }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history for changelog generation
-      
+          fetch-depth: 0
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      
-      - name: Generate changelog
+      - name: Generate notes
         id: generate
-        run: node .github/scripts/generate-changelog.js
-      
-      - name: Upload CHANGELOG.md artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: changelog
-          path: CHANGELOG.md
-          retention-days: 5
-  
+        run: node .github/scripts/generate-release-notes.js
+
   # Step 3: Build desktop platforms
   build-desktop:
     name: Build Desktop Platforms
@@ -108,8 +97,8 @@ jobs:
   # Step 4: Create GitHub Release with artifacts
   release:
     name: Create GitHub Release
-    needs: [validate, changelog, build-desktop, build-mobile]
-    if: always() && needs.validate.result == 'success' && needs.changelog.result == 'success'
+    needs: [validate, release-notes, build-desktop, build-mobile]
+    if: always() && needs.validate.result == 'success' && needs.release-notes.result == 'success'
     runs-on: ubuntu-latest
     
     steps:
@@ -186,15 +175,6 @@ jobs:
           path: artifacts/ios
         continue-on-error: true
       
-      # Set changelog as release notes from job output
-      - name: Set changelog as release notes
-        id: release-notes
-        run: |
-          # Use current version changelog from generate job output
-          echo "NOTES<<__AI_ASK_RELEASE_NOTES_EOF__" >> "$GITHUB_OUTPUT"
-          echo "${{ needs.changelog.outputs.current_changelog }}" >> "$GITHUB_OUTPUT"
-          echo "__AI_ASK_RELEASE_NOTES_EOF__" >> "$GITHUB_OUTPUT"
-      
       # List all artifacts for debugging
       - name: List artifacts
         run: |
@@ -215,7 +195,7 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.TAG }}
           name: AI Ask ${{ steps.version.outputs.TAG }}
-          body: ${{ steps.release-notes.outputs.NOTES }}
+          body: ${{ needs.release-notes.outputs.notes }}
           draft: false
           prerelease: ${{ contains(steps.version.outputs.TAG, '-') }}
           files: |
