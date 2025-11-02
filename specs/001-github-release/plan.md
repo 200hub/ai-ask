@@ -8,8 +8,7 @@
 为AI Ask项目添加**纯GitHub Actions**的CI/CD流程，实现：
 1. 标签触发：推送`v*.*.*`标签自动触发构建
 2. 多平台构建：Windows x64、macOS (Universal)、Linux (DEB/AppImage)
-3. Changelog生成：解析conventional commits，按类别格式化
-4. 自动发布：创建GitHub Release并上传所有构建产物
+3. 自动发布：创建GitHub Release并上传所有构建产物（使用定制脚本生成的 Release Notes，不写入文件）
 
 **技术约束**：仅使用GitHub Actions生态系统（官方marketplace actions + GitHub Release API），无第三方CI/CD服务。
 
@@ -32,7 +31,7 @@
 - **actions/setup-node@v4**: Node.js环境（pnpm需要）
 - **dtolnay/rust-toolchain@stable**: Rust工具链安装
 - **Swatinem/rust-cache@v2**: Cargo构建缓存
-- **softprops/action-gh-release@v1**: 创建 Release 与上传附件
+- **softprops/action-gh-release@v1**: 创建 Release 与上传附件（使用自定义 `body` 文本）
 - **pnpm/action-setup@v2**: pnpm 包管理器（或使用 corepack）
 
 **Storage**: GitHub Release附件存储（无限制，永久保存）
@@ -50,7 +49,6 @@
 
 **Performance Goals**: 
 - P1平台并行构建总时间 < 12分钟（利用矩阵并行）
-- Changelog生成 < 30秒
 - Release创建和上传 < 2分钟
 - 二次构建（有缓存）< 5分钟
 
@@ -106,9 +104,9 @@ specs/001-github-release/
 │   ├── build-desktop.yml     # 桌面平台构建（直接运行 tauri CLI）
 │   └── build-mobile.yml      # 移动平台构建（Android/iOS，可选）
 └── scripts/
-   ├── generate-changelog.js # Changelog 生成脚本（输出当前版本内容用于 Release Notes）
-   ├── validate-version.js   # 版本号验证
-   └── sync-version.js       # 从 tauri.conf.json 同步版本到各文件
+   ├── validate-version.js         # 版本号验证
+   ├── sync-version.js             # 从 tauri.conf.json 同步版本到各文件
+   └── generate-release-notes.js   # 仅生成“当前版本” Release Notes（不写 CHANGELOG.md）
 
 src-tauri/
 ├── tauri.conf.json          # 配置与版本单一来源
@@ -142,11 +140,10 @@ package.json                  # 添加发布与校验脚本
    - 跨平台依赖安装（Node.js、Rust、Tauri CLI）
    - 缓存策略（cargo、npm缓存）
 
-3. **Changelog自动化方案**
-   - conventional commits规范解析
-   - commit类型映射（feat → Features, fix → Bug Fixes）
-   - 版本范围确定（上一个tag到当前tag）
-   - changelog格式模板（Markdown）
+3. Release Notes 自动化（不写文件）
+   - 解析 conventional commits（上个 tag → 当前 tag/HEAD）
+   - 分类：feat / fix / perf / refactor / docs / breaking / misc
+   - 输出 Markdown 到 GitHub Actions 输出，发布时作为 Release body 使用
 
 4. **敏感信息管理**
    - GitHub Secrets存储签名证书
@@ -185,13 +182,8 @@ strategy:
         artifact: macos-arm64
 ```
 
-#### Changelog生成流程
-1. 获取上一个版本标签（git describe）
-2. 提取commit范围（git log）
-3. 按conventional commits解析
-4. 分类汇总（Features、Fixes、Breaking Changes）
-5. 生成 Markdown，并通过 job outputs 传递“当前版本变更”（而非整个历史）用于 Release Notes
-6. 将完整历史写入仓库 `CHANGELOG.md`（新增版本内容追加到顶部）
+#### Release Notes 生成策略
+使用仓库脚本（generate-release-notes.js）在发布前生成，仅用于 Release body，不在仓库落地文件。
 
 #### 失败处理策略
 - 单个平台失败不阻断其他平台
@@ -248,41 +240,6 @@ strategy:
 - 验证所有P1平台构建成功
 - 验证Release页面显示所有安装包
 - 下载并安装每个平台的包，验证应用启动
-
-### User Story 2: 自动生成版本说明
-
-**目标**: 根据commit历史生成结构化changelog
-
-**任务分解**:
-
-1. **Changelog生成脚本**
-   - 文件: `.github/scripts/generate-changelog.js`
-   - 获取commit范围（上一个tag到当前tag）
-   - 解析conventional commits格式
-   - 按类型分组（Features、Bug Fixes、Breaking Changes）
-   - 生成Markdown输出
-
-2. **集成到发布工作流**
-   - 在release.yml中调用changelog生成
-   - 将changelog作为Release Notes内容
-   - 首次发布时处理无上一个tag的情况
-
-3. **Changelog模板**
-   - 文件: `.github/scripts/changelog-template.md`
-   - 定义输出格式
-   - 包含版本号、日期、分类内容
-
-4. **测试用例**
-   - 文件: `tests/release/changelog.test.js`
-   - 测试commit解析逻辑
-   - 测试分类汇总
-   - 测试边界情况（无commit、非规范commit）
-
-**测试**:
-- 准备多个符合conventional commits的测试commit
-- 生成changelog并验证格式
-- 验证不同类型commit正确分类
-- 验证Release Notes显示完整内容
 
 ## Phase 2: Extended Platforms (P3)
 
@@ -346,6 +303,6 @@ strategy:
 
 - [ ] P1平台构建成功率 > 95%
 - [ ] 单次发布完成时间 < 15分钟（P1平台）
-- [ ] Changelog覆盖率 100%（所有commit）
+- [ ] Release Notes 自动生成并清晰可读（可手动补充重点）
 - [ ] 安装包可用性 100%（下载后可安装启动）
 - [ ] 发布流程文档完整性（quickstart.md）

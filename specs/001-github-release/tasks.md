@@ -11,8 +11,6 @@ description: "Task list for GitHub自动打包发布 feature implementation"
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
-**Note**: 本地构建脚本已移除，所有构建通过 GitHub Actions 自动执行。
-
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies)
@@ -73,28 +71,6 @@ Repository root structure with CI/CD configuration:
 - [x] T017 [US1] Configure workflow permissions in release.yml (contents: write for Release creation)
 
 **Checkpoint**: 推送测试标签后，所有P1平台（Windows x64、macOS、Linux）构建成功，GitHub Release页面显示所有安装包可下载
-
----
-
-## Phase 4: User Story 2 - 自动生成版本说明 (Priority: P2)
-
-**Goal**: 根据git commit历史自动生成结构化changelog，作为Release Notes发布
-
-**Independent Test**: 准备多个符合conventional commits的测试commit，推送标签后验证Release Notes包含正确分类的更新内容（Features、Bug Fixes等）
-
-### Implementation for User Story 2
-
-- [x] T018 [P] [US2] Create changelog generation script in `.github/scripts/generate-changelog.js` (parse conventional commits)
-- [x] T019 [P] [US2] Create changelog template in `.github/scripts/changelog-template.md` (Markdown format structure)
-- [x] T020 [US2] Implement commit parsing logic in generate-changelog.js (feat:, fix:, perf:, breaking changes)
-- [x] T021 [US2] Implement commit categorization in generate-changelog.js (group by type)
-- [x] T022 [US2] Implement Markdown generation in generate-changelog.js (format with emojis and structure)
-- [x] T023 [US2] Handle edge cases in generate-changelog.js (no previous tag, non-conventional commits)
-- [x] T024 [US2] Add changelog generation job to `.github/workflows/release.yml` (between validate and release jobs)
-- [x] T025 [US2] Pass current-version changelog to release job via job outputs (avoid including full history)
-- [x] T026 [US2] Update release creation step in release.yml to use only current-version changelog as release body
-
-**Checkpoint**: 推送标签后，Release Notes自动包含从上一个标签到当前标签的所有commit，按类别清晰分组
 
 ---
 
@@ -236,7 +212,7 @@ Task T006: "Update package.json with release validation script"
 完成所有任务后，验证以下成功指标：
 
 - [ ] **SC-001**: 推送版本标签后，10分钟内完成所有P1平台（Windows x64、macOS、Linux）的构建并创建Release
-- [ ] **SC-002**: 自动生成的changelog覆盖两个版本之间100%的commit信息
+- [ ] **SC-002**: Release Notes 自动生成并涵盖关键变更（允许手动补充）
 - [ ] **SC-003**: 所有构建产物可以在目标平台上成功安装并启动应用
 - [ ] **SC-004**: Release页面清晰展示每个平台的下载选项，用户可以在30秒内找到并下载对应平台的安装包
 - [ ] **SC-005**: 支持至少5个目标平台的并行构建（Windows x64、Windows ARM64、macOS、Linux、Android）
@@ -265,9 +241,8 @@ Task T006: "Update package.json with release validation script"
 │   ├── build-desktop.yml        # T009 - 桌面平台构建（矩阵策略）
 │   └── build-mobile.yml         # T028 - 移动平台构建（Android/iOS）
 └── scripts/
-    ├── validate-version.js      # T005 - 版本号验证
-    ├── generate-changelog.js    # T018 - Changelog生成脚本
-    └── changelog-template.md    # T019 - Changelog模板
+  ├── validate-version.js      # T005 - 版本号验证
+  └── sync-version.js          # 版本同步
 
 src-tauri/
 └── tauri.conf.json              # T004 - 更新bundle配置
