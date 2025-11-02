@@ -80,14 +80,16 @@ function updatePackageJson(version) {
     const packageJsonPath = resolve(rootDir, 'package.json');
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
     
-    if (packageJson.version === version) {
+    const currentVersion = packageJson.version;
+    
+    if (currentVersion === version) {
       logInfo(`package.json version is already ${version}`);
       return false;
     }
     
     packageJson.version = version;
     writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n', 'utf8');
-    logSuccess(`Updated package.json: ${packageJson.version} -> ${version}`);
+    logSuccess(`Updated package.json: ${currentVersion} -> ${version}`);
     return true;
   } catch (error) {
     logError(`Failed to update package.json: ${error.message}`);
