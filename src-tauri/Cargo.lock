@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "ai-ask"
-version = "0.0.1-alpha.3"
+version = "0.0.1-alpha.1"
 dependencies = [
  "env_logger",
  "log",
