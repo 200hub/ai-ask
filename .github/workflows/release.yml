@@ -192,56 +192,14 @@ jobs:
         with:
           name: changelog
       
-      # Generate release notes with changelog
-      - name: Generate release notes with changelog
+      # Set changelog as release notes
+      - name: Set changelog as release notes
         id: release-notes
         run: |
-          cat << 'EOF_HEADER' > RELEASE_NOTES.md
-          # AI Ask ${{ steps.version.outputs.TAG }}
-          
-          ## 📦 Downloads
-          
-          Choose the appropriate installer for your platform:
-          
-          - **Windows**: MSI or NSIS installer
-          - **macOS**: DMG or App bundle (Universal binary supports both Intel and Apple Silicon)
-          - **Linux**: DEB package or AppImage
-          
-          ## 🚀 Installation
-          
-          ### Windows
-          1. Download the MSI or NSIS installer
-          2. Run the installer and follow the prompts
-          
-          ### macOS
-          1. Download the DMG file
-          2. Open the DMG and drag AI Ask to Applications
-          3. Right-click and select "Open" on first launch (due to Gatekeeper)
-          
-          ### Linux
-          
-          **Debian/Ubuntu (DEB):**
-          ```bash
-          sudo dpkg -i ai-ask_${{ steps.version.outputs.VERSION }}_amd64.deb
-          ```
-          
-          **AppImage:**
-          ```bash
-          chmod +x AI-Ask_${{ steps.version.outputs.VERSION }}_x86_64.AppImage
-          ./AI-Ask_${{ steps.version.outputs.VERSION }}_x86_64.AppImage
-          ```
-          
-          ---
-          
-          EOF_HEADER
-          
-          # Append generated changelog
-          cat CHANGELOG.md >> RELEASE_NOTES.md
-          
-          # Set output for GitHub Actions (escape for multiline)
+          # Use the generated CHANGELOG.md directly as release notes
           {
             echo "NOTES<<__AI_ASK_RELEASE_NOTES_EOF__"
-            cat RELEASE_NOTES.md
+            cat CHANGELOG.md
             echo "__AI_ASK_RELEASE_NOTES_EOF__"
           } >> "$GITHUB_OUTPUT"
       

@@ -247,8 +247,29 @@ function main() {
       fs.appendFileSync(process.env.GITHUB_OUTPUT, `changelog=${output}\n`);
     }
     
-    // Write to file
-    fs.writeFileSync('CHANGELOG.md', fallbackChangelog);
+    // Append to existing CHANGELOG.md or create new one
+    let existingChangelog = '';
+    if (fs.existsSync('CHANGELOG.md')) {
+      existingChangelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+      
+      // Check if this version already exists
+      if (existingChangelog.includes(`# ${currentTag}\n`)) {
+        console.log(`⚠️  Version ${currentTag} already exists in CHANGELOG.md`);
+        console.log('Skipping changelog update to avoid duplicates\n');
+        return;
+      }
+      
+      console.log('📝 Appending to existing CHANGELOG.md\n');
+    } else {
+      console.log('📝 Creating new CHANGELOG.md\n');
+    }
+    
+    // Prepend new changelog entry to existing content
+    const fullChangelog = existingChangelog 
+      ? `${fallbackChangelog}\n\n${existingChangelog}`
+      : fallbackChangelog;
+    
+    fs.writeFileSync('CHANGELOG.md', fullChangelog);
     console.log('✅ Empty changelog generated\n');
     
     return;
@@ -277,8 +298,29 @@ function main() {
     fs.appendFileSync(process.env.GITHUB_OUTPUT, `changelog=${output}\n`);
   }
   
-  // Write to file
-  fs.writeFileSync('CHANGELOG.md', changelog);
+  // Append to existing CHANGELOG.md or create new one
+  let existingChangelog = '';
+  if (fs.existsSync('CHANGELOG.md')) {
+    existingChangelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+    
+    // Check if this version already exists in the changelog
+    if (existingChangelog.includes(`# ${currentTag}\n`)) {
+      console.log(`⚠️  Version ${currentTag} already exists in CHANGELOG.md`);
+      console.log('Skipping changelog update to avoid duplicates\n');
+      return;
+    }
+    
+    console.log('📝 Appending to existing CHANGELOG.md\n');
+  } else {
+    console.log('📝 Creating new CHANGELOG.md\n');
+  }
+  
+  // Prepend new changelog entry to existing content
+  const fullChangelog = existingChangelog 
+    ? `${changelog}\n\n${existingChangelog}`
+    : changelog;
+  
+  fs.writeFileSync('CHANGELOG.md', fullChangelog);
   
   console.log('✅ Changelog generated successfully!');
   console.log('📄 Output: CHANGELOG.md\n');
