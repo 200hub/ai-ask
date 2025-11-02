@@ -120,9 +120,22 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf
-
-          if ! sudo apt-get install -y libwebkit2gtk-4.1-dev; then
-            sudo apt-get install -y libwebkit2gtk-4.0-dev
+          
+          set +e
+          for package in libwebkit2gtk-4.1-dev libwebkitgtk-6.0-dev libwebkit2gtk-4.0-dev; do
+            echo "Attempting to install ${package}..."
+            if sudo apt-get install -y "${package}"; then
+              echo "Installed ${package}"
+              FOUND_PACKAGE=1
+              break
+            fi
+          done
+          set -e
+          
+          if [ -z "${FOUND_PACKAGE:-}" ]; then
+            echo "Failed to install any supported WebKitGTK development package." >&2
+            echo "Tried: libwebkit2gtk-4.1-dev, libwebkitgtk-6.0-dev, libwebkit2gtk-4.0-dev" >&2
+            exit 1
           fi
       
       # Install frontend dependencies
@@ -133,13 +146,13 @@ jobs:
         if: ${{ runner.os == 'Windows' }}
         shell: bash
         run: |
-          WINDOWS_VERSION=$(node <<'NODE'
+          WINDOWS_ENV=$(node <<'NODE'
           const fs = require('fs');
           const path = require('path');
           const pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'));
           const version = pkg.version;
-          const [base, preRelease] = version.split('-', 2);
-          const segments = base.split('.').map(Number);
+          const [base, preRelease = ''] = version.split('-', 2);
+          const segments = base.split('.').map((segment) => Number.parseInt(segment, 10) || 0);
           while (segments.length < 3) {
             segments.push(0);
           }
@@ -148,20 +161,27 @@ jobs:
           if (preRelease) {
             const match = preRelease.match(/\d+/);
             if (match) {
-              const value = Math.min(parseInt(match[0], 10), 65535);
-              suffix = Number.isFinite(value) ? value : 0;
+              const value = Math.min(Number.parseInt(match[0], 10), 65535);
+              if (Number.isFinite(value)) {
+                suffix = value;
+              }
             }
           }
-          console.log(`${normalizedBase}.${suffix}`);
+          const sanitizedSemver = preRelease ? `${normalizedBase}-${suffix}` : normalizedBase;
+          const wixVersion = `${normalizedBase}.${suffix}`;
+          console.log(`WINDOWS_SEMVER=${sanitizedSemver}`);
+          console.log(`WINDOWS_WIX_VERSION=${wixVersion}`);
           NODE
           )
-          echo "WINDOWS_VERSION=$WINDOWS_VERSION" >> $GITHUB_ENV
+          printf '%s\n' "${WINDOWS_ENV}" | tee -a "$GITHUB_ENV"
+          printf 'Computed Windows versions:\n%s\n' "${WINDOWS_ENV}"
       
       # Build application
       - name: Build Tauri application (Windows)
         if: ${{ runner.os == 'Windows' }}
         env:
-          TAURI_CONFIG__version: ${{ env.WINDOWS_VERSION }}
+          TAURI_CONFIG__version: ${{ env.WINDOWS_SEMVER }}
+          TAURI_CONFIG__bundle__windows__wix__version: ${{ env.WINDOWS_WIX_VERSION }}
         run: pnpm tauri build --target ${{ matrix.target }}
 
       - name: Build Tauri application
