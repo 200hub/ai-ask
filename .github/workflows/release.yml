@@ -239,11 +239,9 @@ jobs:
           cat CHANGELOG.md >> RELEASE_NOTES.md
           
           # Set output for GitHub Actions (escape for multiline)
-          {
-            echo 'NOTES<<EOF_NOTES'
-            cat RELEASE_NOTES.md
-            echo 'EOF_NOTES'
-          } >> $GITHUB_OUTPUT
+          echo 'NOTES<<__AI_ASK_NOTES__' >> "$GITHUB_OUTPUT"
+          cat RELEASE_NOTES.md >> "$GITHUB_OUTPUT"
+          echo '__AI_ASK_NOTES__' >> "$GITHUB_OUTPUT"
       
       # List all artifacts for debugging
       - name: List artifacts

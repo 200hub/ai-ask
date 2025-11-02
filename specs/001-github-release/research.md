@@ -220,7 +220,7 @@
 android {
     compileSdkVersion 33
     defaultConfig {
-        applicationId "com.aiask.app"
+        applicationId "com.200hub.aiask"
         minSdkVersion 24
         targetSdkVersion 33
         versionCode 1
@@ -268,14 +268,14 @@ android {
 **配置** (`src-tauri/gen/apple/project.yml`):
 ```yaml
 name: AI Ask
-bundleIdPrefix: com.aiask
+bundleIdPrefix: com.200hub.aiask
 targets:
   AI Ask iOS:
     type: application
     platform: iOS
     deploymentTarget: "13.0"
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.aiask.app
+      PRODUCT_BUNDLE_IDENTIFIER: com.200hub.aiask
       DEVELOPMENT_TEAM: YOUR_TEAM_ID
 ```
 

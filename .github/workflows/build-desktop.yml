@@ -116,18 +116,56 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.0-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf
+
+          if ! sudo apt-get install -y libwebkit2gtk-4.1-dev; then
+            sudo apt-get install -y libwebkit2gtk-4.0-dev
+          fi
       
       # Install frontend dependencies
       - name: Install frontend dependencies
         run: pnpm install
+
+      - name: Sanitize Windows bundle version
+        if: ${{ runner.os == 'Windows' }}
+        shell: bash
+        run: |
+          WINDOWS_VERSION=$(node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'));
+          const version = pkg.version;
+          const [base, preRelease] = version.split('-', 2);
+          const segments = base.split('.').map(Number);
+          while (segments.length < 3) {
+            segments.push(0);
+          }
+          const normalizedBase = segments.slice(0, 3).join('.');
+          let suffix = 0;
+          if (preRelease) {
+            const match = preRelease.match(/\d+/);
+            if (match) {
+              const value = Math.min(parseInt(match[0], 10), 65535);
+              suffix = Number.isFinite(value) ? value : 0;
+            }
+          }
+          console.log(`${normalizedBase}.${suffix}`);
+          NODE
+          )
+          echo "WINDOWS_VERSION=$WINDOWS_VERSION" >> $GITHUB_ENV
       
       # Build application
+      - name: Build Tauri application (Windows)
+        if: ${{ runner.os == 'Windows' }}
+        env:
+          TAURI_CONFIG__version: ${{ env.WINDOWS_VERSION }}
+        run: pnpm tauri build --target ${{ matrix.target }}
+
       - name: Build Tauri application
+        if: ${{ runner.os != 'Windows' }}
         run: pnpm tauri build --target ${{ matrix.target }}
       
       # Upload artifacts
