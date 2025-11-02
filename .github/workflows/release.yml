@@ -218,7 +218,6 @@ jobs:
           body: ${{ steps.release-notes.outputs.NOTES }}
           draft: false
           prerelease: ${{ contains(steps.version.outputs.TAG, '-') }}
-          make_latest: ${{ !contains(steps.version.outputs.TAG, '-') }}
           files: |
             artifacts/**/*
           fail_on_unmatched_files: false

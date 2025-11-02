@@ -14,10 +14,10 @@
 **技术约束**：仅使用GitHub Actions生态系统（官方marketplace actions + GitHub Release API），无第三方CI/CD服务。
 
 **核心依赖**：
-- `tauri-apps/tauri-action@v0`: 一站式Tauri构建和发布
-- `actions/checkout`、`actions/setup-node`、`dtolnay/rust-toolchain`: 环境准备
+- `actions/checkout@v4`、`actions/setup-node@v4`、`dtolnay/rust-toolchain@stable`: 环境准备
 - `Swatinem/rust-cache@v2`: 构建缓存加速
-- GitHub Release API (tauri-action内置)
+- `softprops/action-gh-release@v1`: 创建 GitHub Release 并上传构建产物
+- `pnpm` + `tauri CLI`: 直接执行 `pnpm tauri build` 进行各平台构建（不使用 tauri-action）
 
 ## Technical Context
 
@@ -28,12 +28,12 @@
 - 项目现有技术栈：TypeScript 5.6、Rust 1.70+、Tauri CLI 2.x
 
 **Primary Dependencies** (纯GitHub Actions生态): 
-- **actions/checkout@v4**: 代码检出
+- **actions/checkout@v4**: 代码检出（支持使用可选 PAT_TOKEN 以触发下游工作流）
 - **actions/setup-node@v4**: Node.js环境（pnpm需要）
 - **dtolnay/rust-toolchain@stable**: Rust工具链安装
 - **Swatinem/rust-cache@v2**: Cargo构建缓存
-- **tauri-apps/tauri-action@v0**: Tauri构建+Release创建（核心）
-- **pnpm/action-setup@v2**: pnpm包管理器（可选，或用corepack）
+- **softprops/action-gh-release@v1**: 创建 Release 与上传附件
+- **pnpm/action-setup@v2**: pnpm 包管理器（或使用 corepack）
 
 **Storage**: GitHub Release附件存储（无限制，永久保存）
 
@@ -101,23 +101,20 @@ specs/001-github-release/
 ```text
 .github/
 ├── workflows/
-│   ├── release.yml           # 主发布工作流（标签触发）
-│   ├── build-desktop.yml     # 桌面平台构建任务
-│   └── build-mobile.yml      # 移动平台构建任务（可重用）
+│   ├── version-check.yml     # 版本变更检测与自动打 tag（使用可选 PAT_TOKEN）
+│   ├── release.yml           # 主发布工作流（tag 触发，协调构建+发布）
+│   ├── build-desktop.yml     # 桌面平台构建（直接运行 tauri CLI）
+│   └── build-mobile.yml      # 移动平台构建（Android/iOS，可选）
 └── scripts/
-    ├── generate-changelog.js # Changelog生成脚本
-    └── validate-version.js   # 版本号验证
+   ├── generate-changelog.js # Changelog 生成脚本（输出当前版本内容用于 Release Notes）
+   ├── validate-version.js   # 版本号验证
+   └── sync-version.js       # 从 tauri.conf.json 同步版本到各文件
 
 src-tauri/
-├── tauri.conf.json          # 更新bundle配置
+├── tauri.conf.json          # 配置与版本单一来源
 └── Cargo.toml               # 版本同步
 
-package.json                  # 添加发布相关scripts
-
-tests/
-└── release/
-    ├── changelog.test.js    # Changelog生成测试
-    └── version.test.js      # 版本验证测试
+package.json                  # 添加发布与校验脚本
 ```
 
 **Structure Decision**: 
@@ -162,9 +159,12 @@ tests/
 ### Design Decisions
 
 #### 工作流触发策略
-- **主触发器**: 推送符合`v*.*.*`模式的标签
-- **手动触发**: workflow_dispatch支持手动运行
-- **分支限制**: 仅main分支的标签触发发布
+- **版本变更检测**: main 分支上 `src-tauri/tauri.conf.json` 变更 → 运行 `version-check.yml`
+   - 同步版本到 `package.json`、`Cargo.toml`、`constants.ts`、`Cargo.lock`
+   - 创建并推送版本 tag（优先使用 `PAT_TOKEN`，否则使用 `GITHUB_TOKEN`）
+- **主触发器**: 推送符合 `v*.*.*` 模式的标签 → 触发 `release.yml`
+- **手动触发**: `workflow_dispatch` 支持手动运行并指定版本
+- **分支限制**: 仅 main 分支的标签触发发布
 
 #### 构建矩阵设计
 ```yaml
@@ -190,7 +190,8 @@ strategy:
 2. 提取commit范围（git log）
 3. 按conventional commits解析
 4. 分类汇总（Features、Fixes、Breaking Changes）
-5. 生成Markdown格式
+5. 生成 Markdown，并通过 job outputs 传递“当前版本变更”（而非整个历史）用于 Release Notes
+6. 将完整历史写入仓库 `CHANGELOG.md`（新增版本内容追加到顶部）
 
 #### 失败处理策略
 - 单个平台失败不阻断其他平台
@@ -198,6 +199,12 @@ strategy:
 - 汇总结果，创建部分Release并标注失败平台
 
 **输出**: `quickstart.md` - 发布流程操作指南（如何创建标签、触发构建、处理失败）
+
+#### Windows MSI 版本兼容
+
+- Windows MSI 要求预发布标识符为纯数字且 ≤ 65535
+- 在 `build-desktop.yml` 的 Windows 任务中自动将 `x.y.z-word.n` 转换为 `x.y.z-n`
+- 其他平台保持原始语义化版本（如 `alpha.1`、`beta.2`）
 
 ## Phase 1: Implementation - MVP (P1 Platforms)
 

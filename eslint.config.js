@@ -131,12 +131,16 @@ export default [
       "build/",
       ".svelte-kit/",
       "dist/",
+      "coverage/",
       "node_modules/",
       "src-tauri/target/",
       "src-tauri/gen/",
       "**/*.config.js",
       "**/*.config.ts",
       ".github/scripts/**",  // Exclude CI scripts from type checking
+      "scripts/**",          // Exclude local helper scripts (plain JS)
+      "**/*.min.js",         // Ignore generated/minified files
+      "**/*.test.js",        // Ignore legacy JS test files (TS tests are used)
     ],
   },
 ];
