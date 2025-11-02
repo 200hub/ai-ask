@@ -291,6 +291,10 @@ function main() {
   console.log(`  Other: ${categories.style.length + categories.test.length + categories.chore.length + categories.others.length}`);
   console.log('');
   
+  // Save current version changelog for release notes (without surrounding content)
+  fs.writeFileSync('CHANGELOG_CURRENT.md', changelog);
+  console.log('📄 Generated CHANGELOG_CURRENT.md (for release notes)\n');
+  
   // Output for GitHub Actions (multiline string)
   if (process.env.GITHUB_OUTPUT) {
     // Escape newlines for GitHub Actions output

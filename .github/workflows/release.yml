@@ -85,11 +85,13 @@ jobs:
         id: generate
         run: node .github/scripts/generate-changelog.js
       
-      - name: Upload changelog artifact
+      - name: Upload changelog artifacts
         uses: actions/upload-artifact@v4
         with:
           name: changelog
-          path: CHANGELOG.md
+          path: |
+            CHANGELOG.md
+            CHANGELOG_CURRENT.md
           retention-days: 5
   
   # Step 3: Build desktop platforms
@@ -196,10 +198,10 @@ jobs:
       - name: Set changelog as release notes
         id: release-notes
         run: |
-          # Use the generated CHANGELOG.md directly as release notes
+          # Use CHANGELOG_CURRENT.md (current version only) as release notes
           {
             echo "NOTES<<__AI_ASK_RELEASE_NOTES_EOF__"
-            cat CHANGELOG.md
+            cat CHANGELOG_CURRENT.md
             echo "__AI_ASK_RELEASE_NOTES_EOF__"
           } >> "$GITHUB_OUTPUT"
       
