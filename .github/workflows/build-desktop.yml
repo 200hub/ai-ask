@@ -144,54 +144,12 @@ jobs:
       # Install frontend dependencies
       - name: Install frontend dependencies
         run: pnpm install
-
-      # Sanitize version for Windows MSI/WiX
-      # MSI requires pre-release identifier to be numeric-only and <= 65535
-      # Example: 0.0.2-test -> 0.0.2-0 (semver) and 0.0.2.0 (WiX)
-      # Example: 0.0.2-alpha1 -> 0.0.2-1 (semver) and 0.0.2.1 (WiX)
-      - name: Sanitize Windows bundle version
-        if: ${{ runner.os == 'Windows' }}
-        shell: bash
-        run: |
-          node <<'NODE' >> $GITHUB_ENV
-          const fs = require('fs');
-          const path = require('path');
-          const pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'));
-          const version = pkg.version;
-          const [base, preRelease = ''] = version.split('-', 2);
-          const segments = base.split('.').map((segment) => Number.parseInt(segment, 10) || 0);
-          while (segments.length < 3) {
-            segments.push(0);
-          }
-          const normalizedBase = segments.slice(0, 3).join('.');
-          let suffix = 0;
-          if (preRelease) {
-            const match = preRelease.match(/\d+/);
-            if (match) {
-              const value = Math.min(Number.parseInt(match[0], 10), 65535);
-              if (Number.isFinite(value)) {
-                suffix = value;
-              }
-            }
-          }
-          const sanitizedSemver = preRelease ? `${normalizedBase}-${suffix}` : normalizedBase;
-          const wixVersion = `${normalizedBase}.${suffix}`;
-          console.log(`WINDOWS_SEMVER=${sanitizedSemver}`);
-          console.log(`WINDOWS_WIX_VERSION=${wixVersion}`);
-          NODE
-          
-          echo "Computed Windows versions: WINDOWS_SEMVER=$WINDOWS_SEMVER, WINDOWS_WIX_VERSION=$WINDOWS_WIX_VERSION"
       
-      # Build application
-      - name: Build Tauri application (Windows)
-        if: ${{ runner.os == 'Windows' }}
-        env:
-          TAURI_CONFIG__version: ${{ env.WINDOWS_SEMVER }}
-          TAURI_CONFIG__bundle__windows__wix__version: ${{ env.WINDOWS_WIX_VERSION }}
-        run: pnpm tauri build --target ${{ matrix.target }}
-
+      # Build Tauri application
+      # Note: Version in package.json must follow semver rules:
+      # - Pre-release identifiers for Windows MSI must be numeric-only and <= 65535
+      # - Examples: 1.0.0, 1.0.0-1, 1.0.0-beta.2 (NOT 1.0.0-test or 1.0.0-alpha)
       - name: Build Tauri application
-        if: ${{ runner.os != 'Windows' }}
         run: pnpm tauri build --target ${{ matrix.target }}
       
       # Upload artifacts

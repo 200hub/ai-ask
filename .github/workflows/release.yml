@@ -251,6 +251,14 @@ jobs:
           echo "📦 Available artifacts:"
           find artifacts -type f -exec echo "  {}" \;
       
+      # Delete existing release if it exists (for re-runs)
+      - name: Delete existing release
+        continue-on-error: true
+        run: |
+          gh release delete ${{ steps.version.outputs.TAG }} --yes --cleanup-tag || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
       # Create GitHub Release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -260,6 +268,7 @@ jobs:
           body: ${{ steps.release-notes.outputs.NOTES }}
           draft: false
           prerelease: ${{ contains(steps.version.outputs.TAG, '-') }}
+          make_latest: ${{ !contains(steps.version.outputs.TAG, '-') }}
           files: |
             artifacts/**/*
           fail_on_unmatched_files: false
