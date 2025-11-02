@@ -47,6 +47,7 @@ Repository root structure with CI/CD configuration:
 
 - [x] T005 Implement version validation script in `.github/scripts/validate-version.js` (checks tag format and version consistency)
 - [x] T006 Update `package.json` with release validation script
+- [x] T007 Create `version-check.yml` workflow to auto-sync versions and create tags from `src-tauri/tauri.conf.json` changes (uses optional `PAT_TOKEN` to trigger downstream workflows)
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -68,7 +69,7 @@ Repository root structure with CI/CD configuration:
 - [x] T013 [US1] Setup artifact upload steps in build-desktop.yml (separate artifacts per platform)
 - [x] T014 [US1] Integrate validation job in release.yml (call validate-version.js script)
 - [x] T015 [US1] Add desktop build job orchestration in release.yml (call build-desktop workflow)
-- [x] T016 [US1] Implement Release creation job in release.yml (download artifacts, create GitHub Release with tauri-action)
+- [x] T016 [US1] Implement Release creation job in release.yml (download artifacts, create GitHub Release with `softprops/action-gh-release@v1`)
 - [x] T017 [US1] Configure workflow permissions in release.yml (contents: write for Release creation)
 
 **Checkpoint**: 推送测试标签后，所有P1平台（Windows x64、macOS、Linux）构建成功，GitHub Release页面显示所有安装包可下载
@@ -90,8 +91,8 @@ Repository root structure with CI/CD configuration:
 - [x] T022 [US2] Implement Markdown generation in generate-changelog.js (format with emojis and structure)
 - [x] T023 [US2] Handle edge cases in generate-changelog.js (no previous tag, non-conventional commits)
 - [x] T024 [US2] Add changelog generation job to `.github/workflows/release.yml` (between validate and release jobs)
-- [x] T025 [US2] Pass changelog output to release job in release.yml (job outputs mechanism)
-- [x] T026 [US2] Update release creation step in release.yml to use generated changelog as body
+- [x] T025 [US2] Pass current-version changelog to release job via job outputs (avoid including full history)
+- [x] T026 [US2] Update release creation step in release.yml to use only current-version changelog as release body
 
 **Checkpoint**: 推送标签后，Release Notes自动包含从上一个标签到当前标签的所有commit，按类别清晰分组
 
@@ -115,6 +116,13 @@ Repository root structure with CI/CD configuration:
 - [x] T034 [US3] Update quickstart.md with mobile platform setup instructions (keystore, certificates)
 
 **Checkpoint**: 所有扩展平台（Windows ARM64、Android、iOS）构建成功并上传到Release
+
+---
+
+## Phase 5.1: Platform Specific Polish
+
+- [x] T035a [US1] Add Windows MSI pre-release sanitizer in `build-desktop.yml` (convert `x.y.z-word.n` → `x.y.z-n` during Windows builds)
+- [x] T035b [US1] Ensure non-Windows platforms preserve original semantic pre-release tags (alpha/beta/rc)
 
 ---
 
