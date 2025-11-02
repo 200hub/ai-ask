@@ -68,7 +68,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     outputs:
-      changelog: ${{ steps.generate.outputs.changelog }}
+      current_changelog: ${{ steps.generate.outputs.current_changelog }}
     
     steps:
       - name: Checkout repository
@@ -85,13 +85,11 @@ jobs:
         id: generate
         run: node .github/scripts/generate-changelog.js
       
-      - name: Upload changelog artifacts
+      - name: Upload CHANGELOG.md artifact
         uses: actions/upload-artifact@v4
         with:
           name: changelog
-          path: |
-            CHANGELOG.md
-            CHANGELOG_CURRENT.md
+          path: CHANGELOG.md
           retention-days: 5
   
   # Step 3: Build desktop platforms
@@ -188,22 +186,14 @@ jobs:
           path: artifacts/ios
         continue-on-error: true
       
-      # Download generated changelog
-      - name: Download changelog
-        uses: actions/download-artifact@v4
-        with:
-          name: changelog
-      
-      # Set changelog as release notes
+      # Set changelog as release notes from job output
       - name: Set changelog as release notes
         id: release-notes
         run: |
-          # Use CHANGELOG_CURRENT.md (current version only) as release notes
-          {
-            echo "NOTES<<__AI_ASK_RELEASE_NOTES_EOF__"
-            cat CHANGELOG_CURRENT.md
-            echo "__AI_ASK_RELEASE_NOTES_EOF__"
-          } >> "$GITHUB_OUTPUT"
+          # Use current version changelog from generate job output
+          echo "NOTES<<__AI_ASK_RELEASE_NOTES_EOF__" >> "$GITHUB_OUTPUT"
+          echo "${{ needs.changelog.outputs.current_changelog }}" >> "$GITHUB_OUTPUT"
+          echo "__AI_ASK_RELEASE_NOTES_EOF__" >> "$GITHUB_OUTPUT"
       
       # List all artifacts for debugging
       - name: List artifacts
