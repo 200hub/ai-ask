@@ -22,8 +22,10 @@ name = "ai-ask"
 version = "0.0.1-alpha.2"
 dependencies = [
  "env_logger",
+ "futures-util",
  "log",
  "reqwest 0.11.27",
+ "semver",
  "serde",
  "serde_json",
  "tauri",
@@ -3305,10 +3307,12 @@ dependencies = [
  "system-configuration",
  "tokio",
  "tokio-rustls",
+ "tokio-util",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "webpki-roots",
  "winreg 0.50.0",

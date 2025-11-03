@@ -4,6 +4,7 @@
 //! 子 WebView 生命周期管理、代理测试、系统托盘与快捷键支持。
 
 mod proxy;
+mod updater;
 mod webview;
 mod window_control;
 
@@ -34,6 +35,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(ChildWebviewManager::default())
+        .manage(updater::UpdateManager::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -136,6 +138,8 @@ pub fn run() {
                         });
             }
 
+            updater::check_pending_updates_on_startup(&app.handle());
+
             log::info!("应用设置完成");
             Ok(())
         })
@@ -162,7 +166,9 @@ pub fn run() {
             close_child_webview,
             focus_child_webview,
             hide_all_child_webviews,
-            test_proxy_connection
+            test_proxy_connection,
+            updater::start_update_service,
+            updater::download_update_now
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
