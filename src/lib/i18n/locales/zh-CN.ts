@@ -44,6 +44,26 @@ export const zhCN = {
     openInBrowser: "在浏览器中打开",
     minimize: "最小化",
     close: "关闭",
+    translationTitle: "翻译",
+    settingsTitle: "设置",
+    update: {
+      available: "检测到新版本",
+      availableWithVersion: "检测到新版本 {version}",
+      downloading: "正在下载更新（{progress}%）",
+      downloaded: "更新已准备就绪，请重启安装",
+      checking: "正在检查更新...",
+      installing: "正在安装更新，请稍候",
+      error: "更新失败：{message}",
+      errorUnknown: "更新失败，请稍后重试",
+      actions: {
+        check: "检查更新",
+        download: "立即更新",
+        cancel: "取消下载",
+        restart: "重启并安装",
+        later: "稍后提醒",
+        retry: "重试",
+      },
+    },
   },
 
   settings: {

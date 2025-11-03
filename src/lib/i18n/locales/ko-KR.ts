@@ -39,12 +39,32 @@ export const koKR = {
         settings: "설정",
     },
 
-    header: {
-        refresh: "새로고침",
-        openInBrowser: "브라우저에서 열기",
-        minimize: "최소화",
-        close: "닫기",
+  header: {
+    refresh: "새로고침",
+    openInBrowser: "브라우저에서 열기",
+    minimize: "최소화",
+    close: "닫기",
+    translationTitle: "번역",
+    settingsTitle: "설정",
+    update: {
+      available: "새 버전을 찾았습니다",
+      availableWithVersion: "새 버전 {version}을(를) 사용할 수 있습니다",
+      downloading: "업데이트 다운로드 중 ({progress}%)",
+      downloaded: "업데이트 준비 완료. 재시작하여 설치하세요",
+      checking: "업데이트를 확인하는 중...",
+      installing: "업데이트를 설치하는 중...",
+      error: "업데이트에 실패했습니다: {message}",
+      errorUnknown: "업데이트에 실패했습니다. 잠시 후 다시 시도하세요",
+      actions: {
+        check: "업데이트 확인",
+        download: "지금 업데이트",
+        cancel: "다운로드 취소",
+        restart: "재시작하여 설치",
+        later: "나중에 알림",
+        retry: "다시 시도",
+      },
     },
+  },
 
     settings: {
         title: "설정",

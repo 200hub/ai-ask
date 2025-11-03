@@ -39,12 +39,32 @@ export const enUS = {
         settings: "Settings",
     },
 
-    header: {
-        refresh: "Refresh",
-        openInBrowser: "Open in Browser",
-        minimize: "Minimize",
-        close: "Close",
+  header: {
+    refresh: "Refresh",
+    openInBrowser: "Open in Browser",
+    minimize: "Minimize",
+    close: "Close",
+    translationTitle: "Translation",
+    settingsTitle: "Settings",
+    update: {
+      available: "A new version is available",
+      availableWithVersion: "Version {version} is available",
+      downloading: "Downloading update ({progress}%)",
+      downloaded: "Update ready. Restart to install.",
+      checking: "Checking for updates...",
+      installing: "Installing update...",
+      error: "Update failed: {message}",
+      errorUnknown: "Update failed. Please try again later.",
+      actions: {
+        check: "Check updates",
+        download: "Update now",
+        cancel: "Cancel download",
+        restart: "Restart to install",
+        later: "Remind me later",
+        retry: "Retry",
+      },
     },
+  },
 
     settings: {
         title: "Settings",

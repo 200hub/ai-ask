@@ -10,14 +10,24 @@
     import { configStore } from "$lib/stores/config.svelte";
     import { platformsStore } from "$lib/stores/platforms.svelte";
     import { translationStore } from "$lib/stores/translation.svelte";
+    import { updateStore } from "$lib/stores/update.svelte";
+    import type {
+        UpdateAvailablePayload,
+        UpdateDownloadedPayload,
+        UpdateErrorPayload,
+        UpdateProgressPayload,
+    } from "$lib/stores/update.svelte";
+    import { log } from "$lib/utils/logger";
     import type { UnlistenFn } from "@tauri-apps/api/event";
     import { listen } from "@tauri-apps/api/event";
+    import { getVersion } from "@tauri-apps/api/app";
     import { register, unregister, isRegistered } from "@tauri-apps/plugin-global-shortcut";
     import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
     import "$lib/styles/base.css";
 
     let openSettingsUnlisten: UnlistenFn | null = null;
     let registeredTranslationHotkey: string | null = null;
+    let updateEventUnlisten: UnlistenFn[] = [];
 
     onMount(async () => {
         // 初始化所有 stores
@@ -43,18 +53,91 @@
             }
         }
 
+        await initializeUpdateFlow();
+
         try {
             openSettingsUnlisten = await listen("open-settings", () => {
                 appState.openSettings();
             });
         } catch (error) {
-            console.error("Failed to listen for open-settings event:", error);
+            log.error("Failed to listen for open-settings event", error);
         }
     });
+
+    function cleanupUpdateListeners() {
+        for (const unlisten of updateEventUnlisten) {
+            try {
+                unlisten();
+            } catch (error) {
+                log.warn("Failed to remove update listener", error);
+            }
+        }
+        updateEventUnlisten = [];
+    }
+
+    async function registerUpdateEventListeners() {
+        if (updateEventUnlisten.length > 0) {
+            return;
+        }
+
+        const registrations: Array<Promise<UnlistenFn>> = [
+            listen("update:available", (event) => {
+                updateStore.handleUpdateAvailable(
+                    (event.payload as UpdateAvailablePayload | undefined) ?? undefined,
+                );
+            }),
+            listen("update:progress", (event) => {
+                updateStore.handleUpdateProgress(
+                    (event.payload as UpdateProgressPayload | undefined) ?? undefined,
+                );
+            }),
+            listen("update:downloaded", (event) => {
+                updateStore.handleUpdateDownloaded(
+                    (event.payload as UpdateDownloadedPayload | undefined) ?? undefined,
+                );
+            }),
+            listen("update:error", (event) => {
+                updateStore.handleUpdateError(
+                    (event.payload as UpdateErrorPayload | undefined) ?? undefined,
+                );
+            }),
+        ];
+
+        const results = await Promise.all(
+            registrations.map(async (registration) => {
+                try {
+                    return await registration;
+                } catch (error) {
+                    log.error("Failed to register update listener", error);
+                    return null;
+                }
+            }),
+        );
+
+        updateEventUnlisten = results.filter(
+            (fn): fn is UnlistenFn => typeof fn === "function",
+        );
+    }
+
+    async function initializeUpdateFlow() {
+        try {
+            const currentVersion = await getVersion();
+            await updateStore.init({
+                currentVersion,
+                autoUpdate: configStore.config.autoUpdate,
+                proxy: configStore.config.proxy,
+            });
+        } catch (error) {
+            log.error("Failed to initialize auto update", error);
+        }
+
+        await registerUpdateEventListeners();
+    }
 
     onDestroy(() => {
         openSettingsUnlisten?.();
         openSettingsUnlisten = null;
+        cleanupUpdateListeners();
 
         if (registeredTranslationHotkey) {
             const hotkey = registeredTranslationHotkey;
@@ -65,7 +148,7 @@
                         await unregister(hotkey);
                     }
                 } catch (error) {
-                    console.error("Failed to unregister translation hotkey:", error);
+                    log.error("Failed to unregister translation hotkey", error);
                 }
             })();
         }
@@ -91,7 +174,7 @@
                 registeredTranslationHotkey = hotkey;
             }
         } catch (error) {
-            console.error("Failed to register translation hotkey:", error);
+            log.error("Failed to register translation hotkey", error);
         }
     }
 
@@ -117,7 +200,7 @@
 
             window.dispatchEvent(new CustomEvent("ensureTranslationVisible"));
         } catch (error) {
-            console.error("Failed to handle translation hotkey:", error);
+            log.error("Failed to handle translation hotkey", error);
         }
     }
 
@@ -128,6 +211,11 @@
 
         const hotkey = configStore.config.translationHotkey;
         void ensureTranslationHotkeyRegistered(hotkey);
+
+        updateStore.syncConfig({
+            autoUpdate: configStore.config.autoUpdate,
+            proxy: configStore.config.proxy,
+        });
     });
 </script>
 

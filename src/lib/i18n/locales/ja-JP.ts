@@ -44,6 +44,26 @@ export const jaJP = {
         openInBrowser: "ブラウザで開く",
         minimize: "最小化",
         close: "閉じる",
+        translationTitle: "翻訳",
+        settingsTitle: "設定",
+        update: {
+            available: "新しいバージョンが見つかりました",
+            availableWithVersion: "新しいバージョン {version} が利用可能です",
+            downloading: "更新をダウンロード中（{progress}%）",
+            downloaded: "更新の準備が整いました。再起動して適用してください",
+            checking: "更新を確認しています...",
+            installing: "更新をインストールしています...",
+            error: "更新に失敗しました: {message}",
+            errorUnknown: "更新に失敗しました。時間をおいて再度お試しください",
+            actions: {
+                check: "更新を確認",
+                download: "今すぐ更新",
+                cancel: "ダウンロードをキャンセル",
+                restart: "再起動してインストール",
+                later: "あとで通知",
+                retry: "再試行",
+            },
+        },
     },
 
     settings: {

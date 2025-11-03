@@ -95,6 +95,13 @@ class ConfigStore {
   }
 
   /**
+   * 设置自动更新
+   */
+  async setAutoUpdate(autoUpdate: boolean) {
+    await this.update({ autoUpdate });
+  }
+
+  /**
    * 设置默认平台
    */
   async setDefaultPlatform(platformId: string | null) {
