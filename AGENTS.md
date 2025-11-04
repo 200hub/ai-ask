@@ -80,6 +80,15 @@ Two flows for hiding main window:
 ### Logging
 - Use `logger` from `$lib/utils/logger` (NOT `console.log`)
 - Dev: logs all; Prod: logs errors/warnings only
+- **All log messages must be in English** for consistency and debugging across teams
+- Format: Use clear, structured log messages with context (e.g., `logger.info('Platform enabled', { platformId, enabled })`)
+
+### Constants Management
+- **All hardcoded values MUST be defined in `src/lib/utils/constants.ts`**
+- Include: URLs, timeouts, limits, default values, magic numbers, API endpoints, feature flags
+- Pattern: Export as named constants with UPPER_SNAKE_CASE naming
+- Example: `export const DEFAULT_WINDOW_WIDTH = 800;`
+- Never use magic numbers or hardcoded strings directly in code
 
 ## Project-Specific Rules
 
@@ -88,7 +97,8 @@ Two flows for hiding main window:
 - Use CSS custom properties from `base.css` for theming
 - Use `i18n.t()` for all user-facing text
 - Use `ChildWebviewProxy` for child webview operations
-- Use `logger` for intentional logging
+- Use `logger` for intentional logging (all messages in English)
+- Define all hardcoded values in `constants.ts`
 - Order imports: Svelte/external → Tauri → internal
 - Follow Svelte 5 component structure: imports → props → state → derived → effects → functions → template → styles
 - Handle errors gracefully with `appState.setError()`
@@ -96,10 +106,12 @@ Two flows for hiding main window:
 ### DON'T
 - Don't add Tailwind CSS or CSS frameworks
 - Don't use Svelte 4 store patterns in new code
-- Don't hardcode user-facing strings
+- Don't hardcode user-facing strings (use i18n)
+- Don't hardcode configuration values (use constants.ts)
 - Don't use inline styles (prefer scoped styles with CSS variables)
 - Don't manage Tauri webviews directly in frontend
 - Don't use `console.log` (use `logger` instead)
+- Don't write log messages in non-English languages
 - Don't use `any` type without strong justification
 
 ## Pre-Task Requirements

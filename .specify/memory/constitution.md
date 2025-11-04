@@ -28,9 +28,16 @@ All user-facing text MUST use i18n keys via `i18n.t()` function. Pattern: `impor
 **Rationale**: Multi-language support is a core feature; hardcoded strings are unacceptable.
 
 ### V. Structured Logging Only
-Use `logger` from `$lib/utils/logger` for all logging. `console.log` is PROHIBITED. Logger behavior: Dev logs all levels; Prod logs errors/warnings only. This ensures proper log management and debugging capabilities across environments.
+Use `logger` from `$lib/utils/logger` for all logging. `console.log` is PROHIBITED. Logger behavior: Dev logs all levels; Prod logs errors/warnings only. **All log messages MUST be in English** for consistency and debugging across teams. Format: Use clear, structured log messages with context (e.g., `logger.info('Platform enabled', { platformId, enabled })`).
 
-### VI. Context-Driven Development
+**Rationale**: English logs ensure all developers can debug effectively regardless of their primary language; structured logs improve searchability and analysis.
+
+### VI. Constants Management (NON-NEGOTIABLE)
+**All hardcoded values MUST be defined in `src/lib/utils/constants.ts`**. This includes: URLs, timeouts, limits, default values, magic numbers, API endpoints, feature flags. Pattern: Export as named constants with UPPER_SNAKE_CASE naming (e.g., `export const DEFAULT_WINDOW_WIDTH = 800;`). Using magic numbers or hardcoded strings directly in code is PROHIBITED.
+
+**Rationale**: Centralized constants improve maintainability, reduce duplication, and make configuration changes easier to track and test.
+
+### VII. Context-Driven Development
 Before implementing any feature:
 1. Use Context7 to understand existing patterns, dependencies, and interfaces
 2. If requirements are unclear, ASK for clarification rather than assume
@@ -39,7 +46,7 @@ Before implementing any feature:
 
 **Rationale**: Avoid assumptions, reduce rework, ensure compatibility with existing codebase.
 
-### VII. Test-Driven Quality
+### VIII. Test-Driven Quality
 Unit tests MUST be created for new functions, utilities, and store methods. Tests live in `src/lib/__tests__/` with `.test.ts` or `.test.svelte.ts` extensions. Use Vitest framework. Coverage must include: happy paths, edge cases, errors, reactive state changes.
 
 ## Technical Constraints
@@ -96,7 +103,8 @@ Every task completion MUST verify. Do not mark a task complete until `pnpm lint`
 ### Code Quality
 - No unused imports or code
 - No duplicate logic (extract to reusable functions)
-- Uses `logger` instead of `console.log`
+- Uses `logger` instead of `console.log` (all messages in English)
+- All hardcoded values defined in `constants.ts`
 - Proper error handling with user-friendly messages
 - CSS uses custom properties (no hardcoded colors)
 
