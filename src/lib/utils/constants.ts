@@ -278,3 +278,47 @@ export const SIDEBAR_CONFIG = {
   iconSize: 40,
   gap: 12
 };
+
+/**
+ * 时间相关常量（毫秒）
+ */
+export const TIMING = {
+  /** 快捷键限流时间间隔 */
+  SHORTCUT_THROTTLE_MS: 350,
+  /** 隐藏窗口前等待时间 */
+  HIDE_WINDOW_DELAY_MS: 100,
+  /** 代理测试超时时间（秒）*/
+  PROXY_TEST_TIMEOUT_SECS: 10,
+  /** 错误消息自动清除时间 */
+  ERROR_AUTO_CLEAR_MS: 5000,
+  /** WebView 最小显示加载动画的时长（毫秒） */
+  MIN_WEBVIEW_LOADING_MS: 600,
+  /** WebView 聚焦后额外的就绪等待时间（毫秒） */
+  WEBVIEW_READY_EXTRA_DELAY_MS: 150,
+} as const;
+
+/**
+ * 网络相关常量
+ */
+export const NETWORK = {
+  /** 代理测试目标 URL */
+  PROXY_TEST_URL: 'https://www.example.com',
+  /** HTTP 重定向限制次数 */
+  HTTP_REDIRECT_LIMIT: 5,
+} as const;
+
+/**
+ * 事件名称常量
+ */
+export const EVENTS = {
+  /** 隐藏所有 webviews 事件 */
+  HIDE_ALL_WEBVIEWS: 'hideAllWebviews',
+  /** 恢复 webviews 事件 */
+  RESTORE_WEBVIEWS: 'restoreWebviews',
+  /** 打开设置事件 */
+  OPEN_SETTINGS: 'open-settings',
+  /** 翻译快捷键触发事件 */
+  TRANSLATION_HOTKEY_TRIGGERED: 'translation-hotkey-triggered',
+  /** 确保翻译可见事件 */
+  ENSURE_TRANSLATION_VISIBLE: 'ensureTranslationVisible',
+} as const;

@@ -5,6 +5,7 @@
     import { onMount } from "svelte";
     import { appState } from "$lib/stores/app.svelte";
     import WelcomePage from "../pages/WelcomePage.svelte";
+    import LoadingSpinner from "../common/LoadingSpinner.svelte";
     import { i18n } from "$lib/i18n";
     import { logger } from "$lib/utils/logger";
 
@@ -81,7 +82,9 @@
         {#if AIChatComp}
             <AIChatComp />
         {:else}
-            <div class="loading-chat">{t("chat.loading")}</div>
+            <div class="loading-container">
+                <LoadingSpinner size="large" message={t("chat.loading")} />
+            </div>
         {/if}
     </div>
 
@@ -89,7 +92,9 @@
         {#if TranslationComp}
             <TranslationComp />
         {:else}
-            <div class="loading-chat">{t("common.loading")}</div>
+            <div class="loading-container">
+                <LoadingSpinner size="large" message={t("common.loading")} />
+            </div>
         {/if}
     </div>
 
@@ -98,7 +103,7 @@
             <SettingsModalComp />
         {:else}
             <div class="settings-loading-backdrop">
-                <div class="settings-loading-message">{t("common.loading")}</div>
+                <LoadingSpinner size="large" message={t("common.loading")} />
             </div>
         {/if}
     {/if}
@@ -219,14 +224,12 @@
         height: 100%;
     }
 
-    .loading-chat {
+    .loading-container {
         width: 100%;
         height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--text-secondary);
-        font-size: 0.875rem;
     }
 
     .settings-loading-backdrop {
@@ -237,14 +240,5 @@
         justify-content: center;
         background-color: rgba(0, 0, 0, 0.45);
         z-index: 9998;
-    }
-
-    .settings-loading-message {
-        padding: 1rem 1.5rem;
-        border-radius: 0.5rem;
-        background-color: var(--bg-primary);
-        color: var(--text-primary);
-        box-shadow: var(--shadow-lg);
-        font-size: 0.875rem;
     }
 </style>
