@@ -1302,10 +1302,7 @@ mod tests {
     #[test]
     fn extract_installation_info_returns_expected_values() {
         let tmp = tempfile::NamedTempFile::new().expect("create temp installer");
-        let download = make_download(
-            DownloadStatus::Completed,
-            Some(tmp.path().to_path_buf()),
-        );
+        let download = make_download(DownloadStatus::Completed, Some(tmp.path().to_path_buf()));
 
         let (path, version, asset) =
             extract_installation_info(&download).expect("extract info succeeds");
@@ -1318,10 +1315,7 @@ mod tests {
     #[test]
     fn extract_installation_info_fails_for_incomplete_download() {
         let tmp = tempfile::NamedTempFile::new().expect("create temp installer");
-        let download = make_download(
-            DownloadStatus::Running,
-            Some(tmp.path().to_path_buf()),
-        );
+        let download = make_download(DownloadStatus::Running, Some(tmp.path().to_path_buf()));
 
         let error = extract_installation_info(&download).expect_err("expect failure");
         assert!(error.contains("Download not completed"));

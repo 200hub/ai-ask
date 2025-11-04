@@ -24,7 +24,11 @@
     const appWindow = getCurrentWebviewWindow();
 
     function dispatchHideWebviews() {
-        window.dispatchEvent(new CustomEvent("hideAllWebviews"));
+        window.dispatchEvent(
+            new CustomEvent("hideAllWebviews", {
+                detail: { markForRestore: true },
+            }),
+        );
     }
 
     /**
