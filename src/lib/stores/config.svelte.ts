@@ -26,9 +26,33 @@ class ConfigStore {
 
       // 应用主题
       this.applyTheme();
+      
+      // 同步自启动状态
+      await this.syncAutoLaunchStatus();
     } catch (error) {
       logger.error('Failed to initialize config', error);
       this.config = DEFAULT_CONFIG;
+    }
+  }
+
+  /**
+   * 同步自启动状态（确保配置与系统设置一致）
+   */
+  async syncAutoLaunchStatus() {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const isEnabled = await invoke<boolean>('is_auto_launch_enabled');
+      
+      // 如果配置与系统状态不一致，更新配置
+      if (this.config.autoStart !== isEnabled) {
+        logger.info('Syncing auto launch status', { 
+          configValue: this.config.autoStart, 
+          systemValue: isEnabled 
+        });
+        this.config = await updateConfig({ autoStart: isEnabled });
+      }
+    } catch (error) {
+      logger.error('Failed to sync auto launch status', error);
     }
   }
 
@@ -92,7 +116,22 @@ class ConfigStore {
    * 设置自动启动
    */
   async setAutoStart(autoStart: boolean) {
-    await this.update({ autoStart });
+    const { invoke } = await import('@tauri-apps/api/core');
+    
+    try {
+      if (autoStart) {
+        await invoke('enable_auto_launch');
+        logger.info('Auto launch enabled');
+      } else {
+        await invoke('disable_auto_launch');
+        logger.info('Auto launch disabled');
+      }
+      
+      await this.update({ autoStart });
+    } catch (error) {
+      logger.error('Failed to set auto launch', error);
+      throw error;
+    }
   }
 
   /**

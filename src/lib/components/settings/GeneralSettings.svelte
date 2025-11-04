@@ -250,26 +250,6 @@
         </div>
     </div>
 
-    <!-- 启动设置 -->
-    <div class="setting-group">
-        <h3 class="group-title">{t("general.startup")}</h3>
-
-        <div class="setting-item">
-            <div class="setting-label">
-                <span class="label-text">{t("general.autoStart")}</span>
-                <span class="label-description">{t("general.autoStartDescription")}</span>
-            </div>
-            <label class="toggle-switch">
-                <input
-                    type="checkbox"
-                    checked={configStore.config.autoStart}
-                    onchange={handleAutoStartChange}
-                />
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-    </div>
-
     <!-- 缓存管理 -->
     <div class="setting-group">
         <h3 class="group-title">{t("general.cacheManagement")}</h3>

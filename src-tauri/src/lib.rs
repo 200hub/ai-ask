@@ -31,6 +31,50 @@ use window_control::{
     show_main_window_without_restore, show_window, toggle_main_window_visibility, toggle_window,
 };
 
+/// Enable auto launch on system startup
+#[tauri::command]
+async fn enable_auto_launch(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+
+    log::info!("Enabling auto launch");
+    let autostart_manager = app.autolaunch();
+    autostart_manager.enable().map_err(|e| {
+        log::error!("Failed to enable auto launch: {}", e);
+        format!("Failed to enable auto launch: {}", e)
+    })?;
+
+    log::info!("Auto launch enabled successfully");
+    Ok(())
+}
+
+/// Disable auto launch on system startup
+#[tauri::command]
+async fn disable_auto_launch(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+
+    log::info!("Disabling auto launch");
+    let autostart_manager = app.autolaunch();
+    autostart_manager.disable().map_err(|e| {
+        log::error!("Failed to disable auto launch: {}", e);
+        format!("Failed to disable auto launch: {}", e)
+    })?;
+
+    log::info!("Auto launch disabled successfully");
+    Ok(())
+}
+
+/// Check if auto launch is enabled
+#[tauri::command]
+async fn is_auto_launch_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+
+    let autostart_manager = app.autolaunch();
+    autostart_manager.is_enabled().map_err(|e| {
+        log::error!("Failed to check auto launch status: {}", e);
+        format!("Failed to check auto launch status: {}", e)
+    })
+}
+
 /// 应用程序主入口点
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -46,6 +90,10 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--flag1", "--flag2"]),
+        ))
         .setup(|app| {
             log::debug!("Application setup starting");
 
@@ -204,7 +252,10 @@ pub fn run() {
             download_update,
             get_download_status,
             install_update_now,
-            schedule_install
+            schedule_install,
+            enable_auto_launch,
+            disable_auto_launch,
+            is_auto_launch_enabled
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
