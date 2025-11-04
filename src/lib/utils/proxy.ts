@@ -40,10 +40,10 @@ export function createProxySignature(proxy: ProxyConfig | null | undefined): str
         lastLoggedSignature = signature;
 
         if (signature === "system") {
-            log.debug("[Proxy] 代理模式变更为系统代理");
+            log.debug("[Proxy] Proxy mode changed to system proxy");
         } else {
             const [, host = "", port = ""] = signature.split(":");
-            log.debug("[Proxy] 代理模式变更为自定义代理", { host, port });
+            log.debug("[Proxy] Proxy mode changed to custom proxy", { host, port });
         }
     }
 
@@ -86,7 +86,7 @@ export function resolveProxyUrl(proxy: ProxyConfig | null | undefined): string |
 
     // 验证：必须有主机地址
     if (!rawHost) {
-        log.warn("[Proxy] 自定义代理未配置主机地址");
+        log.warn("[Proxy] Custom proxy missing host address");
         return null;
     }
 
@@ -97,13 +97,13 @@ export function resolveProxyUrl(proxy: ProxyConfig | null | undefined): string |
         const urlString = rawHost.includes("://") ? rawHost : `http://${rawHost}`;
         parsedUrl = new URL(urlString);
         
-        log.debug("[Proxy] 成功解析代理主机", { 
+        log.debug("[Proxy] Successfully parsed proxy host", { 
             raw: rawHost, 
             protocol: parsedUrl.protocol,
             hostname: parsedUrl.hostname 
         });
     } catch (error) {
-        log.error("[Proxy] 无效的代理主机地址", { host: rawHost, error });
+        log.error("[Proxy] Invalid proxy host address", { host: rawHost, error });
         return null;
     }
 
@@ -115,7 +115,7 @@ export function resolveProxyUrl(proxy: ProxyConfig | null | undefined): string |
 
     // 验证：主机名不能为空
     if (!hostname) {
-        log.error("[Proxy] 无法从代理配置中提取有效的主机名", { parsedUrl: parsedUrl.href });
+        log.error("[Proxy] Failed to extract valid hostname from proxy configuration", { parsedUrl: parsedUrl.href });
         return null;
     }
 
@@ -125,7 +125,7 @@ export function resolveProxyUrl(proxy: ProxyConfig | null | undefined): string |
     // 构建最终的代理 URL
     const proxyUrl = port ? `${scheme}://${hostname}:${port}` : `${scheme}://${hostname}`;
     
-    log.info("[Proxy] 已解析代理URL", { 
+    log.info("[Proxy] Resolved proxy URL", { 
         scheme, 
         hostname, 
         port, 
