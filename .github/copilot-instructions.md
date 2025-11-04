@@ -16,15 +16,18 @@ These instructions help AI coding agents work productively in this repo. Focus o
 ## Core Conventions
 
 ### Svelte 5 Runes Only
+
 - Use `$state`, `$derived`, `$effect` for all reactive state
 - Example: `class Store { value = $state(0); } export const store = new Store();`
 - **Do NOT** introduce Svelte 4 `writable`/`readable`/`derived` patterns in new code
 
 ### SPA Mode
+
 - `src/routes/+layout.ts` sets `export const ssr = false;`
 - All routing is client-side only
 
 ### Styling: Pure CSS with Custom Properties
+
 - **NO Tailwind or other CSS frameworks**
 - Use CSS variables defined in `src/lib/styles/base.css`: `--bg-primary`, `--text-primary`, `--accent-color`, etc.
 - Supports light/dark themes via `.dark` class
@@ -32,6 +35,7 @@ These instructions help AI coding agents work productively in this repo. Focus o
 - Scoped styles in `<style>` blocks
 
 ### i18n
+
 - Use `i18n.t()` function (NOT a store subscription)
 - Pattern: `import { i18n } from '$lib/i18n'; const t = i18n.t;`
 - Four locales: `zh-CN` (default), `en-US`, `ja-JP`, `ko-KR`
@@ -39,6 +43,7 @@ These instructions help AI coding agents work productively in this repo. Focus o
 - Update all four locale files when adding keys
 
 ### Naming
+
 - Components: PascalCase
 - Files: kebab-case or PascalCase
 - Variables: camelCase
@@ -47,15 +52,18 @@ These instructions help AI coding agents work productively in this repo. Focus o
 ## Critical Architecture Patterns
 
 ### Child Webview Management
+
 - **Frontend**: `ChildWebviewProxy` wrapper (from `src/lib/utils/childWebview.ts`)
 - **Backend**: Rust manages actual webviews via commands: `ensure_child_webview`, `show_child_webview`, `hide_child_webview`, etc.
 - **Never** create `WebviewWindow` directly in frontend code
 - Proxy methods: `ensure()`, `show()`, `hide()`, `close()`, `setFocus()`, `updateBounds()`
 
 ### Window Visibility Coordination
+
 Two flows for hiding main window:
 
 1. **User clicks close button** (Header):
+
    - Frontend dispatches DOM event `hideAllWebviews`
    - Frontend hides child webviews
    - Frontend calls `appWindow.hide()`
@@ -69,21 +77,25 @@ Two flows for hiding main window:
 **Show flow**: Rust shows main → emits `restoreWebviews` → frontend restores children
 
 ### Drag Regions
+
 - Mark with `data-tauri-drag-region` attribute (or `-webkit-app-region: drag` CSS)
 - **Never** apply to interactive elements (buttons, inputs, links)
 
 ### State Management (Stores)
+
 - All stores in `src/lib/stores/*.svelte.ts` using Runes
 - Export singleton instance: `export const appState = new AppState();`
 - Use `@tauri-apps/plugin-store` for persistence via `src/lib/utils/storage.ts` helpers
 
 ### Logging
+
 - Use `logger` from `$lib/utils/logger` (NOT `console.log`)
 - Dev: logs all; Prod: logs errors/warnings only
 - **All log messages must be in English** for consistency and debugging across teams
 - Format: Use clear, structured log messages with context (e.g., `logger.info('Platform enabled', { platformId, enabled })`)
 
 ### Constants Management
+
 - **All hardcoded values MUST be defined in `src/lib/utils/constants.ts`**
 - Include: URLs, timeouts, limits, default values, magic numbers, API endpoints, feature flags
 - Pattern: Export as named constants with UPPER_SNAKE_CASE naming
@@ -93,6 +105,7 @@ Two flows for hiding main window:
 ## Project-Specific Rules
 
 ### DO
+
 - Use Runes for all new reactive state
 - Use CSS custom properties from `base.css` for theming
 - Use `i18n.t()` for all user-facing text
@@ -104,6 +117,7 @@ Two flows for hiding main window:
 - Handle errors gracefully with `appState.setError()`
 
 ### DON'T
+
 - Don't add Tailwind CSS or CSS frameworks
 - Don't use Svelte 4 store patterns in new code
 - Don't hardcode user-facing strings (use i18n)
@@ -119,6 +133,7 @@ Two flows for hiding main window:
 Before starting any task:
 
 1. **Understand the context**:
+
    - Use Context7 to read relevant files and understand existing patterns
    - Check how similar features are already implemented
    - Understand dependencies and their interfaces
@@ -135,6 +150,7 @@ Before reporting any task as complete, you MUST run and pass `pnpm lint` (covers
 After completing each task:
 
 1. **Code Quality**:
+
    - Remove unused imports/code
    - Extract duplicate logic into reusable functions
    - Use `logger` instead of `console.log`
@@ -142,10 +158,12 @@ After completing each task:
    - CSS uses custom properties (no hardcoded colors)
 
 2. **i18n**:
+
    - All four locale files updated with matching keys
    - No hardcoded strings in UI
 
 3. **Testing**:
+
    - Create unit tests in `src/lib/__tests__/` (`.test.ts` or `.test.svelte.ts`)
    - Use Vitest framework
    - Test happy paths, edge cases, errors, reactive state changes
