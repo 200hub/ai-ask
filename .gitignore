@@ -27,3 +27,6 @@ dist/
 
 # OS
 Thumbs.db
+
+# Codex
+.codex/

@@ -1,9 +1,10 @@
-//! AI Ask - 桌面应用后端
+﻿//! AI Ask - 桌面应用后端
 //!
 //! 基于 Tauri 2.0 构建的跨平台桌面应用，提供窗口控制、
 //! 子 WebView 生命周期管理、代理测试、系统托盘与快捷键支持。
 
 mod proxy;
+mod update;
 mod webview;
 mod window_control;
 
@@ -17,6 +18,10 @@ use tauri::{
 };
 
 use proxy::test_proxy_connection;
+use update::{
+    check_update, download_update, get_download_status, init as init_update, install_update_now,
+    schedule_install,
+};
 use webview::{
     close_child_webview, ensure_child_webview, focus_child_webview, hide_all_child_webviews,
     hide_child_webview, set_child_webview_bounds, show_child_webview, ChildWebviewManager,
@@ -29,6 +34,9 @@ use window_control::{
 /// 应用程序主入口点
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info");
+    }
     env_logger::init();
     log::info!("AI Ask 应用启动");
 
@@ -98,6 +106,7 @@ pub fn run() {
             }
 
             let handle = app.handle().clone();
+            init_update(handle.clone());
             let last_shortcut_trigger = Arc::new(Mutex::new(None::<Instant>));
             #[cfg(target_os = "macos")]
             let shortcut = "Cmd+Shift+A";
@@ -162,7 +171,12 @@ pub fn run() {
             close_child_webview,
             focus_child_webview,
             hide_all_child_webviews,
-            test_proxy_connection
+            test_proxy_connection,
+            check_update,
+            download_update,
+            get_download_status,
+            install_update_now,
+            schedule_install
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

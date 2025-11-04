@@ -4,10 +4,10 @@
 
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter, Manager, Window};
+use tauri::{Emitter, Manager, Window};
 
 /// 尝试解析主窗口实例
-pub(crate) fn resolve_main_window(app: &AppHandle) -> Option<Window> {
+pub(crate) fn resolve_main_window(app: &tauri::AppHandle) -> Option<Window> {
     if let Some(window) = app.get_window("main") {
         log::trace!("resolve_main_window: using explicit 'main' window");
         return Some(window);

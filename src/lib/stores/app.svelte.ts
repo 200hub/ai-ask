@@ -3,6 +3,8 @@
  */
 import type { ViewType } from '../types/config';
 import type { AIPlatform } from '../types/platform';
+import { logger } from '$lib/utils/logger';
+import { onUpdateAvailable, onUpdateDownloaded } from '$lib/utils/update';
 
 /**
  * 应用状态类
@@ -124,3 +126,19 @@ class AppState {
  * 导出单例实例
  */
 export const appState = new AppState();
+
+// 初始化更新事件监听（模块加载时）
+if (typeof window !== 'undefined') {
+  void (async () => {
+    try {
+      await onUpdateAvailable(({ version }) => {
+        logger.info('Update available', version);
+      });
+      await onUpdateDownloaded(({ version, taskId }) => {
+        logger.info('Update downloaded', version, taskId);
+      });
+    } catch (err) {
+      logger.warn('Failed to register update listeners', err as unknown as string);
+    }
+  })();
+}

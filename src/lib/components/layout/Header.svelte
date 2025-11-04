@@ -1,10 +1,25 @@
 <script lang="ts">
     /**
-     * 顶部导航栏组件
+     * 头部栏组件
      */
     import { X } from "lucide-svelte";
     import { appState } from "$lib/stores/app.svelte";
+    import UpdateBanner from "$lib/components/common/UpdateBanner.svelte";
+    import type { ReleaseAsset } from "$lib/types/update";
+    import {
+        checkUpdate,
+        downloadUpdate,
+        getDownloadStatus,
+        onUpdateAvailable,
+        onUpdateDownloaded,
+        installUpdateNow,
+        selectAssetForUserAgent
+    } from "$lib/utils/update";
+    import { configStore } from "$lib/stores/config.svelte";
+    import { i18n } from "$lib/i18n";
+    import { logger } from "$lib/utils/logger";
     import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+    import { onDestroy } from "svelte";
 
     const appWindow = getCurrentWebviewWindow();
 
@@ -13,15 +28,221 @@
     }
 
     /**
-     * 关闭窗口（实际是隐藏到托盘）
+     * 关闭按钮（实际执行隐藏）
      */
     async function handleClose() {
         dispatchHideWebviews();
         try {
             await appWindow.hide();
         } catch (error) {
-            console.error("Failed to hide window:", error);
+            logger.error("Failed to hide window", error);
         }
+    }
+
+    const t = i18n.t;
+    let bannerStatus = $state<'hidden' | 'available' | 'downloading' | 'ready' | 'failed'>('hidden');
+    let latestVersion = $state<string>('');
+    let latestAssets = $state<ReleaseAsset[]>([]);
+    let lastTaskId = $state<string>('');
+    // 防止重复触发自动下载
+    let autoDownloadTriggered = $state<boolean>(false);
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    const POLL_INTERVAL_MS = 2000;
+
+    function stopPolling() {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+    }
+
+    async function refreshDownloadStatus(taskId: string) {
+        const status = await getDownloadStatus(taskId);
+        if (!status) {
+            return;
+        }
+
+        if (status.status === 'completed') {
+            stopPolling();
+            bannerStatus = 'ready';
+            lastTaskId = status.id;
+            logger.info("update download completed (poll)", {
+                taskId: status.id,
+                bytes: status.bytesDownloaded,
+            });
+            autoDownloadTriggered = false;
+            return;
+        }
+
+        if (status.status === 'failed') {
+            stopPolling();
+            bannerStatus = 'failed';
+            logger.error("update download failed (poll)", {
+                taskId: status.id,
+                error: status.error,
+            });
+            autoDownloadTriggered = false;
+            return;
+        }
+
+        if (status.status === 'running') {
+            if (bannerStatus !== 'downloading') {
+                bannerStatus = 'downloading';
+            }
+            if (status.bytesDownloaded && status.bytesTotal) {
+                logger.debug("update download progress", {
+                    taskId: status.id,
+                    downloaded: status.bytesDownloaded,
+                    total: status.bytesTotal,
+                });
+            }
+        }
+    }
+
+    function startPolling(taskId: string) {
+        stopPolling();
+        pollTimer = setInterval(() => {
+            void refreshDownloadStatus(taskId);
+        }, POLL_INTERVAL_MS);
+        void refreshDownloadStatus(taskId);
+    }
+
+    onDestroy(() => {
+        stopPolling();
+    });
+
+    // 统一处理手动/自动下载流程，方便记录日志与轮询
+    async function triggerDownload(asset: ReleaseAsset | null, source: "manual" | "auto") {
+        if (!asset) {
+            bannerStatus = 'failed';
+            logger.warn("update download skipped: no matching asset", {
+                version: latestVersion,
+                source,
+            });
+            if (source === "auto") {
+                autoDownloadTriggered = false;
+            }
+            return;
+        }
+
+        logger.info("update download requested", {
+            version: latestVersion,
+            asset: asset.name,
+            source,
+        });
+
+        bannerStatus = 'downloading';
+
+        const task = await downloadUpdate(latestVersion, String(asset.id));
+        if (!task) {
+            logger.error("update download invocation failed", {
+                version: latestVersion,
+                asset: asset.name,
+                source,
+            });
+            bannerStatus = 'failed';
+            if (source === "auto") {
+                autoDownloadTriggered = false;
+            }
+            return;
+        }
+
+        lastTaskId = task.id;
+        logger.info("update download task started", {
+            version: latestVersion,
+            taskId: task.id,
+            asset: asset.name,
+            source,
+        });
+        startPolling(task.id);
+    }
+
+    async function handleDownload() {
+        const asset = selectAssetForUserAgent(latestAssets);
+        await triggerDownload(asset, "manual");
+    }
+
+    async function handleRestart() {
+        if (!lastTaskId) {
+            logger.warn("install update requested but task id missing");
+            return;
+        }
+
+        stopPolling();
+
+        // 直接调用后端命令启动安装器并退出应用
+        logger.info("install update requested immediately", { taskId: lastTaskId });
+        const started = await installUpdateNow(lastTaskId);
+        if (!started) {
+            bannerStatus = 'failed';
+            logger.error("install update command failed", { taskId: lastTaskId });
+        }
+    }
+
+    if (typeof window !== 'undefined') {
+        void (async () => {
+            try {
+                await onUpdateAvailable(({ version, assets }) => {
+                    logger.info("update available event received", {
+                        version,
+                        assetCount: assets?.length ?? 0,
+                    });
+                    latestVersion = version as string;
+                    latestAssets = assets as unknown as ReleaseAsset[];
+                    if (configStore.config.autoUpdateEnabled && !autoDownloadTriggered) {
+                        autoDownloadTriggered = true;
+                        const asset = selectAssetForUserAgent(latestAssets);
+                        logger.info("auto update enabled - triggering download from frontend", {
+                            version,
+                            assetName: asset?.name ?? "unknown",
+                        });
+                        void triggerDownload(asset, "auto");
+                    } else {
+                        bannerStatus = 'available';
+                    }
+                });
+                await onUpdateDownloaded(({ version, taskId }) => {
+                    stopPolling();
+                    logger.info("update downloaded event received", { version, taskId });
+                    latestVersion = version as string;
+                    lastTaskId = taskId as string;
+                    bannerStatus = 'ready';
+                    autoDownloadTriggered = false;
+                });
+                const info = await checkUpdate();
+                if (info?.hasUpdate) {
+                    latestVersion = (info.latestVersion as string) ?? '';
+                    latestAssets = (info.assets ?? []) as ReleaseAsset[];
+                    if (!latestAssets.length) {
+                        logger.warn("update detected but assets list is empty", info);
+                    } else {
+                        logger.info("update check found release", {
+                            version: latestVersion,
+                            assetCount: latestAssets.length,
+                        });
+                    }
+                    if (configStore.config.autoUpdateEnabled && !autoDownloadTriggered) {
+                        autoDownloadTriggered = true;
+                        const asset = selectAssetForUserAgent(latestAssets);
+                        logger.info(
+                            "auto update enabled after manual check - triggering download",
+                            {
+                                version: latestVersion,
+                                assetName: asset?.name ?? "unknown",
+                            },
+                        );
+                        void triggerDownload(asset, "auto");
+                    } else {
+                        bannerStatus = 'available';
+                    }
+                } else {
+                    logger.info("update check completed with no newer version");
+                    bannerStatus = 'hidden';
+                }
+            } catch (error) {
+                logger.warn("register update listeners failed", error);
+            }
+        })();
     }
 </script>
 
@@ -40,20 +261,28 @@
             />
             <h1 class="platform-name">{appState.selectedPlatform.name}</h1>
         {:else if appState.currentView === "translation"}
-            <h1 class="platform-name">翻译</h1>
+            <h1 class="platform-name">{t("sidebar.translation")}</h1>
         {:else if appState.currentView === "settings"}
-            <h1 class="platform-name">设置</h1>
+            <h1 class="platform-name">{t("settings.title")}</h1>
         {:else}
-            <h1 class="app-title">AI Ask</h1>
+            <h1 class="app-title">{t("app.name")}</h1>
         {/if}
     </div>
 
     <div class="header-right">
+        {#if bannerStatus !== 'hidden'}
+            <UpdateBanner
+                status={bannerStatus === 'available' ? 'available' : bannerStatus === 'downloading' ? 'downloading' : bannerStatus === 'ready' ? 'ready' : 'failed'}
+                version={latestVersion}
+                onDownload={bannerStatus === 'available' || bannerStatus === 'failed' ? handleDownload : null}
+                onRestart={bannerStatus === 'ready' ? handleRestart : null}
+            />
+        {/if}
         <button
             class="icon-btn hover-close"
             onclick={handleClose}
             type="button"
-            aria-label="关闭"
+            aria-label={t("header.close")}
         >
             <X size={16} />
         </button>
@@ -120,7 +349,7 @@
     .header-right {
         display: flex;
         align-items: center;
-        gap: 0.125rem;
+        gap: 0.4rem;
         flex-shrink: 0;
         /* Disable drag for button area - CRITICAL */
         -webkit-app-region: no-drag;
@@ -160,4 +389,5 @@
         background-color: #ef4444 !important;
         color: white !important;
     }
+
 </style>

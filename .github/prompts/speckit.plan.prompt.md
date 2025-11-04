@@ -64,7 +64,6 @@ You **MUST** consider the user input before proceeding (if not empty).
 2. **Generate API contracts** from functional requirements:
    - For each user action → endpoint
    - Use standard REST/GraphQL patterns
-   - Output OpenAPI/GraphQL schema to `/contracts/`
 
 3. **Agent context update**:
    - Run `.specify/scripts/powershell/update-agent-context.ps1 -AgentType copilot`

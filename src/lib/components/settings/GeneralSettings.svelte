@@ -83,6 +83,20 @@
     }
 
     /**
+     * 切换自动更新
+     */
+    async function handleAutoUpdateChange(event: Event) {
+        const target = event.target as HTMLInputElement;
+        const enabled = target.checked;
+
+        try {
+            await configStore.setAutoUpdateEnabled(enabled);
+        } catch (error) {
+            console.error("Failed to change auto update:", error);
+        }
+    }
+
+    /**
      * 格式化快捷键显示
      */
     function formatHotkey(hotkey: string): string {
@@ -141,6 +155,33 @@
                     <option value={locale.code}>{locale.nativeName}</option>
                 {/each}
             </select>
+        </div>
+    </div>
+
+    <!-- 启动/更新设置 -->
+    <div class="setting-group">
+        <h3 class="group-title">{t("general.startup")}</h3>
+
+        <div class="setting-item">
+            <div class="setting-label">
+                <span class="label-text">{t("general.autoStart")}</span>
+                <span class="label-description">{t("general.autoStartDescription")}</span>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" checked={configStore.config.autoStart} onchange={handleAutoStartChange} />
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+
+        <div class="setting-item">
+            <div class="setting-label">
+                <span class="label-text">{t("general.autoUpdate")}</span>
+                <span class="label-description">{t("general.autoUpdateDescription")}</span>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" checked={configStore.config.autoUpdateEnabled} onchange={handleAutoUpdateChange} />
+                <span class="toggle-slider"></span>
+            </label>
         </div>
     </div>
 

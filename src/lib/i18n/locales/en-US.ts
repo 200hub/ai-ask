@@ -46,6 +46,16 @@ export const enUS = {
         close: "Close",
     },
 
+    update: {
+        banner: {
+            actionDownload: "Download update",
+            actionRestart: "Restart to update",
+            actionRetry: "Retry download",
+            statusDownloading: "Downloading…",
+            versionTooltip: "Target version {version}",
+        },
+    },
+
     settings: {
         title: "Settings",
         general: "General",
@@ -74,6 +84,8 @@ export const enUS = {
         startup: "Startup",
         autoStart: "Launch at Startup",
         autoStartDescription: "Automatically run when system starts",
+        autoUpdate: "Automatic Updates",
+        autoUpdateDescription: "Download updates in the background and install on next launch",
         cacheManagement: "Cache Management",
         clearCache: "Clear Cached Pages",
         clearCacheDescription: "Close background AI pages and reset cached data",
