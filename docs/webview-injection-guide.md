@@ -99,8 +99,11 @@ const webviewProxy = new ChildWebviewProxy('chatgpt', 'https://chat.openai.com',
 await webviewProxy.ensure(bounds);
 await webviewProxy.show();
 
+// evaluateScript 现在返回脚本的实际执行结果
+// 脚本应该返回一个可序列化为 JSON 的值
 const result = await webviewProxy.evaluateScript(script);
 console.log('Injection result:', result);
+// 例如: { success: true, duration: 1234, actionsExecuted: 3 }
 ```
 
 ### 高级用法：处理 iframe 和 Shadow DOM
@@ -154,7 +157,7 @@ if (matchedTemplate) {
 }
 ```
 
-### 自定义脚本操作
+### 自定义脚本操作并获取返回值
 
 ```typescript
 const template: InjectionTemplate = {
@@ -167,15 +170,23 @@ const template: InjectionTemplate = {
 			script: `
 				// 自定义 JavaScript 代码
 				const elements = document.querySelectorAll('.message');
+				// 返回的对象会通过 IPC 传回前端
 				return {
 					success: true,
-					messageCount: elements.length
+					messageCount: elements.length,
+					messages: Array.from(elements).map(el => el.textContent)
 				};
 			`,
 			delay: 0
 		}
 	]
 };
+
+// 执行并获取结果
+const script = injectionManager.generateTemplateScript(template);
+const result = await webviewProxy.evaluateScript(script);
+console.log('Found messages:', result.messageCount);
+console.log('Message texts:', result.messages);
 ```
 
 ### 在 Svelte 组件中使用
@@ -273,7 +284,8 @@ const manager = new InjectionManager({
 2. **性能**: 避免执行耗时操作，使用 timeout 防止死锁
 3. **可靠性**: 使用 wait 操作等待 DOM 更新
 4. **测试**: 在实际环境中充分测试选择器和操作序列
-5. **返回值限制**: 当前 `evaluateScript()` 只返回执行状态，不返回脚本计算结果
+5. **返回值机制**: `evaluateScript()` 通过 IPC 事件异步返回脚本执行结果，默认超时 10 秒
+6. **结果序列化**: 脚本返回的值必须可以序列化为 JSON（不能包含函数、DOM 元素等）
 
 ## 单元测试
 

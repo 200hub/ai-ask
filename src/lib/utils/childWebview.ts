@@ -218,19 +218,72 @@ export class ChildWebviewProxy {
     }
 
     /**
-     * Evaluate JavaScript code in the child webview
-     * @param script - JavaScript code to execute
+     * Evaluate JavaScript code in the child webview and return the result
+     * @param script - JavaScript code to execute (should return a value)
+     * @param timeout - Maximum time to wait for result in milliseconds (default: 10000)
      * @returns Promise resolving to the result of the script execution
      */
-    async evaluateScript<T = unknown>(script: string): Promise<T> {
+    async evaluateScript<T = unknown>(script: string, timeout = 10000): Promise<T> {
         try {
-            const result = await invoke<T>("evaluate_child_webview_script", {
-                payload: {
-                    id: this.id,
-                    script,
-                },
+            const mainWindow = getCurrentWebviewWindow();
+            
+            // Invoke the command to execute the script
+            const response = await invoke<{ success: boolean; requestId: string; message: string }>(
+                "evaluate_child_webview_script",
+                {
+                    payload: {
+                        id: this.id,
+                        script,
+                    },
+                }
+            );
+
+            if (!response.success) {
+                throw new Error(response.message);
+            }
+
+            const requestId = response.requestId;
+            const eventName = `injection-result-${requestId}`;
+
+            // Wait for the result event from the child webview
+            return new Promise<T>((resolve, reject) => {
+                let unlisten: (() => void) | null = null;
+                let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+                const cleanup = () => {
+                    if (unlisten) {
+                        unlisten();
+                    }
+                    if (timeoutId) {
+                        clearTimeout(timeoutId);
+                    }
+                };
+
+                // Set up timeout
+                timeoutId = setTimeout(() => {
+                    cleanup();
+                    reject(new Error(`Script evaluation timed out after ${timeout}ms`));
+                }, timeout);
+
+                // Listen for the result event
+                mainWindow
+                    .listen<{ success: boolean; result?: T; error?: string }>(eventName, (event) => {
+                        cleanup();
+                        
+                        if (event.payload.success && event.payload.result !== undefined) {
+                            resolve(event.payload.result);
+                        } else {
+                            reject(new Error(event.payload.error || "Script evaluation failed"));
+                        }
+                    })
+                    .then((fn) => {
+                        unlisten = fn;
+                    })
+                    .catch((err) => {
+                        cleanup();
+                        reject(new Error(`Failed to listen for result event: ${err}`));
+                    });
             });
-            return result;
         } catch (error) {
             logger.error("Failed to evaluate script in child webview", { id: this.id, error });
             throw error;

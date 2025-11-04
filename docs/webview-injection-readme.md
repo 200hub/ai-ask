@@ -178,7 +178,10 @@ if (parsed.success) {
 
 ### ChildWebviewProxy (新增方法)
 
-- `evaluateScript<T>(script)` - 在子 WebView 中执行 JavaScript
+- `evaluateScript<T>(script, timeout?)` - 在子 WebView 中执行 JavaScript 并返回结果
+  - `script`: 要执行的 JavaScript 代码（应该返回一个值）
+  - `timeout`: 可选，等待结果的超时时间（毫秒，默认 10000）
+  - 返回: Promise，解析为脚本执行的结果
 
 ## 测试
 
@@ -203,7 +206,7 @@ pnpm lint
 ⚠️ **安全性**: 仅注入可信代码  
 ⚠️ **性能**: 设置合理的 timeout 防止死锁  
 ⚠️ **可靠性**: 在真实环境中测试选择器  
-⚠️ **限制**: 当前 `evaluateScript()` 不返回脚本计算结果，仅返回执行状态
+⚠️ **异步通信**: 脚本结果通过 IPC 事件异步返回，默认超时 10 秒
 
 ## 示例组件
 
