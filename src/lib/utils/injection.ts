@@ -34,12 +34,11 @@ function generateElementFinderScript(config: SelectorConfig): string {
 	const shadowSelector = config.shadowRoot ? escapeForJsString(config.shadowRoot) : null;
 
 	return `
-		(function() {
-			return new Promise((resolve, reject) => {
-				const startTime = Date.now();
-				const timeout = ${timeout};
+		(new Promise((resolve, reject) => {
+			const startTime = Date.now();
+			const timeout = ${timeout};
 
-				console.log('[FINDER] Looking for element: ${selector}');
+			console.log('[FINDER] Looking for element: ${selector}');
 
 				function findElement() {
 					try {
@@ -93,9 +92,8 @@ function generateElementFinderScript(config: SelectorConfig): string {
 					}
 				}
 
-				findElement();
-			});
-		})();
+			findElement();
+		}))
 	`.trim();
 }
 
@@ -392,6 +390,330 @@ ${actionScripts.join('\n')}
 			success: false,
 			error: 'Invalid result format'
 		};
+	}
+
+	/**
+	 * Generate script to set up response monitoring in child webview
+	 * The monitoring state is stored in window.__AI_ASK_MONITOR__
+	 */
+	generateResponseMonitorSetupScript(platformId: string, responseSelector: string): string {
+		const escapedPlatformId = escapeForJsString(platformId);
+		const selector = escapeForJsString(responseSelector);
+		
+		return `
+(function() {
+	console.log('[RESPONSE_MONITOR] Setting up response monitoring for ${selector}');
+	
+	// Initialize global monitoring state
+	window.__AI_ASK_MONITOR__ = window.__AI_ASK_MONITOR__ || {};
+	window.__AI_ASK_MONITOR__.platformId = '${escapedPlatformId}';
+	window.__AI_ASK_MONITOR__.selector = '${selector}';
+	window.__AI_ASK_MONITOR__.lastResponseIndex = -1;
+	window.__AI_ASK_MONITOR__.responses = [];
+	
+	console.log('[RESPONSE_MONITOR] Setup complete');
+	return { success: true, message: 'Response monitoring setup complete' };
+})();
+`.trim();
+	}
+
+	/**
+	 * Generate script to check for new AI responses
+	 * This should be called periodically from the main window
+	 */
+	generateResponseCheckScript(): string {
+		// Step 1: Test if IIFE works
+		return `
+console.log('[RESPONSE_CHECK] Script starting...');
+(function() {
+	console.log('[RESPONSE_CHECK] Inside IIFE');
+	
+	if (!window.__AI_ASK_MONITOR__) {
+		console.warn('[RESPONSE_CHECK] Monitor not initialized');
+		window.__AI_ASK_MONITOR__.__LAST_CHECK_RESULT__ = { hasNew: false, message: 'Monitor not initialized' };
+		return;
+	}
+	
+	console.log('[RESPONSE_CHECK] Monitor found:', window.__AI_ASK_MONITOR__);
+	
+	const monitor = window.__AI_ASK_MONITOR__;
+	const selector = monitor.selector;
+	const responseElements = document.querySelectorAll(selector);
+	
+	console.log('[RESPONSE_CHECK] Found', responseElements.length, 'response elements');
+	
+	if (responseElements.length === 0) {
+		window.__AI_ASK_MONITOR__.__LAST_CHECK_RESULT__ = { hasNew: false, message: 'No responses found' };
+		return;
+	}
+	
+	const currentIndex = responseElements.length - 1;
+	console.log('[RESPONSE_CHECK] Current index:', currentIndex, 'Last index:', monitor.lastResponseIndex);
+	
+	if (currentIndex > monitor.lastResponseIndex) {
+		const latestElement = responseElements[currentIndex];
+		
+		// Multi-strategy content extraction
+		let content = '';
+		
+		// Strategy 1: Try innerText directly
+		content = latestElement.innerText || '';
+		console.log('[RESPONSE_CHECK] Strategy 1 (innerText):', content.length, 'chars');
+		
+		// Strategy 2: Look for common content selectors
+		if (content.length === 0) {
+			console.log('[RESPONSE_CHECK] Trying Strategy 2...');
+			const selectors = ['.markdown', '[data-message-content]', '.prose', 'p', 'div'];
+			for (const sel of selectors) {
+				try {
+					const elements = latestElement.querySelectorAll(sel);
+					console.log('[RESPONSE_CHECK] Selector', sel, 'found', elements.length, 'elements');
+					if (elements.length > 0) {
+						const texts = [];
+						for (let i = 0; i < elements.length; i++) {
+							const el = elements[i];
+							const text = el.innerText || el.textContent || '';
+							const trimmed = text.trim();
+							if (trimmed.length > 0) {
+								texts.push(trimmed);
+							}
+						}
+						
+						if (texts.length > 0) {
+							content = texts.join('\\n');
+							console.log('[RESPONSE_CHECK] Strategy 2 (selector ' + sel + '):', content.length, 'chars');
+							break;
+						}
+					}
+				} catch (e) {
+					console.error('[RESPONSE_CHECK] Selector error:', sel, e);
+				}
+			}
+		}
+		
+		// Strategy 3: TreeWalker fallback
+		if (content.length === 0) {
+			const walker = document.createTreeWalker(latestElement, NodeFilter.SHOW_TEXT, null);
+			const textNodes = [];
+			let node;
+			while (node = walker.nextNode()) {
+				const text = (node.textContent || '').trim();
+				if (text.length > 0) {
+					textNodes.push(text);
+				}
+			}
+			content = textNodes.join(' ');
+			console.log('[RESPONSE_CHECK] Strategy 3 (TreeWalker):', content.length, 'chars');
+		}
+		
+		console.log('[RESPONSE_CHECK] Final content length:', content.length);
+		
+		monitor.lastResponseIndex = currentIndex;
+		
+		window.__AI_ASK_MONITOR__.__LAST_CHECK_RESULT__ = {
+			hasNew: true,
+			platformId: monitor.platformId,
+			response: {
+				content: content,
+				isComplete: true,
+				timestamp: Date.now()
+			}
+		};
+	} else {
+		window.__AI_ASK_MONITOR__.__LAST_CHECK_RESULT__ = { hasNew: false, message: 'No new responses' };
+	}
+	
+	console.log('[RESPONSE_CHECK] Result stored');
+})();
+`.trim();
+	}
+
+	/**
+	 * OLD VERSION - keeping for reference
+	 */
+	generateResponseCheckScriptFull(): string {
+		// Full version with try-catch
+		return `
+console.log('[RESPONSE_CHECK] ===== SCRIPT EXECUTED =====');
+(function() {
+	try {
+		console.log('[RESPONSE_CHECK] Starting check...');
+		
+		if (!window.__AI_ASK_MONITOR__) {
+			console.warn('[RESPONSE_CHECK] Monitor not initialized');
+			return { hasNew: false, message: 'Monitor not initialized' };
+		}
+		
+		const monitor = window.__AI_ASK_MONITOR__;
+		const selector = monitor.selector;
+	
+	console.log('[RESPONSE_CHECK] Selector:', selector, 'Last index:', monitor.lastResponseIndex);
+	
+	// Function to extract text content from element
+	function extractContent(element) {
+		if (!element) {
+			console.warn('[RESPONSE_CHECK] extractContent: element is null');
+			return '';
+		}
+		
+		console.log('[RESPONSE_CHECK] Extracting from element:', element.tagName, element.className);
+		
+		// Strategy 1: Try innerText on the element itself (works if text is directly rendered)
+		let text = element.innerText?.trim() || '';
+		console.log('[RESPONSE_CHECK] Strategy 1 (innerText):', text.length, 'characters');
+		if (text.length > 0) {
+			return text;
+		}
+		
+		// Strategy 2: Look for common content containers (ChatGPT, Claude, etc.)
+		const contentSelectors = [
+			'.markdown p', '.markdown div', '.markdown span',
+			'[data-message-content]',
+			'.message-content', '.prose p', '.prose div',
+			'p', 'div[class*="content"]'
+		];
+		
+		for (const sel of contentSelectors) {
+			try {
+				const contentElements = element.querySelectorAll(sel);
+				if (contentElements.length > 0) {
+					const texts = Array.from(contentElements)
+						.map(el => el.innerText?.trim() || el.textContent?.trim() || '')
+						.filter(t => t.length > 0);
+					if (texts.length > 0) {
+						text = texts.join('\n');
+						console.log('[RESPONSE_CHECK] Strategy 2 (selector', sel + '):', text.length, 'characters');
+						if (text.length > 0) {
+							return text;
+						}
+					}
+				}
+			} catch (e) {
+				// Selector might not be valid, continue
+			}
+		}
+		
+		// Strategy 3: TreeWalker to recursively extract all text nodes
+		console.log('[RESPONSE_CHECK] Strategy 3: Using TreeWalker for recursive extraction');
+		const textContent = [];
+		const walker = document.createTreeWalker(
+			element,
+			4, // NodeFilter.SHOW_TEXT
+			null
+		);
+		
+		let node;
+		while (node = walker.nextNode()) {
+			const nodeText = node.textContent?.trim();
+			if (nodeText && nodeText.length > 0) {
+				textContent.push(nodeText);
+			}
+		}
+		
+		const result = textContent.join(' ');
+		console.log('[RESPONSE_CHECK] Strategy 3 (TreeWalker):', result.length, 'characters');
+		return result;
+	}
+	
+	try {
+		const responseElements = document.querySelectorAll(selector);
+		
+		console.log('[RESPONSE_CHECK] Found', responseElements.length, 'response elements');
+		
+		if (responseElements.length === 0) {
+			console.log('[RESPONSE_CHECK] No responses found');
+			return { hasNew: false, message: 'No responses found' };
+		}
+		
+		// Check if there are new responses since last check
+		const currentIndex = responseElements.length - 1;
+		console.log('[RESPONSE_CHECK] Current index:', currentIndex, 'Last index:', monitor.lastResponseIndex);
+		
+		if (currentIndex > monitor.lastResponseIndex) {
+			// Get the latest response
+			const latestElement = responseElements[currentIndex];
+			const content = extractContent(latestElement);
+			
+			// Check if response is still generating
+			const isGenerating = !!document.querySelector('button[aria-label="Stop generating"]') ||
+			                     !!document.querySelector('[data-testid="stop-button"]') ||
+			                     !!document.querySelector('button[aria-label="停止生成"]');
+			
+			monitor.lastResponseIndex = currentIndex;
+			monitor.responses.push({
+				index: currentIndex,
+				content: content,
+				isComplete: !isGenerating,
+				timestamp: Date.now()
+			});
+			
+			console.log('[RESPONSE_MONITOR] New response detected', {
+				index: currentIndex,
+				contentLength: content.length,
+				isComplete: !isGenerating
+			});
+			
+			const result = {
+				hasNew: true,
+				platformId: monitor.platformId,
+				response: {
+					content: content,
+					isComplete: !isGenerating,
+					timestamp: Date.now()
+				}
+			};
+			
+			console.log('[RESPONSE_CHECK] Storing result:', result);
+			window.__AI_ASK_MONITOR__.__LAST_CHECK_RESULT__ = result;
+			return result;
+		} else if (currentIndex === monitor.lastResponseIndex) {
+			// Check if the current response has been updated (streaming)
+			const currentElement = responseElements[currentIndex];
+			const content = extractContent(currentElement);
+			const lastResponse = monitor.responses[monitor.responses.length - 1];
+			
+			if (lastResponse && content !== lastResponse.content) {
+				const isGenerating = !!document.querySelector('button[aria-label="Stop generating"]') ||
+				                     !!document.querySelector('[data-testid="stop-button"]') ||
+				                     !!document.querySelector('button[aria-label="停止生成"]');
+				
+				lastResponse.content = content;
+				lastResponse.isComplete = !isGenerating;
+				lastResponse.timestamp = Date.now();
+				
+				console.log('[RESPONSE_MONITOR] Response updated (streaming)', {
+					contentLength: content.length,
+					isComplete: !isGenerating
+				});
+				
+				const result = {
+					hasNew: true,
+					platformId: monitor.platformId,
+					response: {
+						content: content,
+						isComplete: !isGenerating,
+						timestamp: Date.now()
+					}
+				};
+				
+				console.log('[RESPONSE_CHECK] Storing result:', result);
+				window.__AI_ASK_MONITOR__.__LAST_CHECK_RESULT__ = result;
+				return result;
+			}
+		}
+		
+		const result = { hasNew: false, message: 'No new responses' };
+		console.log('[RESPONSE_CHECK] Storing result:', result);
+		window.__AI_ASK_MONITOR__.__LAST_CHECK_RESULT__ = result;
+		return result;
+	} catch (error) {
+		console.error('[RESPONSE_CHECK] Fatal error:', error);
+		console.error('[RESPONSE_CHECK] Stack:', error.stack);
+		const result = { hasNew: false, error: String(error) };
+		window.__AI_ASK_MONITOR__.__LAST_CHECK_RESULT__ = result;
+		return result;
+	}
+})();`.trim();
 	}
 }
 

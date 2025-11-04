@@ -11,6 +11,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { i18n } from '$lib/i18n';
 	import { appState } from '$lib/stores/app.svelte';
+	import { responseMonitor } from '$lib/stores/response-monitor.svelte';
 	import type { InjectionResult } from '$lib/types/injection';
 	import type { AIPlatform } from '$lib/types/platform';
 
@@ -24,6 +25,8 @@
 	let logs = $state<Array<{ time: string; type: string; message: string }>>([]);
 	let showWebview = $state(false); // 是否显示 webview（隐藏控制面板）
 	let shouldRestoreWebview = false; // 是否在恢复事件后重新显示 webview
+	let isMonitoringResponse = $state(false); // 是否正在监听回复
+	let lastAIResponse = $state<string>(''); // 最后接收到的 AI 回复
 
 	// Debug: track showWebview changes
 	$effect(() => {
@@ -77,6 +80,9 @@
 	});
 
 	onDestroy(() => {
+		// 停止所有监听
+		responseMonitor.stopAll();
+		
 		if (webviewProxy) {
 			webviewProxy.close().catch((err) => {
 				logger.error('Failed to close webview', err);
@@ -350,9 +356,59 @@
 	}
 
 	/**
+	 * 开始监听 AI 回复
+	 */
+	async function startMonitoringResponse() {
+		if (!webviewProxy || !selectedPlatform) {
+			addLog('error', '请先初始化 WebView 并选择平台');
+			return;
+		}
+
+		const responseSelector = 'div[data-message-author-role="assistant"]'; // ChatGPT 回复选择器
+
+		try {
+			isMonitoringResponse = true;
+			addLog('info', `开始监听 ${selectedPlatform.name} 的回复...`);
+
+			await responseMonitor.startMonitoring(
+				selectedPlatform.id,
+				webviewProxy.id,
+				responseSelector,
+				1000, // 每秒轮询一次
+				(response) => {
+					// 收到新回复时的回调
+					lastAIResponse = response.content;
+					addLog('success', `📩 收到回复 (${response.content.length} 字符, ${response.isComplete ? '✅ 完成' : '⏳ 进行中'})`);
+				}
+			);
+
+			addLog('success', '✅ 监听已启动，等待 AI 回复...');
+		} catch (error) {
+			addLog('error', `启动监听失败: ${error}`);
+			isMonitoringResponse = false;
+		}
+	}
+
+	/**
+	 * 停止监听 AI 回复
+	 */
+	function stopMonitoringResponse() {
+		if (!selectedPlatform || !webviewProxy) return;
+
+		responseMonitor.stopMonitoring(selectedPlatform.id, webviewProxy.id);
+		isMonitoringResponse = false;
+		addLog('info', '🛑 已停止监听回复');
+	}
+
+	/**
 	 * 返回设置页面
 	 */
 	function goBack() {
+		// 停止监听
+		if (isMonitoringResponse) {
+			stopMonitoringResponse();
+		}
+		
 		// 如果正在显示 webview，先隐藏它
 		if (showWebview) {
 			hideWebview();
@@ -486,6 +542,30 @@
 				<button class="btn btn-accent" onclick={executeInjection} disabled={loading || !message.trim()}>
 					{loading ? t('debug.executing') : t('debug.executeInjection')}
 				</button>
+
+				<!-- 监听 AI 回复控制 -->
+				<div class="monitor-section">
+					<div class="monitor-label">AI 回复监听:</div>
+					<div class="monitor-controls">
+						{#if !isMonitoringResponse}
+							<button class="btn btn-success" onclick={startMonitoringResponse} disabled={loading}>
+								🎧 开始监听回复
+							</button>
+						{:else}
+							<button class="btn btn-warning" onclick={stopMonitoringResponse}>
+								🛑 停止监听
+							</button>
+						{/if}
+					</div>
+				</div>
+
+				<!-- 显示最后一次回复 -->
+				{#if lastAIResponse}
+					<div class="ai-response">
+						<h4>📝 最后收到的 AI 回复:</h4>
+						<pre>{lastAIResponse}</pre>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -717,8 +797,10 @@
 		border-radius: 0.5rem;
 		padding: 1rem;
 		max-height: 400px;
+		min-height: 200px;
 		display: flex;
 		flex-direction: column;
+		overflow: hidden;
 	}
 
 	.logs-header {
@@ -754,8 +836,28 @@
 	.logs-content {
 		flex: 1;
 		overflow-y: auto;
+		overflow-x: hidden;
 		font-family: 'Consolas', 'Monaco', monospace;
 		font-size: 0.85rem;
+		min-height: 0; /* 确保 flex 子元素可以滚动 */
+	}
+
+	.logs-content::-webkit-scrollbar {
+		width: 8px;
+	}
+
+	.logs-content::-webkit-scrollbar-track {
+		background: var(--bg-primary);
+		border-radius: 4px;
+	}
+
+	.logs-content::-webkit-scrollbar-thumb {
+		background: var(--border-color);
+		border-radius: 4px;
+	}
+
+	.logs-content::-webkit-scrollbar-thumb:hover {
+		background: var(--text-tertiary);
 	}
 
 	.log-entry {
@@ -893,5 +995,75 @@
 	.floating-input:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	/* 监听控制样式 */
+	.monitor-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid var(--border-color);
+	}
+
+	.monitor-label {
+		color: var(--text-primary);
+		font-weight: 500;
+		font-size: 0.9rem;
+	}
+
+	.monitor-controls {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.btn-success {
+		background-color: #10b981;
+		color: white;
+	}
+
+	.btn-success:hover:not(:disabled) {
+		background-color: #059669;
+	}
+
+	.btn-warning {
+		background-color: #f59e0b;
+		color: white;
+	}
+
+	.btn-warning:hover:not(:disabled) {
+		background-color: #d97706;
+	}
+
+	/* AI 回复显示 */
+	.ai-response {
+		margin-top: 0.75rem;
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 0.5rem;
+		border: 1px solid var(--border-color);
+	}
+
+	.ai-response h4 {
+		margin: 0 0 0.75rem 0;
+		font-size: 0.875rem;
+		color: var(--text-primary);
+		font-weight: 600;
+	}
+
+	.ai-response pre {
+		margin: 0;
+		padding: 0.75rem;
+		background: var(--bg-primary);
+		border-radius: 0.375rem;
+		font-size: 0.8rem;
+		line-height: 1.5;
+		white-space: pre-wrap;
+		word-break: break-word;
+		max-height: 400px;
+		overflow-y: auto;
+		color: var(--text-secondary);
+		font-family: 'Consolas', 'Monaco', monospace;
 	}
 </style>

@@ -360,6 +360,10 @@ pub(crate) async fn evaluate_child_webview_script(
         // No need to wrap it again, as that would create syntax errors
         log::debug!("About to evaluate script in child webview: {}", payload.id);
         log::debug!("Script length: {} bytes", payload.script.len());
+        log::debug!(
+            "FULL SCRIPT CONTENT:\n{}\n--- END OF SCRIPT ---",
+            payload.script
+        );
 
         entry
             .webview
