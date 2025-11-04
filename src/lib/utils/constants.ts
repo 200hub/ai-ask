@@ -292,9 +292,9 @@ export const TIMING = {
   /** 错误消息自动清除时间 */
   ERROR_AUTO_CLEAR_MS: 5000,
   /** WebView 最小显示加载动画的时长（毫秒） */
-  MIN_WEBVIEW_LOADING_MS: 600,
+  MIN_WEBVIEW_LOADING_MS: 800,
   /** WebView 聚焦后额外的就绪等待时间（毫秒） */
-  WEBVIEW_READY_EXTRA_DELAY_MS: 150,
+  WEBVIEW_READY_EXTRA_DELAY_MS: 200,
 } as const;
 
 /**
@@ -321,4 +321,24 @@ export const EVENTS = {
   TRANSLATION_HOTKEY_TRIGGERED: 'translation-hotkey-triggered',
   /** 确保翻译可见事件 */
   ENSURE_TRANSLATION_VISIBLE: 'ensureTranslationVisible',
+} as const;
+
+/**
+ * 后端配置常量（从 Rust update.rs 同步）
+ * Note: These constants are defined in Rust (src-tauri/src/update.rs) and replicated here for reference.
+ * The Rust code is the source of truth.
+ */
+export const BACKEND_CONFIG = {
+  /** GitHub Releases API endpoint */
+  GITHUB_RELEASES_API: 'https://api.github.com/repos/200hub/ai-ask/releases',
+  /** Configuration store file name */
+  STORE_FILE: 'config.json',
+  /** Configuration store key for app config */
+  STORE_KEY_CONFIG: 'app_config',
+  /** Pending update file name */
+  PENDING_UPDATE_FILE: 'pending-update.json',
+  /** Update event: new version available */
+  EVENT_UPDATE_AVAILABLE: 'update:available',
+  /** Update event: download completed */
+  EVENT_UPDATE_DOWNLOADED: 'update:downloaded',
 } as const;

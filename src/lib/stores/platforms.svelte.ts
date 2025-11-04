@@ -3,6 +3,7 @@
  */
 import type { AIPlatform } from '../types/platform';
 import { getAIPlatforms, saveAIPlatforms, addCustomPlatform, updateAIPlatform, deleteAIPlatform } from '../utils/storage';
+import { logger } from '../utils/logger';
 
 /**
  * AI平台管理类
@@ -50,7 +51,7 @@ class PlatformsStore {
       const platforms = await getAIPlatforms();
       this.platforms = this.normalizeOrder(platforms);
     } catch (error) {
-      console.error('Failed to initialize platforms:', error);
+      logger.error('Failed to initialize platforms', error);
     }
   }
 
@@ -72,7 +73,7 @@ class PlatformsStore {
       await updateAIPlatform(id, { enabled: !platform.enabled });
       platform.enabled = !platform.enabled;
     } catch (error) {
-      console.error('Failed to toggle platform:', error);
+      logger.error('Failed to toggle platform', error);
       throw error;
     }
   }
@@ -86,7 +87,7 @@ class PlatformsStore {
       this.platforms = this.normalizeOrder([...this.platforms, newPlatform]);
       return newPlatform;
     } catch (error) {
-      console.error('Failed to add platform:', error);
+      logger.error('Failed to add platform', error);
       throw error;
     }
   }
@@ -102,7 +103,7 @@ class PlatformsStore {
         this.platforms[index] = { ...this.platforms[index], ...updates };
       }
     } catch (error) {
-      console.error('Failed to update platform:', error);
+      logger.error('Failed to update platform', error);
       throw error;
     }
   }
@@ -120,7 +121,7 @@ class PlatformsStore {
       await deleteAIPlatform(id);
       this.platforms = this.platforms.filter(p => p.id !== id);
     } catch (error) {
-      console.error('Failed to remove platform:', error);
+      logger.error('Failed to remove platform', error);
       throw error;
     }
   }
@@ -134,7 +135,7 @@ class PlatformsStore {
       this.platforms = normalized;
       await saveAIPlatforms(normalized);
     } catch (error) {
-      console.error('Failed to reorder platforms:', error);
+      logger.error('Failed to reorder platforms', error);
       throw error;
     }
   }

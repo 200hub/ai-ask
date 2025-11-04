@@ -6,6 +6,7 @@
     import { translationStore } from "$lib/stores/translation.svelte";
     import { i18n } from "$lib/i18n";
     import type { TranslationPlatform } from "$lib/types/platform";
+    import { logger } from "$lib/utils/logger";
 
     const t = i18n.t;
 
@@ -27,7 +28,7 @@
             try {
                 await translationStore.init();
             } catch (error) {
-                console.error("Failed to load translation platforms:", error);
+                logger.error("Failed to load translation platforms", error);
             }
         }
     });
@@ -53,7 +54,7 @@
                 });
                 return formatter.format(platforms.map((platform) => platform.name));
             } catch (error) {
-                console.error("Failed to format translator list:", error);
+                logger.error("Failed to format translator list", error);
             }
         }
 
@@ -64,7 +65,7 @@
         try {
             await translationStore.togglePlatform(id);
         } catch (error) {
-            console.error("Failed to toggle translation platform:", error);
+            logger.error("Failed to toggle translation platform", error);
             window.alert(t("translationSettings.toggleError"));
         }
     }

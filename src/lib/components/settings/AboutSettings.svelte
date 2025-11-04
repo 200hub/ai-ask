@@ -5,6 +5,7 @@
     import { APP_INFO } from "$lib/utils/constants";
     import { open } from "@tauri-apps/plugin-shell";
     import { i18n } from "$lib/i18n";
+    import { logger } from "$lib/utils/logger";
 
     const t = i18n.t;
 
@@ -15,7 +16,7 @@
         try {
             await open(APP_INFO.repository);
         } catch (error) {
-            console.error("Failed to open repository:", error);
+            logger.error("Failed to open repository", error);
         }
     }
 

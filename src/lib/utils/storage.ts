@@ -9,6 +9,7 @@ import {
   BUILT_IN_AI_PLATFORMS,
   BUILT_IN_TRANSLATION_PLATFORMS,
 } from "./constants";
+import { logger } from "./logger";
 
 /**
  * 配置存储键
@@ -79,7 +80,7 @@ export async function getConfig(): Promise<AppConfig> {
   merged.proxy = normalizeProxyConfig(config?.proxy ?? merged.proxy);
   return merged;
   } catch (error) {
-    console.error("Failed to get config:", error);
+    logger.error("Failed to get config", error);
     return DEFAULT_CONFIG;
   }
 }
@@ -93,7 +94,7 @@ export async function saveConfig(config: AppConfig): Promise<void> {
     await storeInstance.set(STORAGE_KEYS.CONFIG, config);
     await storeInstance.save();
   } catch (error) {
-    console.error("Failed to save config:", error);
+    logger.error("Failed to save config", error);
     throw error;
   }
 }
@@ -123,7 +124,7 @@ export async function updateConfig(
     await saveConfig(newConfig);
     return newConfig;
   } catch (error) {
-    console.error("Failed to update config:", error);
+    logger.error("Failed to update config", error);
     throw error;
   }
 }
@@ -216,7 +217,7 @@ export async function getAIPlatforms(): Promise<AIPlatform[]> {
 
     return normalized;
   } catch (error) {
-    console.error("Failed to get AI platforms:", error);
+    logger.error("Failed to get AI platforms", error);
     return [...BUILT_IN_AI_PLATFORMS];
   }
 }
@@ -230,7 +231,7 @@ export async function saveAIPlatforms(platforms: AIPlatform[]): Promise<void> {
     await storeInstance.set(STORAGE_KEYS.AI_PLATFORMS, platforms);
     await storeInstance.save();
   } catch (error) {
-    console.error("Failed to save AI platforms:", error);
+    logger.error("Failed to save AI platforms", error);
     throw error;
   }
 }
@@ -254,7 +255,7 @@ export async function addCustomPlatform(
     await saveAIPlatforms(platforms);
     return newPlatform;
   } catch (error) {
-    console.error("Failed to add custom platform:", error);
+    logger.error("Failed to add custom platform", error);
     throw error;
   }
 }
@@ -275,7 +276,7 @@ export async function updateAIPlatform(
       await saveAIPlatforms(platforms);
     }
   } catch (error) {
-    console.error("Failed to update AI platform:", error);
+    logger.error("Failed to update AI platform", error);
     throw error;
   }
 }
@@ -293,7 +294,7 @@ export async function deleteAIPlatform(id: string): Promise<void> {
       await saveAIPlatforms(filtered);
     }
   } catch (error) {
-    console.error("Failed to delete AI platform:", error);
+    logger.error("Failed to delete AI platform", error);
     throw error;
   }
 }
@@ -361,7 +362,7 @@ export async function getTranslationPlatforms(): Promise<
 
     return normalized;
   } catch (error) {
-    console.error("Failed to get translation platforms:", error);
+    logger.error("Failed to get translation platforms", error);
     return [...BUILT_IN_TRANSLATION_PLATFORMS];
   }
 }
@@ -377,7 +378,7 @@ export async function saveTranslationPlatforms(
     await storeInstance.set(STORAGE_KEYS.TRANSLATION_PLATFORMS, platforms);
     await storeInstance.save();
   } catch (error) {
-    console.error("Failed to save translation platforms:", error);
+    logger.error("Failed to save translation platforms", error);
     throw error;
   }
 }
@@ -398,7 +399,7 @@ export async function updateTranslationPlatform(
       await saveTranslationPlatforms(platforms);
     }
   } catch (error) {
-    console.error("Failed to update translation platform:", error);
+    logger.error("Failed to update translation platform", error);
     throw error;
   }
 }
@@ -412,7 +413,7 @@ export async function resetToDefaults(): Promise<void> {
     await saveAIPlatforms(BUILT_IN_AI_PLATFORMS);
     await saveTranslationPlatforms(BUILT_IN_TRANSLATION_PLATFORMS);
   } catch (error) {
-    console.error("Failed to reset to defaults:", error);
+    logger.error("Failed to reset to defaults", error);
     throw error;
   }
 }
@@ -436,7 +437,7 @@ export async function exportConfig(): Promise<string> {
       2,
     );
   } catch (error) {
-    console.error("Failed to export config:", error);
+    logger.error("Failed to export config", error);
     throw error;
   }
 }
@@ -458,7 +459,7 @@ export async function importConfig(jsonString: string): Promise<void> {
       await saveTranslationPlatforms(data.translationPlatforms);
     }
   } catch (error) {
-    console.error("Failed to import config:", error);
+    logger.error("Failed to import config", error);
     throw error;
   }
 }

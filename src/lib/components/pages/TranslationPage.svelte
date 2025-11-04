@@ -94,6 +94,8 @@
         }
 
         activeTranslatorId = translator.id;
+        isLoading = true;
+        loadError = null;
         void showTranslatorWebview(translator);
     });
 
@@ -127,15 +129,14 @@
 
     async function showTranslatorWebview(platform: TranslationPlatform) {
         if (isShowingWebview) {
+            isLoading = false;
             return;
         }
 
         isShowingWebview = true;
 
         try {
-            isLoading = true;
             const start = Date.now();
-            loadError = null;
 
             await hideOtherWebviews(platform.id);
 

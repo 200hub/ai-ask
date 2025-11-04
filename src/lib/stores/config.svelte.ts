@@ -4,6 +4,7 @@
 import type { AppConfig } from '../types/config';
 import { getConfig, saveConfig, updateConfig } from '../utils/storage';
 import { DEFAULT_CONFIG } from '../types/config';
+import { logger } from '../utils/logger';
 
 /**
  * 配置管理类
@@ -26,7 +27,7 @@ class ConfigStore {
       // 应用主题
       this.applyTheme();
     } catch (error) {
-      console.error('Failed to initialize config:', error);
+      logger.error('Failed to initialize config', error);
       this.config = DEFAULT_CONFIG;
     }
   }
@@ -45,7 +46,7 @@ class ConfigStore {
         this.applyTheme();
       }
     } catch (error) {
-      console.error('Failed to update config:', error);
+      logger.error('Failed to update config', error);
       throw error;
     }
   }
@@ -156,7 +157,7 @@ class ConfigStore {
       this.config = DEFAULT_CONFIG;
       this.applyTheme();
     } catch (error) {
-      console.error('Failed to reset config:', error);
+      logger.error('Failed to reset config', error);
       throw error;
     }
   }

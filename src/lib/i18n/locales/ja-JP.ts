@@ -147,6 +147,7 @@ export const jaJP = {
         portRangeError: "プロキシポートは1～65535の範囲で指定してください",
         noChanges: "保存する変更はありません",
         invalidSettings: "プロキシ設定が無効です",
+        unsupportedProxyType: "サポートされていないプロキシタイプ：{type}",
         testSuccess: "接続に成功しました{latency}",
         testFailed: "接続に失敗しました",
         latencySuffix: "（レイテンシ {latency}ms）",
