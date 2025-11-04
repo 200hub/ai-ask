@@ -322,23 +322,3 @@ export const EVENTS = {
   /** 确保翻译可见事件 */
   ENSURE_TRANSLATION_VISIBLE: 'ensureTranslationVisible',
 } as const;
-
-/**
- * 后端配置常量（从 Rust update.rs 同步）
- * Note: These constants are defined in Rust (src-tauri/src/update.rs) and replicated here for reference.
- * The Rust code is the source of truth.
- */
-export const BACKEND_CONFIG = {
-  /** GitHub Releases API endpoint */
-  GITHUB_RELEASES_API: 'https://api.github.com/repos/200hub/ai-ask/releases',
-  /** Configuration store file name */
-  STORE_FILE: 'config.json',
-  /** Configuration store key for app config */
-  STORE_KEY_CONFIG: 'app_config',
-  /** Pending update file name */
-  PENDING_UPDATE_FILE: 'pending-update.json',
-  /** Update event: new version available */
-  EVENT_UPDATE_AVAILABLE: 'update:available',
-  /** Update event: download completed */
-  EVENT_UPDATE_DOWNLOADED: 'update:downloaded',
-} as const;
