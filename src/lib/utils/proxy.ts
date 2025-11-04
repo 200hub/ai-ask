@@ -28,17 +28,25 @@ import { log } from "$lib/utils/logger";
  * createProxySignature({ type: 'custom', host: '127.0.0.1', port: '8080' }) // 返回: 'custom:127.0.0.1:8080'
  * ```
  */
+let lastLoggedSignature: string | null = null;
+
 export function createProxySignature(proxy: ProxyConfig | null | undefined): string {
-    if (!proxy || proxy.type === "system") {
-        log.debug("[Proxy] 使用系统代理");
-        return "system";
+    const signature =
+        !proxy || proxy.type === "system"
+            ? "system"
+            : `custom:${(proxy.host ?? "").trim()}:${(proxy.port ?? "").trim()}`;
+
+    if (signature !== lastLoggedSignature) {
+        lastLoggedSignature = signature;
+
+        if (signature === "system") {
+            log.debug("[Proxy] 代理模式变更为系统代理");
+        } else {
+            const [, host = "", port = ""] = signature.split(":");
+            log.debug("[Proxy] 代理模式变更为自定义代理", { host, port });
+        }
     }
 
-    const host = proxy.host?.trim() ?? "";
-    const port = proxy.port?.trim() ?? "";
-    const signature = `custom:${host}:${port}`;
-    
-    log.debug("[Proxy] 创建自定义代理签名", { signature, host, port });
     return signature;
 }
 
@@ -70,7 +78,6 @@ export function createProxySignature(proxy: ProxyConfig | null | undefined): str
 export function resolveProxyUrl(proxy: ProxyConfig | null | undefined): string | null {
     // 如果是系统代理或未配置，返回 null
     if (!proxy || proxy.type !== "custom") {
-        log.debug("[Proxy] 未使用自定义代理");
         return null;
     }
 

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { logger } from "$lib/utils/logger";
 
 export interface ChildWebviewBounds {
     positionLogical: { x: number; y: number };
@@ -75,15 +76,20 @@ export class ChildWebviewProxy {
 
     async ensure(bounds: ChildWebviewBounds) {
         this.#lastBounds = bounds;
-        await invoke("ensure_child_webview", {
-            payload: {
-                id: this.id,
-                url: this.url,
-                bounds,
-                proxyUrl: this.proxyUrl,
-            },
-        });
-        this.#isVisible = false;
+        try {
+            await invoke("ensure_child_webview", {
+                payload: {
+                    id: this.id,
+                    url: this.url,
+                    bounds,
+                    proxyUrl: this.proxyUrl,
+                },
+            });
+            this.#isVisible = false;
+        } catch (error) {
+            logger.error("Failed to ensure child webview", { id: this.id, error });
+            throw error;
+        }
     }
 
     async updateBounds(bounds: ChildWebviewBounds) {
@@ -92,12 +98,17 @@ export class ChildWebviewProxy {
         }
 
         this.#lastBounds = bounds;
-        await invoke("set_child_webview_bounds", {
-            payload: {
-                id: this.id,
-                bounds,
-            },
-        });
+        try {
+            await invoke("set_child_webview_bounds", {
+                payload: {
+                    id: this.id,
+                    bounds,
+                },
+            });
+        } catch (error) {
+            logger.error("Failed to update child webview bounds", { id: this.id, error });
+            throw error;
+        }
     }
 
     async show() {
@@ -105,10 +116,15 @@ export class ChildWebviewProxy {
             return;
         }
 
-        await invoke("show_child_webview", {
-            payload: { id: this.id },
-        });
-        this.#isVisible = true;
+        try {
+            await invoke("show_child_webview", {
+                payload: { id: this.id },
+            });
+            this.#isVisible = true;
+        } catch (error) {
+            logger.error("Failed to show child webview", { id: this.id, error });
+            throw error;
+        }
     }
 
     async hide() {
@@ -116,24 +132,39 @@ export class ChildWebviewProxy {
             return;
         }
 
-        await invoke("hide_child_webview", {
-            payload: { id: this.id },
-        });
-        this.#isVisible = false;
+        try {
+            await invoke("hide_child_webview", {
+                payload: { id: this.id },
+            });
+            this.#isVisible = false;
+        } catch (error) {
+            logger.error("Failed to hide child webview", { id: this.id, error });
+            throw error;
+        }
     }
 
     async close() {
-        await invoke("close_child_webview", {
-            payload: { id: this.id },
-        });
-        this.#isVisible = false;
-        this.#lastBounds = null;
+        try {
+            await invoke("close_child_webview", {
+                payload: { id: this.id },
+            });
+        } catch (error) {
+            logger.error("Failed to close child webview", { id: this.id, error });
+            throw error;
+        } finally {
+            this.#isVisible = false;
+            this.#lastBounds = null;
+        }
     }
 
     async setFocus() {
-        await invoke("focus_child_webview", {
-            payload: { id: this.id },
-        });
+        try {
+            await invoke("focus_child_webview", {
+                payload: { id: this.id },
+            });
+        } catch (error) {
+            logger.warn("Failed to focus child webview", { id: this.id, error });
+        }
     }
 
     isVisible(): boolean {

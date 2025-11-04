@@ -4,6 +4,7 @@
 import type { ViewType } from '../types/config';
 import type { AIPlatform } from '../types/platform';
 import { logger } from '$lib/utils/logger';
+import { invoke } from '@tauri-apps/api/core';
 import { onUpdateAvailable, onUpdateDownloaded } from '$lib/utils/update';
 
 /**
@@ -57,7 +58,30 @@ class AppState {
   /**
    * 打开设置面板
    */
-  openSettings() {
+  async openSettings() {
+    // 首先确保隐藏所有子 webviews
+    if (
+      typeof window !== 'undefined' &&
+      typeof (window as unknown as { __TAURI_IPC__?: unknown }).__TAURI_IPC__ === 'function'
+    ) {
+      try {
+        await invoke('hide_all_child_webviews');
+        logger.debug('All child webviews hidden before opening settings');
+      } catch (error) {
+        logger.warn('Failed to invoke hide_all_child_webviews', error);
+      }
+    }
+
+    // 触发 DOM 事件（用于前端组件清理）
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('hideAllWebviews', {
+          detail: { markForRestore: false },
+        }),
+      );
+    }
+
+    // 切换到设置视图
     this.showSettings = true;
     this.currentView = 'settings';
   }

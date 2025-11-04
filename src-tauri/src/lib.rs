@@ -1,4 +1,4 @@
-﻿//! AI Ask - 桌面应用后端
+//! AI Ask - 桌面应用后端
 //!
 //! 基于 Tauri 2.0 构建的跨平台桌面应用，提供窗口控制、
 //! 子 WebView 生命周期管理、代理测试、系统托盘与快捷键支持。
@@ -27,8 +27,8 @@ use webview::{
     hide_child_webview, set_child_webview_bounds, show_child_webview, ChildWebviewManager,
 };
 use window_control::{
-    hide_main_window, hide_window, resolve_main_window, show_main_window, show_window,
-    toggle_main_window_visibility, toggle_window,
+    hide_main_window, hide_window, resolve_main_window, show_main_window,
+    show_main_window_without_restore, show_window, toggle_main_window_visibility, toggle_window,
 };
 
 /// 应用程序主入口点
@@ -91,7 +91,7 @@ pub fn run() {
                         log::debug!("托盘菜单: 打开设置");
                         if let Some(window) = resolve_main_window(app) {
                             tauri::async_runtime::spawn(async move {
-                                if show_main_window(&window).await.is_ok() {
+                                if show_main_window_without_restore(&window).await.is_ok() {
                                     let _ = window.emit("open-settings", ());
                                 }
                             });
@@ -108,15 +108,18 @@ pub fn run() {
             let handle = app.handle().clone();
             init_update(handle.clone());
             let last_shortcut_trigger = Arc::new(Mutex::new(None::<Instant>));
+
+            // 注册主快捷键
             #[cfg(target_os = "macos")]
-            let shortcut = "Cmd+Shift+A";
+            let main_shortcut = "Cmd+Shift+A";
             #[cfg(not(target_os = "macos"))]
-            let shortcut = "Ctrl+Shift+A";
+            let main_shortcut = "Ctrl+Shift+A";
 
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
-            if let Ok(shortcut) = shortcut.parse::<Shortcut>() {
-                log::info!("注册全局快捷键: {}", shortcut);
+            if let Ok(shortcut) = main_shortcut.parse::<Shortcut>() {
+                log::info!("注册主快捷键: {}", shortcut);
                 let throttle = last_shortcut_trigger.clone();
+                let handle_clone = handle.clone();
                 let _ =
                     app.global_shortcut()
                         .on_shortcut(shortcut, move |_app, _event, _shortcut| {
@@ -134,12 +137,37 @@ pub fn run() {
                             }
 
                             *last = Some(now);
-                            log::debug!("快捷键被触发");
+                            log::debug!("主快捷键被触发");
 
-                            let app_handle = handle.clone();
+                            let app_handle = handle_clone.clone();
                             tauri::async_runtime::spawn(async move {
                                 if let Some(window) = resolve_main_window(&app_handle) {
                                     let _ = toggle_main_window_visibility(&window).await;
+                                }
+                            });
+                        });
+            }
+
+            // 注册翻译快捷键
+            #[cfg(target_os = "macos")]
+            let translation_shortcut = "Cmd+Shift+T";
+            #[cfg(not(target_os = "macos"))]
+            let translation_shortcut = "Ctrl+Shift+T";
+
+            if let Ok(shortcut) = translation_shortcut.parse::<Shortcut>() {
+                log::info!("注册翻译快捷键: {}", shortcut);
+                let handle_clone = handle.clone();
+                let _ =
+                    app.global_shortcut()
+                        .on_shortcut(shortcut, move |_app, _event, _shortcut| {
+                            log::debug!("翻译快捷键被触发");
+
+                            let app_handle = handle_clone.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Some(window) = resolve_main_window(&app_handle) {
+                                    if show_main_window(&window).await.is_ok() {
+                                        let _ = window.emit("translation-hotkey-triggered", ());
+                                    }
                                 }
                             });
                         });

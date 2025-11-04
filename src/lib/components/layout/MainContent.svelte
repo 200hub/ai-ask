@@ -2,9 +2,11 @@
     /**
      * 主内容区域组件 - 根据当前视图显示不同内容
      */
+    import { onMount } from "svelte";
     import { appState } from "$lib/stores/app.svelte";
     import WelcomePage from "../pages/WelcomePage.svelte";
     import { i18n } from "$lib/i18n";
+    import { logger } from "$lib/utils/logger";
 
     // 懒加载 AIChat，避免未进入聊天视图时的任何潜在副作用
     type AIChatComponent = typeof import("../pages/AIChat.svelte").default;
@@ -41,10 +43,32 @@
     $effect(() => {
         if (appState.showSettings && !SettingsModalComp) {
             (async () => {
-                const mod = await import("../settings/SettingsModal.svelte");
-                SettingsModalComp = mod.default;
+                try {
+                    const mod = await import("../settings/SettingsModal.svelte");
+                    SettingsModalComp = mod.default;
+                } catch (error) {
+                    logger.error("Failed to load settings modal on demand:", error);
+                }
             })();
         }
+    });
+
+    onMount(() => {
+        const timer = window.setTimeout(() => {
+            if (!SettingsModalComp) {
+                void import("../settings/SettingsModal.svelte")
+                    .then((mod) => {
+                        SettingsModalComp = mod.default;
+                    })
+                    .catch((error) => {
+                        logger.error("Failed to preload settings modal:", error);
+                    });
+            }
+        }, 300);
+
+        return () => {
+            window.clearTimeout(timer);
+        };
     });
 </script>
 

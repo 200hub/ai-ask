@@ -41,7 +41,17 @@ pub(crate) async fn hide_main_window(window: &Window) -> Result<(), String> {
 
 /// 显示主窗口（并恢复焦点与最小化状态）
 pub(crate) async fn show_main_window(window: &Window) -> Result<(), String> {
-    log::debug!("显示主窗口");
+    show_main_window_internal(window, true).await
+}
+
+/// 显示主窗口但不恢复子 webviews（用于打开设置等场景）
+pub(crate) async fn show_main_window_without_restore(window: &Window) -> Result<(), String> {
+    show_main_window_internal(window, false).await
+}
+
+/// 显示主窗口的内部实现
+async fn show_main_window_internal(window: &Window, restore_webviews: bool) -> Result<(), String> {
+    log::debug!("显示主窗口 (restore_webviews={})", restore_webviews);
 
     if window.is_minimized().map_err(|err| {
         log::error!("检查窗口最小化状态失败: {}", err);
@@ -63,7 +73,9 @@ pub(crate) async fn show_main_window(window: &Window) -> Result<(), String> {
         err.to_string()
     })?;
 
-    let _ = window.emit("restoreWebviews", ());
+    if restore_webviews {
+        let _ = window.emit("restoreWebviews", ());
+    }
 
     log::debug!("主窗口已显示");
     Ok(())

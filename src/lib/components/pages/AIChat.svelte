@@ -407,8 +407,10 @@
     }
 
     /** 处理隐藏所有子 webview 的事件 */
-    function handleHideAllWebviewsEvent() {
-        void hideAllWebviews({ markForRestore: true });
+    function handleHideAllWebviewsEvent(event: Event) {
+        const customEvent = event as CustomEvent<{ markForRestore?: boolean }>;
+        const markForRestore = customEvent.detail?.markForRestore ?? true;
+        void hideAllWebviews({ markForRestore });
     }
 
     function handleMainWindowResize(size?: { width: number; height: number }) {
@@ -424,8 +426,13 @@
         scheduleWebviewReflow({ shouldEnsureActiveFront: false, immediate: false });
     }
 
-    async function restoreActiveWebview(force = false) {
-        if (!(force || shouldRestoreWebviews)) {
+    async function restoreActiveWebview() {
+        if (!shouldRestoreWebviews) {
+            return;
+        }
+
+        if (appState.currentView !== "chat") {
+            shouldRestoreWebviews = false;
             return;
         }
 
@@ -551,7 +558,7 @@
                         }
 
                         if (payload?.event === "restored" || payload?.event === "shown") {
-                            void restoreActiveWebview(true);
+                            void restoreActiveWebview();
                         }
                     }
                 );
@@ -559,7 +566,7 @@
                 windowEventUnlisteners.restoreWebviews = await mainWindow.listen(
                     "restoreWebviews",
                     () => {
-                        void restoreActiveWebview(true);
+                        void restoreActiveWebview();
                     }
                 );
 

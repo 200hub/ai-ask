@@ -308,8 +308,10 @@
         }
     }
 
-    function handleHideAllWebviewsEvent() {
-        void hideAllWebviews({ markForRestore: true });
+    function handleHideAllWebviewsEvent(event: Event) {
+        const customEvent = event as CustomEvent<{ markForRestore?: boolean }>;
+        const markForRestore = customEvent.detail?.markForRestore ?? true;
+        void hideAllWebviews({ markForRestore });
     }
 
     function handleEnsureTranslationVisible() {
@@ -332,8 +334,13 @@
         scheduleWebviewReflow({ shouldEnsureActiveFront: false, immediate: false });
     }
 
-    async function restoreActiveWebview(force = false) {
-        if (!(force || shouldRestoreWebviews)) {
+    async function restoreActiveWebview() {
+        if (!shouldRestoreWebviews) {
+            return;
+        }
+
+        if (appState.currentView !== "translation") {
+            shouldRestoreWebviews = false;
             return;
         }
 
@@ -404,12 +411,12 @@
                     }
 
                     if (payload?.event === "restored" || payload?.event === "shown") {
-                        void restoreActiveWebview(true);
+                        void restoreActiveWebview();
                     }
                 });
 
                 windowEventUnlisteners.restoreWebviews = await mainWindow.listen("restoreWebviews", () => {
-                    void restoreActiveWebview(true);
+                    void restoreActiveWebview();
                 });
 
                 if (isComponentDisposed) {
