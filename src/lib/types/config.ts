@@ -95,4 +95,4 @@ export type SettingsTab =
 /**
  * 视图类型
  */
-export type ViewType = "welcome" | "chat" | "translation" | "settings";
+export type ViewType = "welcome" | "chat" | "translation" | "settings" | "debug";

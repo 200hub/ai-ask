@@ -21,6 +21,10 @@
     type SettingsModalComponent = typeof import("../settings/SettingsModal.svelte").default;
     let SettingsModalComp = $state<SettingsModalComponent | null>(null);
 
+    // 懒加载调试页面
+    type DebugInjectionPageComponent = typeof import("../pages/DebugInjectionPage.svelte").default;
+    let DebugInjectionPageComp = $state<DebugInjectionPageComponent | null>(null);
+
     const t = i18n.t;
 
     $effect(() => {
@@ -49,6 +53,19 @@
                     SettingsModalComp = mod.default;
                 } catch (error) {
                     logger.error("Failed to load settings modal on demand:", error);
+                }
+            })();
+        }
+    });
+
+    $effect(() => {
+        if (appState.currentView === "debug" && !DebugInjectionPageComp) {
+            (async () => {
+                try {
+                    const mod = await import("../pages/DebugInjectionPage.svelte");
+                    DebugInjectionPageComp = mod.default;
+                } catch (error) {
+                    logger.error("Failed to load debug page:", error);
                 }
             })();
         }
@@ -91,6 +108,16 @@
     <div class="view translation" class:active={appState.currentView === "translation"}>
         {#if TranslationComp}
             <TranslationComp />
+        {:else}
+            <div class="loading-container">
+                <LoadingSpinner size="large" message={t("common.loading")} />
+            </div>
+        {/if}
+    </div>
+
+    <div class="view debug" class:active={appState.currentView === "debug"}>
+        {#if DebugInjectionPageComp}
+            <DebugInjectionPageComp />
         {:else}
             <div class="loading-container">
                 <LoadingSpinner size="large" message={t("common.loading")} />

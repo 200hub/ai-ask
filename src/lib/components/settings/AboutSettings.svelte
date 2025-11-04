@@ -6,6 +6,7 @@
     import { open } from "@tauri-apps/plugin-shell";
     import { i18n } from "$lib/i18n";
     import { logger } from "$lib/utils/logger";
+    import { appState } from "$lib/stores/app.svelte";
 
     const t = i18n.t;
 
@@ -18,6 +19,14 @@
         } catch (error) {
             logger.error("Failed to open repository", error);
         }
+    }
+
+    /**
+     * 打开调试页面
+     */
+    function openDebugPage() {
+        logger.info("Opening debug page");
+        appState.switchToDebugView();
     }
 
 </script>
@@ -106,6 +115,31 @@
             </button>
         </div>
     </div>
+
+    <!-- 开发者选项 -->
+    {#if import.meta.env.DEV}
+        <div class="info-card">
+            <h3 class="card-title">{t("about.developer")}</h3>
+            <div class="developer-options">
+                <button class="debug-btn" onclick={openDebugPage}>
+                    <svg
+                        class="debug-icon"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+                        />
+                    </svg>
+                    {t("about.debugInjection")}
+                </button>
+            </div>
+        </div>
+    {/if}
 
     <!-- 版权信息 -->
     <div class="copyright">
@@ -272,6 +306,39 @@
         font-size: 0.8125rem;
         color: var(--text-tertiary);
         margin: 0;
+    }
+
+    .developer-options {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .debug-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 1.25rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: white;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        align-self: flex-start;
+    }
+
+    .debug-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-md);
+        opacity: 0.9;
+    }
+
+    .debug-icon {
+        width: 16px;
+        height: 16px;
     }
 
     /* 响应式设计 */

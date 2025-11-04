@@ -100,6 +100,14 @@ class AppState {
   }
 
   /**
+   * 切换到调试视图
+   */
+  switchToDebugView() {
+    this.currentView = 'debug';
+    this.showSettings = false;
+  }
+
+  /**
    * 设置加载状态
    */
   setLoading(loading: boolean) {
