@@ -126,7 +126,8 @@ describe('InjectionManager', () => {
 
 			const script = manager.generateActionScript(action);
 
-			expect(script).not.toContain('dispatchEvent');
+			// When triggerEvents is false, the dispatchInput() call should be wrapped in `if (false)`
+			expect(script).toContain('if (false)');
 		});
 	});
 
@@ -142,7 +143,7 @@ describe('InjectionManager', () => {
 			const script = manager.generateActionScript(action);
 
 			expect(script).toContain('button.submit');
-			expect(script).toContain('click()');
+			expect(script).toContain('MouseEvent'); // We use event dispatching, not .click()
 			expect(script).toContain('getBoundingClientRect');
 			expect(script).toContain('isVisible');
 		});
@@ -158,8 +159,9 @@ describe('InjectionManager', () => {
 
 			const script = manager.generateActionScript(action);
 
-			expect(script).not.toContain('getBoundingClientRect');
-			expect(script).toContain('click()');
+			// Visibility check skipped but coordinates still computed
+			expect(script).toContain('Visibility check disabled');
+			expect(script).toContain('MouseEvent'); // We use event dispatching
 		});
 	});
 
@@ -211,7 +213,7 @@ describe('InjectionManager', () => {
 
 			const script = manager.generateSequenceScript(actions);
 
-			expect(script).toContain('async function');
+			expect(script).toContain('[INJECTION] Script execution started');
 			expect(script).toContain('Action 1: fill');
 			expect(script).toContain('Action 2: wait');
 			expect(script).toContain('Action 3: click');
@@ -257,7 +259,7 @@ describe('InjectionManager', () => {
 
 			const script = manager.generateTemplateScript(template);
 
-			expect(script).toContain('async function');
+			expect(script).toContain('[INJECTION] Script execution started');
 			expect(script).toContain('Action 1: fill');
 			expect(script).toContain('Action 2: click');
 		});

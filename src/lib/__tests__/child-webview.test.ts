@@ -6,10 +6,19 @@ const loggerMock = {
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
+  debug: vi.fn(),
 };
+const listenMock = vi.fn();
+const unlistenMock = vi.fn();
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
+}));
+
+vi.mock("@tauri-apps/api/webviewWindow", () => ({
+  getCurrentWebviewWindow: () => ({
+    listen: listenMock,
+  }),
 }));
 
 vi.mock("$lib/utils/logger", () => ({
@@ -18,8 +27,16 @@ vi.mock("$lib/utils/logger", () => ({
 
 describe("child webview utilities", () => {
   beforeEach(() => {
-    invokeMock.mockClear();
+    invokeMock.mockReset();
     document.body.innerHTML = "";
+    listenMock.mockReset();
+    unlistenMock.mockReset();
+    listenMock.mockImplementation(() => {
+      // Immediately resolve with unlisten stub
+      return Promise.resolve(() => {
+        unlistenMock();
+      });
+    });
   });
 
   it("compares bounds with epsilon tolerance", async () => {
@@ -166,5 +183,27 @@ describe("child webview utilities", () => {
       payload: { id: "webview-1" },
     });
     expect(proxy.isVisible()).toBe(false);
+  });
+
+  it("evaluates script via fire-and-forget and resolves generic success", async () => {
+    const { ChildWebviewProxy } = await import("$lib/utils/childWebview");
+
+    // evaluate_child_webview_script returns immediate success
+    invokeMock.mockResolvedValueOnce({ success: true, message: "ok" });
+
+    const proxy = new ChildWebviewProxy("webview-test", "https://ai.example.com", null);
+    const evaluation = proxy.evaluateScript<{ success: boolean; message: string }>(
+      "return { foo: 'bar' };",
+      500
+    );
+
+    await vi.waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledTimes(1);
+    });
+
+    // No event listeners are used in fire-and-forget mode
+    expect(listenMock).not.toHaveBeenCalled();
+
+    await expect(evaluation).resolves.toEqual({ success: true, message: expect.any(String) });
   });
 });

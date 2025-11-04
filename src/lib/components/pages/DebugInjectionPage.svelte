@@ -7,7 +7,7 @@
 	import { ChildWebviewProxy, calculateChildWebviewBounds } from '$lib/utils/childWebview';
 	import { injectionManager } from '$lib/utils/injection';
 	import { ALL_TEMPLATES } from '$lib/utils/injection-templates';
-	import { BUILT_IN_AI_PLATFORMS, EVENTS } from '$lib/utils/constants';
+	import { BUILT_IN_AI_PLATFORMS, EVENTS, DEBUG_FLOATING_CONTROLS_OFFSET } from '$lib/utils/constants';
 	import { logger } from '$lib/utils/logger';
 	import { i18n } from '$lib/i18n';
 	import { appState } from '$lib/stores/app.svelte';
@@ -24,6 +24,11 @@
 	let logs = $state<Array<{ time: string; type: string; message: string }>>([]);
 	let showWebview = $state(false); // 是否显示 webview（隐藏控制面板）
 	let shouldRestoreWebview = false; // 是否在恢复事件后重新显示 webview
+
+	// Debug: track showWebview changes
+	$effect(() => {
+		logger.info('[DEBUG] showWebview changed:', showWebview);
+	});
 
 	function handleHideAllWebviewsEvent(event: Event) {
 		const customEvent = event as CustomEvent<{ markForRestore?: boolean }>;
@@ -116,6 +121,9 @@
 
 			const mainWindow = getCurrentWebviewWindow();
 			const bounds = await calculateChildWebviewBounds(mainWindow);
+			// Reserve space at the top for floating controls bar
+			bounds.positionLogical.y += DEBUG_FLOATING_CONTROLS_OFFSET;
+			bounds.sizeLogical.height = Math.max(0, bounds.sizeLogical.height - DEBUG_FLOATING_CONTROLS_OFFSET);
 
 			// 创建并初始化 webview - 使用 debug- 前缀避免与正常平台冲突
 			const debugWebviewId = `debug-${selectedPlatform.id}`;
@@ -167,6 +175,9 @@
 			
 			const mainWindow = getCurrentWebviewWindow();
 			const bounds = await calculateChildWebviewBounds(mainWindow);
+			// Reserve space at the top for floating controls bar
+			bounds.positionLogical.y += DEBUG_FLOATING_CONTROLS_OFFSET;
+			bounds.sizeLogical.height = Math.max(0, bounds.sizeLogical.height - DEBUG_FLOATING_CONTROLS_OFFSET);
 			await webviewProxy.updateBounds(bounds);
 			await webviewProxy.show();
 		} catch (error) {
@@ -190,6 +201,84 @@
 			addLog('success', t('debug.webviewClosed'));
 		} catch (error) {
 			addLog('error', `${t('debug.closeFailed')}: ${error}`);
+		}
+	}
+
+	/**
+	 * 测试简单脚本执行
+	 */
+	async function testSimpleScript() {
+		if (!webviewProxy) {
+			addLog('error', t('debug.selectPlatformFirst'));
+			return;
+		}
+
+		try {
+			loading = true;
+			addLog('info', 'Testing simple script execution...');
+
+			// 测试最简单的脚本
+			const simpleScript = `
+				console.log('[TEST] Simple test script running');
+				return { test: 'success', timestamp: Date.now() };
+			`;
+
+			const testResult = await webviewProxy.evaluateScript<{
+				test: string;
+				timestamp: number;
+			}>(simpleScript, 5000);
+
+			addLog('success', `Simple test passed: ${JSON.stringify(testResult)}`);
+		} catch (error) {
+			addLog('error', `Simple test failed: ${error}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	/**
+	 * 超级简单测试 - 只打印日志到子窗口 Console
+	 */
+	async function testConsoleLog() {
+		if (!webviewProxy) {
+			addLog('error', t('debug.selectPlatformFirst'));
+			return;
+		}
+
+		try {
+			loading = true;
+			addLog('info', '开始测试 Console 输出...');
+
+			// 1. 测试基础 console.log
+			await webviewProxy.evaluateScript(`console.log('[ULTRA-SIMPLE-TEST] Hello from injection! Time:', Date.now());`, 3000);
+			addLog('success', '✅ Test 1: Basic console.log sent');
+
+			// 等待 500ms
+			await new Promise(resolve => setTimeout(resolve, 500));
+
+			// 2. 测试修改 title
+			await webviewProxy.evaluateScript(`
+				console.log('[ULTRA-SIMPLE-TEST] Changing title...');
+				document.title = '[TEST] Title changed at ' + Date.now();
+			`, 3000);
+			addLog('success', '✅ Test 2: Title change sent');
+
+			// 等待 500ms
+			await new Promise(resolve => setTimeout(resolve, 500));
+
+			// 3. 测试查找元素
+			await webviewProxy.evaluateScript(`
+				console.log('[ULTRA-SIMPLE-TEST] Looking for textarea...');
+				const elem = document.querySelector('#prompt-textarea');
+				console.log('[ULTRA-SIMPLE-TEST] Element found:', elem);
+			`, 3000);
+			addLog('success', '✅ Test 3: Element search sent');
+
+			addLog('success', '🎉 所有测试已发送！请检查子窗口的 Console 和 Title');
+		} catch (error) {
+			addLog('error', `❌ 测试失败: ${error}`);
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -228,6 +317,9 @@
 			// 生成脚本
 			const script = injectionManager.generateTemplateScript(customTemplate);
 			addLog('info', `${t('debug.generatedScript')}: ${script.length} ${t('debug.characters')}`);
+			
+			// Debug: log the generated script to console
+			logger.info('Generated injection script:', script);
 
 			// 执行注入
 			const startTime = Date.now();
@@ -278,7 +370,7 @@
 	}
 </script>
 
-<div class="debug-page">
+<div class="debug-page" class:webview-mode={showWebview}>
 	{#if showWebview}
 		<!-- WebView 模式 - 显示浮动控制栏 -->
 		<div class="floating-controls">
@@ -295,6 +387,10 @@
 			</button>
 
 			<div class="control-divider"></div>
+
+			<button class="control-btn" onclick={testSimpleScript} disabled={loading} title="Test Script">
+				🧪 Test
+			</button>
 
 			<input
 				type="text"
@@ -333,74 +429,80 @@
 			<h2>{t('debug.title')}</h2>
 		</div>
 
-	<!-- 控制面板 -->
-	<div class="control-panel">
-		<div class="control-section">
-			<label for="platform-select">
-				{t('debug.selectPlatform')}:
-			</label>
-			<select
-				id="platform-select"
-				bind:value={selectedPlatform}
-				disabled={loading || webviewProxy !== null}
-			>
-				<option value={null}>{t('debug.pleaseSelect')}</option>
-				{#each BUILT_IN_AI_PLATFORMS as platform}
-					<option value={platform}>{platform.name}</option>
-				{/each}
-			</select>
+			<!-- 控制面板 -->
+		<div class="control-panel">
+			<div class="control-section">
+				<label for="platform-select">
+					{t('debug.selectPlatform')}:
+				</label>
+				<select
+					id="platform-select"
+					bind:value={selectedPlatform}
+					disabled={loading || webviewProxy !== null}
+				>
+					<option value={null}>{t('debug.pleaseSelect')}</option>
+					{#each BUILT_IN_AI_PLATFORMS as platform}
+						<option value={platform}>{platform.name}</option>
+					{/each}
+				</select>
+			</div>
+
+			<div class="control-actions">
+				{#if !webviewProxy}
+					<button class="btn btn-primary" onclick={initializeWebview} disabled={loading || !selectedPlatform}>
+						{loading ? t('debug.initializing') : t('debug.initWebview')}
+					</button>
+				{:else}
+					<button class="btn btn-accent" onclick={testConsoleLog} disabled={loading}>
+						🔍 Ultra-Simple Test
+					</button>
+					<button class="btn btn-accent" onclick={testSimpleScript} disabled={loading}>
+						Test Simple Script
+					</button>
+					<button class="btn btn-accent" onclick={showWebviewAgain} disabled={loading}>
+						{t('debug.showWebview')}
+					</button>
+					<button class="btn btn-secondary" onclick={closeWebview} disabled={loading}>
+						{t('debug.closeWebview')}
+					</button>
+				{/if}
+			</div>
 		</div>
 
-		<div class="control-actions">
-			{#if !webviewProxy}
-				<button class="btn btn-primary" onclick={initializeWebview} disabled={loading || !selectedPlatform}>
-					{loading ? t('debug.initializing') : t('debug.initWebview')}
+		<!-- 注入控制 -->
+		{#if webviewProxy}
+			<div class="injection-panel">
+				<label for="message-input">
+					{t('debug.messageToInject')}:
+				</label>
+				<textarea
+					id="message-input"
+					bind:value={message}
+					placeholder={t('debug.messagePlaceholder')}
+					rows="4"
+					disabled={loading}
+				></textarea>
+
+				<button class="btn btn-accent" onclick={executeInjection} disabled={loading || !message.trim()}>
+					{loading ? t('debug.executing') : t('debug.executeInjection')}
 				</button>
-			{:else}
-				<button class="btn btn-accent" onclick={showWebviewAgain} disabled={loading}>
-					{t('debug.showWebview')}
-				</button>
-				<button class="btn btn-secondary" onclick={closeWebview} disabled={loading}>
-					{t('debug.closeWebview')}
-				</button>
-			{/if}
-		</div>
-	</div>
+			</div>
+		{/if}
 
-	<!-- 注入控制 -->
-	{#if webviewProxy}
-		<div class="injection-panel">
-			<label for="message-input">
-				{t('debug.messageToInject')}:
-			</label>
-			<textarea
-				id="message-input"
-				bind:value={message}
-				placeholder={t('debug.messagePlaceholder')}
-				rows="4"
-				disabled={loading}
-			></textarea>
-
-			<button class="btn btn-accent" onclick={executeInjection} disabled={loading || !message.trim()}>
-				{loading ? t('debug.executing') : t('debug.executeInjection')}
-			</button>
-		</div>
-	{/if}
-
-	<!-- 结果显示 -->
-	{#if result}
-		<div class="result-panel" class:success={result.success} class:error={!result.success}>
-			<h3>
-				{result.success ? '✓ ' + t('debug.success') : '✗ ' + t('debug.failed')}
-			</h3>
-			{#if result.success}
-				<p>{t('debug.actionsExecuted')}: {result.actionsExecuted}</p>
-				<p>{t('debug.duration')}: {result.duration}ms</p>
-			{:else}
-				<p>{t('debug.error')}: {result.error}</p>
-			{/if}
-		</div>
-	{/if}
+		<!-- 结果显示 -->
+		{#if result}
+			<div class="result-panel" class:success={result.success} class:error={!result.success}>
+				<h3>
+					{result.success ? '✓ ' + t('debug.success') : '✗ ' + t('debug.failed')}
+				</h3>
+				{#if result.success}
+					<p>{t('debug.actionsExecuted')}: {result.actionsExecuted}</p>
+					<p>{t('debug.duration')}: {result.duration}ms</p>
+				{:else}
+					<p>{t('debug.error')}: {result.error}</p>
+				{/if}
+			</div>
+		{/if}
 
 		<!-- 日志面板 -->
 		<div class="logs-panel">
@@ -430,6 +532,17 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
+	}
+
+	.debug-page.webview-mode {
+		/* In webview mode, remove constraints to let child webview fill the space */
+		max-width: none;
+		width: 100%;
+		height: 100vh;
+		padding: 0;
+		margin: 0;
+		gap: 0;
+		overflow: hidden;
 	}
 
 	.debug-header {

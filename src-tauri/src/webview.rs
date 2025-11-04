@@ -330,8 +330,9 @@ pub(crate) async fn hide_all_child_webviews(
     Ok(())
 }
 
-/// Evaluate JavaScript code in a specific child webview and return the result
-/// The script should return a value that can be serialized to JSON
+/// Evaluate JavaScript code in a specific child webview
+/// Note: Child webviews loading external URLs don't have Tauri IPC available,
+/// so this executes the script without returning its result
 #[derive(Debug, Deserialize)]
 pub(crate) struct EvaluateScriptPayload {
     id: String,
@@ -355,62 +356,22 @@ pub(crate) async fn evaluate_child_webview_script(
         .map_err(|err| format!("failed to lock webview map: {err}"))?;
 
     if let Some(entry) = webviews.get(&payload.id) {
-        // Generate a unique request ID for this evaluation using timestamp and webview id
-        let request_id = format!(
-            "{}-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
-            payload.id
-        );
+        // Execute the user script directly - it's already a complete IIFE with async wrapper
+        // No need to wrap it again, as that would create syntax errors
+        log::debug!("About to evaluate script in child webview: {}", payload.id);
+        log::debug!("Script length: {} bytes", payload.script.len());
 
-        // Wrap the script to send result back via Tauri IPC
-        let wrapped_script = format!(
-            r#"
-            (async function() {{
-                try {{
-                    const __result = await (async function() {{
-                        {}
-                    }})();
-                    
-                    // Send result back to main window
-                    if (window.__TAURI__) {{
-                        await window.__TAURI__.event.emit('injection-result-{}', {{
-                            success: true,
-                            result: __result
-                        }});
-                    }}
-                }} catch (error) {{
-                    if (window.__TAURI__) {{
-                        await window.__TAURI__.event.emit('injection-result-{}', {{
-                            success: false,
-                            error: error.message || String(error)
-                        }});
-                    }}
-                }}
-            }})();
-            "#,
-            payload.script, request_id, request_id
-        );
-
-        // Execute the wrapped script
         entry
             .webview
-            .eval(&wrapped_script)
+            .eval(&payload.script)
             .map_err(|err| format!("script evaluation failed: {err}"))?;
 
-        log::debug!(
-            "Script evaluated successfully in child webview: {}, request_id: {}",
-            payload.id,
-            request_id
-        );
+        log::info!("Script eval() completed for child webview: {}", payload.id);
 
-        // Return the request ID so the frontend can listen for the result
+        // Return success immediately
         Ok(serde_json::json!({
             "success": true,
-            "requestId": request_id,
-            "message": "Script executed, listen for injection-result event"
+            "message": "Script executed, check console for results"
         }))
     } else {
         Err(format!("child webview not found: {}", payload.id))

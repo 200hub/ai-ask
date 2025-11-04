@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head><title>Simple Test</title></head>
+<body>
+<h1>Console Test</h1>
+<textarea id="prompt-textarea"></textarea>
+<button data-testid="send-button">Send</button>
+
+<script>
+// Test 1: 当前 Rust wrapper 方式（会失败）
+console.log('=== Test 1: Current Rust Wrapper ===');
+try {
+    (async function() {
+        console.log('[INJECTION] Script execution started, 3 actions');
+        const startTime = Date.now();
+        const results = [];
+        const originalTitle = document.title;
+
+        document.title = '[INJECTION_START]' + originalTitle;
+
+        try {
+            // Action 1: fill
+            const actionResult1 = await ((function() {
+                return new Promise((resolve) => {
+                    console.log('[FINDER] Looking for element: #prompt-textarea');
+                    const element = document.querySelector('#prompt-textarea');
+                    console.log('[FINDER] Element found:', element);
+                    resolve(element);
+                });
+            })()).then(element => {
+                console.log('[FILL] Filling element:', element.tagName, element);
+                element.value = 'hi';
+                console.log('[FILL] Fill completed successfully');
+                return { success: true, message: 'Text filled successfully' };
+            });
+            results.push({ index: 0, type: 'fill', result: actionResult1 });
+
+            const duration = Date.now() - startTime;
+            console.log('[INJECTION] All actions completed successfully', { duration, results });
+            document.title = '[INJECTION_SUCCESS]' + originalTitle;
+            setTimeout(() => { document.title = originalTitle; }, 1500);
+
+            return {
+                success: true,
+                duration,
+                actionsExecuted: 1,
+                results
+            };
+        } catch (error) {
+            const duration = Date.now() - startTime;
+            const message = error && error.message ? error.message : String(error);
+            console.error('[INJECTION] Script failed:', error);
+            document.title = '[INJECTION_ERROR:' + message + ']' + originalTitle;
+            setTimeout(() => { document.title = originalTitle; }, 3000);
+
+            return {
+                success: false,
+                error: message,
+                duration,
+                actionsExecuted: results.length,
+                results
+            };
+        }
+    })();
+    console.log('Test 1: SUCCESS - No syntax error');
+} catch (error) {
+    console.error('Test 1: FAILED -', error);
+}
+
+// Test 2: 等待3秒后看标题是否变化
+setTimeout(() => {
+    console.log('Current title after 3s:', document.title);
+    console.log('Textarea value:', document.querySelector('#prompt-textarea').value);
+}, 3000);
+</script>
+</body>
+</html>
