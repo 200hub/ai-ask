@@ -158,6 +158,7 @@ export const enUS = {
         portRangeError: "Proxy port must be between 1 and 65535",
         noChanges: "No changes to save",
         invalidSettings: "Proxy settings are invalid",
+        unsupportedProxyType: "Unsupported proxy type: {type}",
         testSuccess: "Connection successful{latency}",
         testFailed: "Connection failed",
         latencySuffix: " (latency {latency} ms)",

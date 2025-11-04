@@ -158,6 +158,7 @@ export const zhCN = {
     portRangeError: "代理端口必须在 1 到 65535 之间",
     noChanges: "没有需要保存的更改",
     invalidSettings: "代理配置无效",
+    unsupportedProxyType: "不支持的代理类型：{type}",
     testSuccess: "连接成功{latency}",
     testFailed: "连接失败",
     latencySuffix: "（延迟 {latency} 毫秒）",

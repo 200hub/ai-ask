@@ -55,7 +55,7 @@ export async function calculateChildWebviewBounds(
             scaleFactor,
         };
     } catch (error) {
-        console.error("计算子 WebView 边界失败，使用默认值:", error);
+        logger.error("Failed to calculate child webview bounds, using defaults", error);
         return {
             positionLogical: { x: 100, y: 100 },
             sizeLogical: { width: 800, height: 600 },

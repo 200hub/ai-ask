@@ -8,6 +8,7 @@
     import { configStore } from "$lib/stores/config.svelte";
     import type { ProxyConfig } from "$lib/types/config";
     import { i18n } from "$lib/i18n";
+    import { logger } from "$lib/utils/logger";
 
     type ProxyType = "system" | "custom";
 
@@ -138,15 +139,15 @@
             saveMessage = t("proxy.saveSuccess");
             syncFromConfig();
         } catch (error) {
-            console.error("Failed to save proxy settings:", error);
+            logger.error("Failed to save proxy settings", error);
             saveStatus = "error";
             const errorMsg =
                 error instanceof Error
                     ? error.message
                     : t("proxy.saveFailed");
             saveMessage = errorMsg;
-            // Show more detailed error in console
-            console.error("Detailed error:", {
+            // Log detailed error information
+            logger.error("Detailed proxy save error", {
                 error,
                 proxyPayload,
                 currentConfig: configStore.config,
@@ -200,7 +201,7 @@
                 testMessage = result.message || t("proxy.testFailed");
             }
         } catch (error) {
-            console.error("Failed to test proxy:", error);
+            logger.error("Failed to test proxy", error);
             testStatus = "error";
             testMessage =
                 error instanceof Error ? error.message : t("proxy.testFailed");

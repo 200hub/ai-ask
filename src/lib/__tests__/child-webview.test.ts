@@ -2,9 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChildWebviewBounds } from "$lib/utils/childWebview";
 
 const invokeMock = vi.fn();
+const loggerMock = {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+};
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
+}));
+
+vi.mock("$lib/utils/logger", () => ({
+  logger: loggerMock,
 }));
 
 describe("child webview utilities", () => {
@@ -73,7 +82,7 @@ describe("child webview utilities", () => {
   it("falls back to defaults when calculation fails", async () => {
     const { calculateChildWebviewBounds } = await import("$lib/utils/childWebview");
 
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    loggerMock.error.mockClear();
 
     const faultyWindow = {
       scaleFactor: vi.fn().mockRejectedValue(new Error("boom")),
@@ -88,8 +97,7 @@ describe("child webview utilities", () => {
       scaleFactor: 1,
     });
 
-    expect(errorSpy).toHaveBeenCalled();
-    errorSpy.mockRestore();
+    expect(loggerMock.error).toHaveBeenCalled();
   });
 
   it("manages child webview lifecycle calls", async () => {
