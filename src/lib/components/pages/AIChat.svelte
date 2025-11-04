@@ -15,7 +15,10 @@
     import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
     import { calculateChildWebviewBounds, ChildWebviewProxy } from "$lib/utils/childWebview";
     import { createProxySignature, resolveProxyUrl } from "$lib/utils/proxy";
+    import { logger } from "$lib/utils/logger";
+    import { i18n } from "$lib/i18n";
 
+    const t = i18n.t;
     type ManagedWebview = ChildWebviewProxy;
 
     // ========== 核心状态变量 ==========
@@ -109,7 +112,7 @@
                 webview
                     .close()
                     .catch((error) => {
-                        console.error(`关闭 WebView ${id} 失败:`, error);
+                        logger.error(`Failed to close WebView ${id}:`, error);
                     }),
             );
         }
@@ -165,8 +168,8 @@
 
             appState.setWebviewLoading(false);
         } catch (error) {
-            console.error(`显示平台 ${platform.name} 的 WebView 失败:`, error);
-            appState.setError(`加载 ${platform.name} 失败`);
+            logger.error(`Failed to show WebView for platform ${platform.name}:`, error);
+            appState.setError(`Failed to load ${platform.name}`);
             appState.setWebviewLoading(false);
         }
     }
@@ -186,7 +189,7 @@
                         try {
                             await webview.hide();
                         } catch (error) {
-                            console.error(`隐藏 WebView ${id} 失败:`, error);
+                            logger.error(`Failed to hide WebView ${id}:`, error);
                         }
                     })()
                 );
@@ -263,7 +266,7 @@
                             await webview.show();
                             await webview.setFocus();
                         } catch (error) {
-                            console.error("激活 WebView 失败:", error);
+                            logger.error("Failed to activate WebView:", error);
                         }
                     }
                 })()
@@ -293,7 +296,7 @@
             // 异步执行，避免阻塞
             positionAllWebviews({ shouldEnsureActiveFront: needsActiveFront })
                 .catch((error) => {
-                    console.error("WebView 批量重排失败:", error);
+                    logger.error("Failed to reflow WebViews:", error);
                 });
         };
 
@@ -341,7 +344,7 @@
 
         const hideTasks = Array.from(webviewWindows.values()).map((webview) =>
             webview.hide().catch((error) => {
-                console.error("隐藏 WebView 失败:", error);
+                logger.error("Failed to hide WebView:", error);
             })
         );
 
@@ -354,7 +357,7 @@
     async function closeAllWebviews() {
         const closeTasks = Array.from(webviewWindows.values()).map((webview) =>
             webview.close().catch((error) => {
-                console.error("关闭 WebView 失败:", error);
+                logger.error("Failed to close WebView:", error);
             })
         );
 
@@ -373,13 +376,13 @@
      */
     export async function reloadCurrentPlatform() {
         if (!activePlatformId || !appState.selectedPlatform) {
-            console.warn("没有激活的平台，无法刷新");
+            logger.warn("No active platform, cannot reload");
             return;
         }
 
         const currentWebview = webviewWindows.get(activePlatformId);
         if (!currentWebview) {
-            console.warn(`未找到平台 ${activePlatformId} 的 WebView`);
+            logger.warn(`WebView not found for platform ${activePlatformId}`);
             return;
         }
 
@@ -388,8 +391,8 @@
             webviewWindows.delete(activePlatformId);
             await showPlatformWebview(appState.selectedPlatform);
         } catch (error) {
-            console.error(`刷新平台失败:`, error);
-            appState.setError(`刷新 ${appState.selectedPlatform.name} 失败`);
+            logger.error(`Failed to reload platform:`, error);
+            appState.setError(`Failed to reload ${appState.selectedPlatform.name}`);
         }
     }
 
@@ -451,7 +454,7 @@
 
             scheduleWebviewReflow({ shouldEnsureActiveFront: true });
         } catch (error) {
-            console.error("恢复 WebView 失败:", error);
+            logger.error("Failed to restore WebView:", error);
         }
     }
 
@@ -503,7 +506,7 @@
                 try {
                     isMainWindowFocused = await mainWindow.isFocused();
                 } catch (error) {
-                    console.error("获取窗口焦点状态失败:", error);
+                    logger.error("Failed to get window focus state:", error);
                 }
 
                 // 注册窗口尺寸变化监听
@@ -569,7 +572,7 @@
                     return;
                 }
             } catch (error) {
-                console.error("注册 Tauri 窗口事件失败:", error);
+                logger.error("Failed to register Tauri window events:", error);
             }
         })();
 
@@ -612,13 +615,13 @@
                             stroke-width="4"
                         ></circle>
                     </svg>
-                    <p class="loading-text">加载 {appState.selectedPlatform.name}...</p>
+                    <p class="loading-text">{t("chat.loading")}</p>
                 </div>
             </div>
         {/if}
     {:else}
         <div class="no-platform">
-            <p>请选择一个AI平台</p>
+            <p>{t("chat.selectPlatform")}</p>
         </div>
     {/if}
 </div>

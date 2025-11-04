@@ -278,3 +278,68 @@ export const SIDEBAR_CONFIG = {
   iconSize: 40,
   gap: 12
 };
+
+/**
+ * 事件名称常量
+ */
+export const EVENT_NAMES = {
+  HIDE_ALL_WEBVIEWS: "hideAllWebviews",
+  RESTORE_WEBVIEWS: "restoreWebviews",
+  REFRESH_WEBVIEW: "refreshWebview",
+  OPEN_SETTINGS: "open-settings",
+  ENSURE_TRANSLATION_VISIBLE: "ensureTranslationVisible",
+  RESIZE: "resize",
+} as const;
+
+/**
+ * 窗口ID常量
+ */
+export const WINDOW_IDS = {
+  MAIN: "main",
+} as const;
+
+/**
+ * Tauri事件名称常量
+ */
+export const TAURI_EVENTS = {
+  FOCUS: "tauri://focus",
+  BLUR: "tauri://blur",
+  WINDOW_EVENT: "tauri://window-event",
+} as const;
+
+/**
+ * 窗口事件类型常量
+ */
+export const WINDOW_EVENT_TYPES = {
+  MINIMIZED: "minimized",
+  HIDDEN: "hidden",
+  RESTORED: "restored",
+  SHOWN: "shown",
+} as const;
+
+/**
+ * WebView前缀常量
+ */
+export const WEBVIEW_PREFIXES = {
+  AI_CHAT: "ai-chat-",
+  TRANSLATOR: "translator-",
+} as const;
+
+/**
+ * 延迟和超时常量（毫秒）
+ */
+export const TIMING_CONSTANTS = {
+  WEBVIEW_HIDE_DELAY: 100,
+  SHORTCUT_THROTTLE: 350,
+  REFLOW_FRAME_TIME: 16,
+} as const;
+
+/**
+ * 日志级别常量
+ */
+export const LOG_LEVELS = {
+  ERROR: "error",
+  WARN: "warn",
+  INFO: "info",
+  DEBUG: "debug",
+} as const;
