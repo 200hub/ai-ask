@@ -38,7 +38,7 @@ pub fn run() {
         std::env::set_var("RUST_LOG", "info");
     }
     env_logger::init();
-    log::info!("AI Ask 应用启动");
+    log::info!("AI Ask application starting");
 
     tauri::Builder::default()
         .manage(ChildWebviewManager::default())
@@ -47,7 +47,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            log::debug!("开始应用设置");
+            log::debug!("Application setup starting");
 
             let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let settings_item = MenuItem::with_id(app, "settings", "偏好设置", true, None::<&str>)?;
@@ -67,7 +67,7 @@ pub fn run() {
                         if button == tauri::tray::MouseButton::Left
                             && button_state == tauri::tray::MouseButtonState::Up
                         {
-                            log::debug!("托盘图标被点击");
+                            log::debug!("Tray icon clicked");
                             let app = tray.app_handle().clone();
                             tauri::async_runtime::spawn(async move {
                                 if let Some(window) = resolve_main_window(&app) {
@@ -80,7 +80,7 @@ pub fn run() {
 
                 tray.on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => {
-                        log::debug!("托盘菜单: 显示主窗口");
+                        log::debug!("Tray menu: show main window");
                         if let Some(window) = resolve_main_window(app) {
                             tauri::async_runtime::spawn(async move {
                                 let _ = show_main_window(&window).await;
@@ -88,7 +88,7 @@ pub fn run() {
                         }
                     }
                     "settings" => {
-                        log::debug!("托盘菜单: 打开设置");
+                        log::debug!("Tray menu: open settings");
                         if let Some(window) = resolve_main_window(app) {
                             tauri::async_runtime::spawn(async move {
                                 if show_main_window_without_restore(&window).await.is_ok() {
@@ -98,7 +98,7 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        log::info!("托盘菜单: 退出应用");
+                        log::info!("Tray menu: quit application");
                         app.exit(0);
                     }
                     _ => {}
@@ -117,7 +117,7 @@ pub fn run() {
 
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
             if let Ok(shortcut) = main_shortcut.parse::<Shortcut>() {
-                log::info!("注册主快捷键: {}", shortcut);
+                log::info!("Registering main shortcut: {}", shortcut);
                 let throttle = last_shortcut_trigger.clone();
                 let handle_clone = handle.clone();
                 let _ =
@@ -129,7 +129,7 @@ pub fn run() {
                                 let elapsed = now.duration_since(previous);
                                 if elapsed < Duration::from_millis(350) {
                                     log::debug!(
-                                        "快捷键触发被限流: {}ms < 350ms",
+                                        "Shortcut trigger throttled: {}ms < 350ms",
                                         elapsed.as_millis()
                                     );
                                     return;
@@ -137,7 +137,7 @@ pub fn run() {
                             }
 
                             *last = Some(now);
-                            log::debug!("主快捷键被触发");
+                            log::debug!("Main shortcut triggered");
 
                             let app_handle = handle_clone.clone();
                             tauri::async_runtime::spawn(async move {
@@ -155,12 +155,12 @@ pub fn run() {
             let translation_shortcut = "Ctrl+Shift+T";
 
             if let Ok(shortcut) = translation_shortcut.parse::<Shortcut>() {
-                log::info!("注册翻译快捷键: {}", shortcut);
+                log::info!("Registering translation shortcut: {}", shortcut);
                 let handle_clone = handle.clone();
                 let _ =
                     app.global_shortcut()
                         .on_shortcut(shortcut, move |_app, _event, _shortcut| {
-                            log::debug!("翻译快捷键被触发");
+                            log::debug!("Translation shortcut triggered");
 
                             let app_handle = handle_clone.clone();
                             tauri::async_runtime::spawn(async move {
@@ -173,17 +173,17 @@ pub fn run() {
                         });
             }
 
-            log::info!("应用设置完成");
+            log::info!("Application setup completed");
             Ok(())
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                log::debug!("窗口关闭请求被拦截，隐藏到托盘");
+                log::debug!("Window close request intercepted, hiding to tray");
                 api.prevent_close();
                 let window = window.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(err) = hide_main_window(&window).await {
-                        log::error!("隐藏窗口失败: {}", err);
+                        log::error!("Failed to hide window: {}", err);
                     }
                 });
             }
@@ -209,5 +209,5 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 
-    log::info!("AI Ask 应用退出");
+    log::info!("AI Ask application exited");
 }

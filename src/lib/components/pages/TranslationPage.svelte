@@ -11,6 +11,8 @@
         ChildWebviewProxy,
     } from "$lib/utils/childWebview";
     import { createProxySignature, resolveProxyUrl } from "$lib/utils/proxy";
+    import { logger } from "$lib/utils/logger";
+    import { TIMING } from "$lib/utils/constants";
 
     const t = i18n.t;
 
@@ -109,7 +111,7 @@
                 webview
                     .close()
                     .catch((error) => {
-                        console.error(`关闭翻译 WebView ${id} 失败:`, error);
+                        logger.error("Failed to close translator WebView", { id, error });
                     }),
             );
         }
@@ -132,6 +134,7 @@
 
         try {
             isLoading = true;
+            const start = Date.now();
             loadError = null;
 
             await hideOtherWebviews(platform.id);
@@ -153,11 +156,18 @@
 
             if (isMainWindowFocused) {
                 await webview.setFocus();
+                // 聚焦后稍作等待，避免页面尚未完成首帧渲染
+                await new Promise((r) => setTimeout(r, TIMING.WEBVIEW_READY_EXTRA_DELAY_MS));
             }
-
+            // 保证加载动画的最小显示时长
+            {
+                const elapsed = Date.now() - start;
+                const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_MS - elapsed, 0);
+                if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+            }
             isLoading = false;
         } catch (error) {
-            console.error(`显示翻译平台 ${platform.name} 失败:`, error);
+            logger.error("Failed to show translator WebView", { platform: platform.name, error });
             isLoading = false;
             loadError = platform.name;
             appState.setError(t("translation.toastError"));
@@ -176,7 +186,7 @@
                         try {
                             await webview.hide();
                         } catch (error) {
-                            console.error(`隐藏翻译 WebView ${id} 失败:`, error);
+                            logger.error("Failed to hide translator WebView", { id, error });
                         }
                     })(),
                 );
@@ -207,7 +217,7 @@
                             await webview.show();
                             await webview.setFocus();
                         } catch (error) {
-                            console.error("显示翻译 WebView 失败:", error);
+                            logger.error("Failed to activate translator WebView", error);
                         }
                     }
                 })(),
@@ -225,7 +235,7 @@
             shouldEnsureActiveFront = false;
 
             positionAllWebviews({ shouldEnsureActiveFront: needsFront }).catch((error) => {
-                console.error("翻译 WebView 重排失败:", error);
+                logger.error("Translator WebView reflow failed", error);
             });
         };
 
@@ -264,7 +274,7 @@
 
         const hideTasks = Array.from(webviewWindows.values()).map((webview) =>
             webview.hide().catch((error) => {
-                console.error("隐藏翻译 WebView 失败:", error);
+                logger.error("Failed to hide translator WebView", error);
             }),
         );
 
@@ -274,7 +284,7 @@
     async function closeAllWebviews() {
         const closeTasks = Array.from(webviewWindows.values()).map((webview) =>
             webview.close().catch((error) => {
-                console.error("关闭翻译 WebView 失败:", error);
+                logger.error("Failed to close translator WebView", error);
             }),
         );
 
@@ -303,7 +313,7 @@
 
             await showTranslatorWebview(platform);
         } catch (error) {
-            console.error("刷新翻译平台失败:", error);
+            logger.error("Failed to reload translator platform", error);
             appState.setError(t("translation.toastError"));
         }
     }
@@ -373,7 +383,7 @@
                 try {
                     isMainWindowFocused = await mainWindow.isFocused();
                 } catch (error) {
-                    console.error("获取窗口焦点状态失败:", error);
+                    logger.error("Failed to get window focus state", error);
                 }
 
                 windowEventUnlisteners.resize = await mainWindow.onResized(({ payload }) => {
@@ -424,7 +434,7 @@
                     return;
                 }
             } catch (error) {
-                console.error("注册翻译窗口事件失败:", error);
+                logger.error("Failed to register translator window events", error);
             }
         })();
 

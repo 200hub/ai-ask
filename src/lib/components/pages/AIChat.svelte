@@ -15,8 +15,12 @@
     import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
     import { calculateChildWebviewBounds, ChildWebviewProxy } from "$lib/utils/childWebview";
     import { createProxySignature, resolveProxyUrl } from "$lib/utils/proxy";
+    import { i18n } from "$lib/i18n";
+    import { logger } from "$lib/utils/logger";
+    import { TIMING } from "$lib/utils/constants";
 
     type ManagedWebview = ChildWebviewProxy;
+    const t = i18n.t;
 
     // ========== 核心状态变量 ==========
     
@@ -137,6 +141,7 @@
     async function showPlatformWebview(platform: AIPlatform) {
         try {
             appState.setWebviewLoading(true);
+            const start = Date.now();
 
             // 1. 隐藏其他平台的WebView
             await hideOtherWebviews(platform.id);
@@ -150,6 +155,12 @@
             } else if (webview.isVisible() && !shouldRestoreWebviews) {
                 await webview.setFocus();
                 scheduleWebviewReflow({ shouldEnsureActiveFront: true });
+                // 保证加载动画的最小显示时长
+                {
+                    const elapsed = Date.now() - start;
+                    const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_MS - elapsed, 0);
+                    if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+                }
                 appState.setWebviewLoading(false);
                 return;
             } else {
@@ -161,12 +172,20 @@
             // 3. 显示窗口并获取焦点
             await webview.show();
             await webview.setFocus();
+            // 聚焦后再稍作等待，避免页面首帧尚未渲染导致的闪烁
+            await new Promise((r) => setTimeout(r, TIMING.WEBVIEW_READY_EXTRA_DELAY_MS));
             shouldRestoreWebviews = false;
 
+            // 保证加载动画的最小显示时长
+            {
+                const elapsed = Date.now() - start;
+                const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_MS - elapsed, 0);
+                if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+            }
             appState.setWebviewLoading(false);
         } catch (error) {
-            console.error(`显示平台 ${platform.name} 的 WebView 失败:`, error);
-            appState.setError(`加载 ${platform.name} 失败`);
+            logger.error("Failed to show AI platform WebView", { platform: platform.name, error });
+            appState.setError(t("chat.loadError"));
             appState.setWebviewLoading(false);
         }
     }
@@ -186,7 +205,7 @@
                         try {
                             await webview.hide();
                         } catch (error) {
-                            console.error(`隐藏 WebView ${id} 失败:`, error);
+                            logger.error("Failed to hide WebView", { id, error });
                         }
                     })()
                 );
@@ -263,7 +282,7 @@
                             await webview.show();
                             await webview.setFocus();
                         } catch (error) {
-                            console.error("激活 WebView 失败:", error);
+                            logger.error("Failed to activate WebView", error);
                         }
                     }
                 })()
@@ -293,7 +312,7 @@
             // 异步执行，避免阻塞
             positionAllWebviews({ shouldEnsureActiveFront: needsActiveFront })
                 .catch((error) => {
-                    console.error("WebView 批量重排失败:", error);
+                    logger.error("WebView batch reflow failed", error);
                 });
         };
 
@@ -341,7 +360,7 @@
 
         const hideTasks = Array.from(webviewWindows.values()).map((webview) =>
             webview.hide().catch((error) => {
-                console.error("隐藏 WebView 失败:", error);
+                logger.error("Failed to hide WebView", error);
             })
         );
 
@@ -354,7 +373,7 @@
     async function closeAllWebviews() {
         const closeTasks = Array.from(webviewWindows.values()).map((webview) =>
             webview.close().catch((error) => {
-                console.error("关闭 WebView 失败:", error);
+                logger.error("Failed to close WebView", error);
             })
         );
 
@@ -388,8 +407,8 @@
             webviewWindows.delete(activePlatformId);
             await showPlatformWebview(appState.selectedPlatform);
         } catch (error) {
-            console.error(`刷新平台失败:`, error);
-            appState.setError(`刷新 ${appState.selectedPlatform.name} 失败`);
+            logger.error("Failed to reload platform", { platform: appState.selectedPlatform.name, error });
+            appState.setError(t("chat.loadError"));
         }
     }
 
@@ -458,7 +477,7 @@
 
             scheduleWebviewReflow({ shouldEnsureActiveFront: true });
         } catch (error) {
-            console.error("恢复 WebView 失败:", error);
+            logger.error("Failed to restore WebView", error);
         }
     }
 
@@ -510,7 +529,7 @@
                 try {
                     isMainWindowFocused = await mainWindow.isFocused();
                 } catch (error) {
-                    console.error("获取窗口焦点状态失败:", error);
+                    logger.error("Failed to get window focus state", error);
                 }
 
                 // 注册窗口尺寸变化监听
@@ -576,7 +595,7 @@
                     return;
                 }
             } catch (error) {
-                console.error("注册 Tauri 窗口事件失败:", error);
+                logger.error("Failed to register Tauri window events", error);
             }
         })();
 
@@ -619,13 +638,13 @@
                             stroke-width="4"
                         ></circle>
                     </svg>
-                    <p class="loading-text">加载 {appState.selectedPlatform.name}...</p>
+                    <p class="loading-text">{t("chat.loading")}</p>
                 </div>
             </div>
         {/if}
     {:else}
         <div class="no-platform">
-            <p>请选择一个AI平台</p>
+            <p>{t("chat.selectPlatform")}</p>
         </div>
     {/if}
 </div>

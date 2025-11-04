@@ -25,17 +25,17 @@ pub(crate) fn resolve_main_window(app: &tauri::AppHandle) -> Option<Window> {
 
 /// 隐藏主窗口（向前端广播事件后再隐藏）
 pub(crate) async fn hide_main_window(window: &Window) -> Result<(), String> {
-    log::debug!("隐藏主窗口");
+    log::debug!("Hiding main window");
 
     let _ = window.emit("hideAllWebviews", ());
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     window.hide().map_err(|err| {
-        log::error!("隐藏窗口失败: {}", err);
+        log::error!("Failed to hide window: {}", err);
         err.to_string()
     })?;
 
-    log::debug!("主窗口已隐藏");
+    log::debug!("Main window hidden");
     Ok(())
 }
 
@@ -51,25 +51,28 @@ pub(crate) async fn show_main_window_without_restore(window: &Window) -> Result<
 
 /// 显示主窗口的内部实现
 async fn show_main_window_internal(window: &Window, restore_webviews: bool) -> Result<(), String> {
-    log::debug!("显示主窗口 (restore_webviews={})", restore_webviews);
+    log::debug!(
+        "Showing main window (restore_webviews={})",
+        restore_webviews
+    );
 
     if window.is_minimized().map_err(|err| {
-        log::error!("检查窗口最小化状态失败: {}", err);
+        log::error!("Failed to check if window is minimized: {}", err);
         err.to_string()
     })? {
         window.unminimize().map_err(|err| {
-            log::error!("恢复最小化窗口失败: {}", err);
+            log::error!("Failed to unminimize window: {}", err);
             err.to_string()
         })?;
     }
 
     window.show().map_err(|err| {
-        log::error!("显示窗口失败: {}", err);
+        log::error!("Failed to show window: {}", err);
         err.to_string()
     })?;
 
     window.set_focus().map_err(|err| {
-        log::error!("设置窗口焦点失败: {}", err);
+        log::error!("Failed to set window focus: {}", err);
         err.to_string()
     })?;
 
@@ -77,22 +80,26 @@ async fn show_main_window_internal(window: &Window, restore_webviews: bool) -> R
         let _ = window.emit("restoreWebviews", ());
     }
 
-    log::debug!("主窗口已显示");
+    log::debug!("Main window shown");
     Ok(())
 }
 
 /// 切换主窗口的可见状态
 pub(crate) async fn toggle_main_window_visibility(window: &Window) -> Result<(), String> {
     let is_visible = window.is_visible().map_err(|err| {
-        log::error!("检查窗口可见性失败: {}", err);
+        log::error!("Failed to check window visibility: {}", err);
         err.to_string()
     })?;
     let is_minimized = window.is_minimized().map_err(|err| {
-        log::error!("检查窗口最小化状态失败: {}", err);
+        log::error!("Failed to check if window is minimized: {}", err);
         err.to_string()
     })?;
 
-    log::debug!("切换窗口状态: 可见={}, 最小化={}", is_visible, is_minimized);
+    log::debug!(
+        "Toggling window state: visible={}, minimized={}",
+        is_visible,
+        is_minimized
+    );
 
     if is_visible && !is_minimized {
         hide_main_window(window).await

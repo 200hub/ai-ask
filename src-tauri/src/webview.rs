@@ -87,7 +87,7 @@ pub(crate) async fn ensure_child_webview(
     payload: EnsureChildWebviewPayload,
 ) -> Result<(), String> {
     log::debug!(
-        "确保子 webview 存在: id={}, url={}, proxy={:?}",
+        "Ensuring child webview exists: id={}, url={}, proxy={:?}",
         payload.id,
         payload.url,
         payload.proxy_url
@@ -108,7 +108,10 @@ pub(crate) async fn ensure_child_webview(
         .unwrap_or(false);
 
     if should_recreate {
-        log::info!("代理配置变化，重建子 webview: {}", payload.id);
+        log::info!(
+            "Proxy config changed, recreating child webview: {}",
+            payload.id
+        );
         if let Some(entry) = webviews.remove(&payload.id) {
             let _ = entry.webview.close();
         }
@@ -119,7 +122,11 @@ pub(crate) async fn ensure_child_webview(
 
         if let Ok(current_url) = webview.url() {
             if current_url.as_str() != payload.url {
-                log::debug!("更新子 webview URL: {} -> {}", current_url, payload.url);
+                log::debug!(
+                    "Updating child webview URL: {} -> {}",
+                    current_url,
+                    payload.url
+                );
                 webview
                     .navigate(parse_external_url(&payload.url)?)
                     .map_err(|err| err.to_string())?;
@@ -132,9 +139,9 @@ pub(crate) async fn ensure_child_webview(
         webview
             .set_size(Size::Logical(size))
             .map_err(|err| err.to_string())?;
-        log::debug!("子 webview 已更新: {}", payload.id);
+        log::debug!("Child webview updated: {}", payload.id);
     } else {
-        log::info!("创建新的子 webview: {}", payload.id);
+        log::info!("Creating new child webview: {}", payload.id);
         let mut builder = WebviewBuilder::new(
             payload.id.clone(),
             WebviewUrl::External(parse_external_url(&payload.url)?),
@@ -160,7 +167,7 @@ pub(crate) async fn ensure_child_webview(
                 proxy_url: payload.proxy_url.clone(),
             },
         );
-        log::info!("子 webview 创建成功: {}", payload.id);
+        log::info!("Child webview created successfully: {}", payload.id);
     }
 
     Ok(())
@@ -172,7 +179,7 @@ pub(crate) async fn set_child_webview_bounds(
     state: State<'_, ChildWebviewManager>,
     payload: ChildWebviewBoundsUpdatePayload,
 ) -> Result<(), String> {
-    log::debug!("设置子 webview 边界: {}", payload.id);
+    log::debug!("Setting child webview bounds: {}", payload.id);
 
     let position = logical_position(&payload.bounds);
     let size = logical_size(&payload.bounds);
@@ -191,7 +198,7 @@ pub(crate) async fn set_child_webview_bounds(
             .webview
             .set_size(Size::Logical(size))
             .map_err(|err| err.to_string())?;
-        log::debug!("子 webview 边界已更新: {}", payload.id);
+        log::debug!("Child webview bounds updated: {}", payload.id);
     }
 
     Ok(())
@@ -203,7 +210,7 @@ pub(crate) async fn show_child_webview(
     state: State<'_, ChildWebviewManager>,
     payload: ChildWebviewIdPayload,
 ) -> Result<(), String> {
-    log::debug!("显示子 webview: {}", payload.id);
+    log::debug!("Showing child webview: {}", payload.id);
 
     let webviews = state
         .webviews
@@ -213,7 +220,7 @@ pub(crate) async fn show_child_webview(
     if let Some(entry) = webviews.get(&payload.id) {
         entry.webview.show().map_err(|err| err.to_string())?;
         let _ = entry.webview.set_focus();
-        log::debug!("子 webview 已显示: {}", payload.id);
+        log::debug!("Child webview shown: {}", payload.id);
     }
 
     Ok(())
@@ -225,7 +232,7 @@ pub(crate) async fn hide_child_webview(
     state: State<'_, ChildWebviewManager>,
     payload: ChildWebviewIdPayload,
 ) -> Result<(), String> {
-    log::debug!("隐藏子 webview: {}", payload.id);
+    log::debug!("Hiding child webview: {}", payload.id);
 
     let webviews = state
         .webviews
@@ -234,7 +241,7 @@ pub(crate) async fn hide_child_webview(
 
     if let Some(entry) = webviews.get(&payload.id) {
         entry.webview.hide().map_err(|err| err.to_string())?;
-        log::debug!("子 webview 已隐藏: {}", payload.id);
+        log::debug!("Child webview hidden: {}", payload.id);
     }
 
     Ok(())
@@ -246,7 +253,7 @@ pub(crate) async fn close_child_webview(
     state: State<'_, ChildWebviewManager>,
     payload: ChildWebviewIdPayload,
 ) -> Result<(), String> {
-    log::debug!("关闭子 webview: {}", payload.id);
+    log::debug!("Closing child webview: {}", payload.id);
 
     let mut webviews = state
         .webviews
@@ -255,7 +262,7 @@ pub(crate) async fn close_child_webview(
 
     if let Some(entry) = webviews.remove(&payload.id) {
         entry.webview.close().map_err(|err| err.to_string())?;
-        log::info!("子 webview 已关闭: {}", payload.id);
+        log::info!("Child webview closed: {}", payload.id);
     }
 
     Ok(())
@@ -267,7 +274,7 @@ pub(crate) async fn focus_child_webview(
     state: State<'_, ChildWebviewManager>,
     payload: ChildWebviewIdPayload,
 ) -> Result<(), String> {
-    log::debug!("聚焦子 webview: {}", payload.id);
+    log::debug!("Focusing child webview: {}", payload.id);
 
     let webviews = state
         .webviews
@@ -276,7 +283,7 @@ pub(crate) async fn focus_child_webview(
 
     if let Some(entry) = webviews.get(&payload.id) {
         entry.webview.set_focus().map_err(|err| err.to_string())?;
-        log::debug!("子 webview 已聚焦: {}", payload.id);
+        log::debug!("Child webview focused: {}", payload.id);
     }
 
     Ok(())
@@ -287,7 +294,7 @@ pub(crate) async fn focus_child_webview(
 pub(crate) async fn hide_all_child_webviews(
     state: State<'_, ChildWebviewManager>,
 ) -> Result<(), String> {
-    log::debug!("隐藏所有子 webview");
+    log::debug!("Hiding all child webviews");
 
     let webviews = state
         .webviews
@@ -298,6 +305,6 @@ pub(crate) async fn hide_all_child_webviews(
         let _ = entry.webview.hide();
     }
 
-    log::debug!("所有子 webview 已隐藏");
+    log::debug!("All child webviews hidden");
     Ok(())
 }
