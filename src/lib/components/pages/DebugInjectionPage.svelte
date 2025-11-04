@@ -7,7 +7,7 @@
 	import { ChildWebviewProxy, calculateChildWebviewBounds } from '$lib/utils/childWebview';
 	import { injectionManager } from '$lib/utils/injection';
 	import { ALL_TEMPLATES } from '$lib/utils/injection-templates';
-	import { BUILT_IN_AI_PLATFORMS } from '$lib/utils/constants';
+	import { BUILT_IN_AI_PLATFORMS, EVENTS } from '$lib/utils/constants';
 	import { logger } from '$lib/utils/logger';
 	import { i18n } from '$lib/i18n';
 	import { appState } from '$lib/stores/app.svelte';
@@ -23,6 +23,31 @@
 	let result = $state<InjectionResult | null>(null);
 	let logs = $state<Array<{ time: string; type: string; message: string }>>([]);
 	let showWebview = $state(false); // 是否显示 webview（隐藏控制面板）
+	let shouldRestoreWebview = false; // 是否在恢复事件后重新显示 webview
+
+	function handleHideAllWebviewsEvent(event: Event) {
+		const customEvent = event as CustomEvent<{ markForRestore?: boolean }>;
+		const markForRestore = customEvent.detail?.markForRestore ?? true;
+
+		shouldRestoreWebview = Boolean(markForRestore && webviewProxy && showWebview);
+
+		if (webviewProxy) {
+			webviewProxy.hide().catch((err) => {
+				logger.error('Failed to hide debug webview via event', err);
+			});
+		}
+
+		showWebview = false;
+	}
+
+	function handleRestoreWebviewsEvent() {
+		if (!shouldRestoreWebview || !webviewProxy) {
+			return;
+		}
+
+		shouldRestoreWebview = false;
+		void showWebviewAgain();
+	}
 
 	// 注册所有内置模板
 	onMount(() => {
@@ -30,6 +55,20 @@
 			injectionManager.registerTemplate(template);
 		});
 		addLog('info', t('debug.initialized'));
+
+		window.addEventListener(EVENTS.HIDE_ALL_WEBVIEWS, handleHideAllWebviewsEvent as EventListener);
+		window.addEventListener(EVENTS.RESTORE_WEBVIEWS, handleRestoreWebviewsEvent as EventListener);
+
+		return () => {
+			window.removeEventListener(
+				EVENTS.HIDE_ALL_WEBVIEWS,
+				handleHideAllWebviewsEvent as EventListener
+			);
+			window.removeEventListener(
+				EVENTS.RESTORE_WEBVIEWS,
+				handleRestoreWebviewsEvent as EventListener
+			);
+		};
 	});
 
 	onDestroy(() => {
@@ -107,6 +146,7 @@
 	 * 隐藏 WebView，回到控制面板
 	 */
 	function hideWebview() {
+		shouldRestoreWebview = false;
 		showWebview = false;
 		if (webviewProxy) {
 			webviewProxy.hide().catch((err) => {
@@ -146,6 +186,7 @@
 			await webviewProxy.close();
 			webviewProxy = null;
 			showWebview = false;
+			shouldRestoreWebview = false;
 			addLog('success', t('debug.webviewClosed'));
 		} catch (error) {
 			addLog('error', `${t('debug.closeFailed')}: ${error}`);
@@ -194,6 +235,7 @@
 			const duration = Date.now() - startTime;
 
 			result = injectionManager.parseResult(rawResult);
+			logger.info('Injection result received', { rawResult });
 
 			if (result.success) {
 				addLog(
