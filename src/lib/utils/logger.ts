@@ -251,12 +251,12 @@ class Logger {
 /**
  * 导出日志管理器单例实例
  * 
- * 使用示例：
+ * Usage example:
  * ```typescript
  * import { logger } from '$lib/utils/logger';
  * 
- * logger.error('发生错误', { code: 500 });
- * logger.info('应用启动成功');
+ * logger.error('An error occurred', { code: 500 });
+ * logger.info('Application started successfully');
  * ```
  */
 export const logger = Logger.getInstance();
@@ -266,14 +266,14 @@ export const logger = Logger.getInstance();
  * 
  * 提供更简洁的日志记录方式
  * 
- * 使用示例：
+ * Usage example:
  * ```typescript
  * import { log } from '$lib/utils/logger';
  * 
- * log.error('错误信息');
- * log.warn('警告信息');
- * log.info('提示信息');
- * log.debug('调试信息');
+ * log.error('Error message');
+ * log.warn('Warning message');
+ * log.info('Info message');
+ * log.debug('Debug message');
  * ```
  */
 export const log = {

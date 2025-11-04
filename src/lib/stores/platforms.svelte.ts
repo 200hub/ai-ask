@@ -114,7 +114,7 @@ class PlatformsStore {
   async removePlatform(id: string) {
     const platform = this.getPlatformById(id);
     if (!platform || !platform.isCustom) {
-      throw new Error('只能删除自定义平台');
+      throw new Error('Only custom platforms can be deleted');
     }
 
     try {
@@ -149,14 +149,14 @@ class PlatformsStore {
   async movePlatform(id: string, direction: 'up' | 'down'): Promise<void> {
     const { log } = await import('$lib/utils/logger');
     
-    log.debug('[PlatformsStore] 开始移动平台', { id, direction });
-    log.debug('[PlatformsStore] 当前平台列表', 
+    log.debug('[PlatformsStore] Start moving platform', { id, direction });
+    log.debug('[PlatformsStore] Current platform list', 
       this.platforms.map(p => ({ id: p.id, name: p.name, sortOrder: p.sortOrder }))
     );
 
     const platform = this.platforms.find(p => p.id === id);
     if (!platform) {
-      log.error('[PlatformsStore] 未找到平台', { id });
+      log.error('[PlatformsStore] Platform not found', { id });
       return;
     }
 
@@ -164,11 +164,11 @@ class PlatformsStore {
     const sorted = [...this.platforms].sort((a, b) => a.sortOrder - b.sortOrder);
     const currentIndex = sorted.findIndex(p => p.id === id);
     
-    log.debug('[PlatformsStore] 当前位置', { currentIndex, total: sorted.length });
+  log.debug('[PlatformsStore] Current position', { currentIndex, total: sorted.length });
 
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
     if (targetIndex < 0 || targetIndex >= sorted.length) {
-      log.debug('[PlatformsStore] 无法移动 - 超出边界', { currentIndex, targetIndex });
+      log.debug('[PlatformsStore] Cannot move - out of bounds', { currentIndex, targetIndex });
       return;
     }
 
@@ -178,7 +178,7 @@ class PlatformsStore {
     platform.sortOrder = targetPlatform.sortOrder;
     targetPlatform.sortOrder = tempOrder;
 
-    log.debug('[PlatformsStore] 交换 sortOrder', {
+    log.debug('[PlatformsStore] Swapped sortOrder', {
       platform: { id: platform.id, name: platform.name, sortOrder: platform.sortOrder },
       target: { id: targetPlatform.id, name: targetPlatform.name, sortOrder: targetPlatform.sortOrder }
     });
@@ -186,15 +186,15 @@ class PlatformsStore {
     // 触发响应式更新
     this.platforms = [...this.platforms];
     
-    log.debug('[PlatformsStore] 更新后的平台列表', 
+    log.debug('[PlatformsStore] Updated platform list', 
       this.platforms.map(p => ({ id: p.id, name: p.name, sortOrder: p.sortOrder }))
     );
 
     try {
       await saveAIPlatforms(this.platforms);
-      log.info('[PlatformsStore] 平台顺序保存成功');
+      log.info('[PlatformsStore] Platform order saved successfully');
     } catch (error) {
-      log.error('[PlatformsStore] 保存平台顺序失败', { error });
+      log.error('[PlatformsStore] Failed to save platform order', { error });
       throw error;
     }
   }
