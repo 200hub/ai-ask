@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{Manager, Url, Window};
 
 /// 代理测试配置
-#[derive(Debug, Deserialize)]
-pub(crate) struct ProxyTestConfig {
+#[derive(Debug, Deserialize, Clone)]
+pub struct ProxyTestConfig {
     #[serde(rename = "type")]
     pub proxy_type: String,
     pub host: Option<String>,
@@ -192,6 +192,43 @@ pub(crate) async fn test_proxy_connection(
             })
         }
     }
+}
+
+/// 根据代理配置构建 reqwest 客户端
+pub fn build_client_with_proxy(config: &ProxyTestConfig) -> Result<reqwest::Client, String> {
+    use reqwest::redirect::Policy;
+    let mut builder = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(Policy::limited(5));
+
+    match config.proxy_type.as_str() {
+        "custom" => {
+            let host = config
+                .host
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| "代理地址不能为空".to_string())?;
+            let port = config
+                .port
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| "代理端口不能为空".to_string())?;
+            let proxy_url = if host.contains("://") {
+                host.to_string()
+            } else {
+                format!("http://{}:{}", host, port)
+            };
+            let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| e.to_string())?;
+            builder = builder.proxy(proxy);
+        }
+        "system" => { /* no explicit proxy; reqwest picks env/system if set */ }
+        "none" => { /* no proxy */ }
+        other => return Err(format!("不支持的代理类型: {}", other)),
+    }
+
+    builder.build().map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

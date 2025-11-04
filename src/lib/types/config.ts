@@ -14,6 +14,8 @@ export interface AppConfig {
 
   // 启动设置
   autoStart: boolean;
+  // 更新设置
+  autoUpdateEnabled: boolean;
 
   // 平台设置
   defaultPlatform: string | null;
@@ -67,6 +69,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   globalHotkey: "CommandOrControl+Shift+A",
   translationHotkey: "CommandOrControl+Shift+T",
   autoStart: false,
+  autoUpdateEnabled: false,
   defaultPlatform: null,
   lastUsedPlatform: null,
   currentTranslator: "google",

@@ -74,6 +74,8 @@ export const koKR = {
         startup: "시작",
         autoStart: "시작 시 자동 실행",
         autoStartDescription: "시스템 시작 시 자동으로 실행",
+        autoUpdate: "자동 업데이트",
+        autoUpdateDescription: "백그라운드에서 업데이트를 다운로드하고 다음 실행 시 설치합니다",
         cacheManagement: "캐시 관리",
         clearCache: "캐시 페이지 비우기",
         clearCacheDescription: "백그라운드 AI 페이지를 닫고 캐시 데이터를 초기화합니다",
@@ -237,6 +239,16 @@ export const koKR = {
             step3: "단축키로 언제든 앱을 앞에 불러오세요.",
         },
         trayHint: "창을 닫으면 시스템 트레이에 숨겨집니다. 트레이 아이콘을 우클릭하여 종료할 수 있습니다.",
+    },
+
+    update: {
+        banner: {
+            actionDownload: "새 버전 다운로드",
+            actionRestart: "재시작하여 업데이트",
+            actionRetry: "다시 다운로드",
+            statusDownloading: "다운로드 중…",
+            versionTooltip: "대상 버전 {version}",
+        },
     },
 
     tray: {

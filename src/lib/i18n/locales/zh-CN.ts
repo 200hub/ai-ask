@@ -46,6 +46,16 @@ export const zhCN = {
     close: "关闭",
   },
 
+  update: {
+    banner: {
+      actionDownload: "下载新版本",
+      actionRestart: "点击更新",
+      actionRetry: "重新下载",
+      statusDownloading: "下载中…",
+      versionTooltip: "目标版本 {version}",
+    },
+  },
+
   settings: {
     title: "设置",
     general: "通用",
@@ -72,9 +82,11 @@ export const zhCN = {
     translationHotkey: "翻译快捷键",
     translationHotkeyDescription: "快速打开翻译功能",
     startup: "启动",
-    autoStart: "开机自动启动",
-    autoStartDescription: "系统启动时自动运行应用",
-    cacheManagement: "缓存管理",
+  autoStart: "开机自动启动",
+  autoStartDescription: "系统启动时自动运行应用",
+  autoUpdate: "自动更新",
+  autoUpdateDescription: "后台自动下载更新，并在下次启动时安装",
+  cacheManagement: "缓存管理",
     clearCache: "清理页面缓存",
     clearCacheDescription: "关闭后台 AI 页面并重置缓存数据",
     clearCacheConfirm: "确认清理页面缓存吗？这将关闭除当前页面外的所有 AI 页面。",

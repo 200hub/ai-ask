@@ -43,13 +43,12 @@ export const jaJP = {
         refresh: "更新",
         openInBrowser: "ブラウザで開く",
         minimize: "最小化",
-        close: "閉じる",
-    },
-
-    settings: {
-        title: "設定",
-        general: "一般",
-        platforms: "AIプラットフォーム",
+    close: "閉じる",
+  },
+  settings: {
+    title: "設定",
+    general: "一般",
+    platforms: "AIプラットフォーム",
         proxy: "プロキシ",
         translation: "翻訳",
         about: "について",
@@ -74,6 +73,8 @@ export const jaJP = {
         startup: "スタートアップ",
         autoStart: "自動起動",
         autoStartDescription: "システム起動時に自動的に実行",
+        autoUpdate: "自動更新",
+        autoUpdateDescription: "バックグラウンドで更新をダウンロードし、次回起動時にインストール",
         cacheManagement: "キャッシュ管理",
         clearCache: "ページキャッシュをクリア",
         clearCacheDescription: "バックグラウンドの AI ページを閉じてキャッシュをリセット",
@@ -237,6 +238,16 @@ export const jaJP = {
             step3: "ショートカットでいつでもアプリを呼び出せます。",
         },
         trayHint: "ウィンドウを閉じるとシステムトレイに最小化されます。トレイアイコンを右クリックすると完全に終了できます。",
+    },
+
+    update: {
+        banner: {
+            actionDownload: "新しいバージョンをダウンロード",
+            actionRestart: "再起動して更新",
+            actionRetry: "再試行",
+            statusDownloading: "ダウンロード中…",
+            versionTooltip: "対象バージョン {version}",
+        },
     },
 
     tray: {

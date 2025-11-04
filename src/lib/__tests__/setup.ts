@@ -7,7 +7,7 @@ const log = {
   error: vi.fn(),
 };
 
-vi.mock("$lib/utils/logger", () => ({ log }));
+vi.mock("$lib/utils/logger", () => ({ logger: log, log }));
 
 beforeEach(() => {
   log.debug.mockClear();

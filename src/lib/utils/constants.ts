@@ -225,6 +225,18 @@ export const APP_INFO = {
 };
 
 /**
+ * 更新相关事件常量
+ */
+export const UPDATE_EVENTS = {
+  AVAILABLE: "update:available",
+  DOWNLOADING: "update:downloading",
+  DOWNLOADED: "update:downloaded",
+  available: "update:available",
+  downloading: "update:downloading",
+  downloaded: "update:downloaded",
+} as const;
+
+/**
  * 快捷键列表（用于配置界面展示）
  */
 export const AVAILABLE_SHORTCUTS = [
