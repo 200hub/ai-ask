@@ -292,9 +292,9 @@ export const TIMING = {
   /** 错误消息自动清除时间 */
   ERROR_AUTO_CLEAR_MS: 5000,
   /** WebView 最小显示加载动画的时长（毫秒） */
-  MIN_WEBVIEW_LOADING_MS: 600,
+  MIN_WEBVIEW_LOADING_MS: 800,
   /** WebView 聚焦后额外的就绪等待时间（毫秒） */
-  WEBVIEW_READY_EXTRA_DELAY_MS: 150,
+  WEBVIEW_READY_EXTRA_DELAY_MS: 200,
 } as const;
 
 /**
