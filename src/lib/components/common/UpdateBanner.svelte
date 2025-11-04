@@ -46,15 +46,15 @@
       {t("update.banner.statusDownloading")}
     </span>
   {:else if status === "available" && onDownload}
-    <button type="button" class="pill-button" on:click={handleDownload}>
+    <button type="button" class="pill-button" onclick={handleDownload}>
       {t("update.banner.actionDownload")}
     </button>
   {:else if status === "ready" && onRestart}
-    <button type="button" class="pill-button accent" on:click={handleRestart}>
+    <button type="button" class="pill-button accent" onclick={handleRestart}>
       {t("update.banner.actionRestart")}
     </button>
   {:else if status === "failed" && onDownload}
-    <button type="button" class="pill-button" on:click={handleDownload}>
+    <button type="button" class="pill-button" onclick={handleDownload}>
       {t("update.banner.actionRetry")}
     </button>
   {/if}
