@@ -148,6 +148,8 @@
                 webview = new ChildWebviewProxy(`translator-${platform.id}`, platform.url, proxyUrl);
                 webviewWindows.set(platform.id, webview);
                 await webview.ensure(bounds);
+                // 等待页面真正加载完成再显示
+                await webview.waitForLoadFinished();
             } else {
                 await webview.updateBounds(bounds);
             }

@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { logger } from "$lib/utils/logger";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { EVENTS } from "$lib/utils/constants";
 
 export interface ChildWebviewBounds {
     positionLogical: { x: number; y: number };
@@ -67,12 +69,15 @@ export async function calculateChildWebviewBounds(
 export class ChildWebviewProxy {
     #lastBounds: ChildWebviewBounds | null = null;
     #isVisible = false;
+    #label: string;
 
     constructor(
         private readonly id: string,
         private readonly url: string,
         private readonly proxyUrl: string | null,
-    ) {}
+    ) {
+        this.#label = id;
+    }
 
     async ensure(bounds: ChildWebviewBounds) {
         this.#lastBounds = bounds;
@@ -124,6 +129,51 @@ export class ChildWebviewProxy {
         } catch (error) {
             logger.error("Failed to show child webview", { id: this.id, error });
             throw error;
+        }
+    }
+
+    /**
+     * 等待该子 WebView 当前页面加载完成（基于 Rust 端的 on_page_load 事件）
+     * - 默认超时时间为 15s，超时后将继续执行，不会抛错
+     */
+    async waitForLoadFinished(timeoutMs = 15000): Promise<void> {
+        try {
+            const mainWindow = getCurrentWebviewWindow();
+            const eventName = EVENTS.CHILD_WEBVIEW_READY;
+            let unlisten: unknown = null;
+
+            const waitEvent = new Promise<void>((resolve) => {
+                mainWindow
+                    .listen(eventName, (event) => {
+                        const payload = event.payload as { id?: string } | undefined;
+                        if (payload?.id === this.#label) {
+                            resolve();
+                        }
+                    })
+                    .then((fn) => {
+                        unlisten = fn;
+                    })
+                    .catch((e) => {
+                        logger.warn("Failed to listen child-webview ready event", e);
+                        resolve();
+                    });
+            });
+
+            const timeout = new Promise<void>((resolve) => {
+                setTimeout(resolve, timeoutMs);
+            });
+
+            await Promise.race([waitEvent, timeout]);
+
+            if (typeof unlisten === "function") {
+                try {
+                    (unlisten as () => void)();
+                } catch (e) {
+                    logger.debug("Failed to unlisten child-webview ready", e);
+                }
+            }
+        } catch (error) {
+            logger.warn("waitForLoadFinished failed, proceeding", { id: this.#label, error });
         }
     }
 

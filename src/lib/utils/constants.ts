@@ -321,4 +321,8 @@ export const EVENTS = {
   TRANSLATION_HOTKEY_TRIGGERED: 'translation-hotkey-triggered',
   /** 确保翻译可见事件 */
   ENSURE_TRANSLATION_VISIBLE: 'ensureTranslationVisible',
+  /** 子 WebView 页面开始加载 */
+  CHILD_WEBVIEW_LOAD_STARTED: 'child-webview:load-started',
+  /** 子 WebView 页面加载完成 */
+  CHILD_WEBVIEW_READY: 'child-webview:ready',
 } as const;

@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use serde::Deserialize;
 use tauri::{
     webview::{Webview, WebviewBuilder},
-    LogicalPosition, LogicalSize, Position, Size, State, WebviewUrl, Window,
+    Emitter, LogicalPosition, LogicalSize, Position, Size, State, WebviewUrl, Window,
 };
 
 use crate::proxy::{parse_external_url, parse_proxy_url, resolve_proxy_data_directory};
@@ -153,6 +153,27 @@ pub(crate) async fn ensure_child_webview(
                 builder = builder.data_directory(data_dir);
             }
         }
+
+        // Attach page load events to notify the main window when the child webview is ready
+        let main_window = window.clone();
+        let webview_id_for_events = payload.id.clone();
+        builder = builder.on_page_load(move |_wv, payload| {
+            use tauri::webview::PageLoadEvent;
+            match payload.event() {
+                PageLoadEvent::Started => {
+                    let _ = main_window.emit(
+                        "child-webview:load-started",
+                        serde_json::json!({ "id": webview_id_for_events }),
+                    );
+                }
+                PageLoadEvent::Finished => {
+                    let _ = main_window.emit(
+                        "child-webview:ready",
+                        serde_json::json!({ "id": webview_id_for_events }),
+                    );
+                }
+            }
+        });
 
         let child = window
             .add_child(builder, position, size)

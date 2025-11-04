@@ -152,6 +152,8 @@
             if (!webview) {
                 webview = await createWebviewForPlatform(platform);
                 webviewWindows.set(platform.id, webview);
+                // 等待页面真正加载完成再显示，避免用户看到空白页
+                await webview.waitForLoadFinished();
             } else if (webview.isVisible() && !shouldRestoreWebviews) {
                 await webview.setFocus();
                 scheduleWebviewReflow({ shouldEnsureActiveFront: true });

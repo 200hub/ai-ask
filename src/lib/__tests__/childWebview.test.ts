@@ -7,6 +7,28 @@ import {
 } from "$lib/utils/childWebview";
 import { invoke } from "@tauri-apps/api/core";
 
+// basic mock for current webview window events
+vi.mock("@tauri-apps/api/webviewWindow", () => {
+  const listeners: Record<string, Array<(event: { payload?: unknown }) => void>> = {};
+  return {
+    getCurrentWebviewWindow: () => ({
+      listen: (event: string, cb: (event: { payload?: unknown }) => void) => {
+        listeners[event] ||= [];
+        listeners[event].push(cb);
+        return Promise.resolve(() => {
+          const arr = listeners[event] || [];
+          const idx = arr.indexOf(cb);
+          if (idx >= 0) arr.splice(idx, 1);
+        });
+      },
+      // helper for tests
+      __emit: (event: string, payload?: unknown) => {
+        (listeners[event] || []).forEach((fn) => fn({ payload }));
+      },
+    }),
+  };
+});
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
@@ -141,5 +163,33 @@ describe("ChildWebviewProxy", () => {
     expect(invokeMock).toHaveBeenLastCalledWith("show_child_webview", {
       payload: { id: "qux" },
     });
+  });
+
+  it("waits for load finished event before resolving", async () => {
+    const bounds = sampleBounds();
+    const proxy = new ChildWebviewProxy("alpha", "https://example.com", null);
+    await proxy.ensure(bounds);
+
+    // get the mocked window to emit event
+  const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+  type MockWin = { __emit: (event: string, payload?: unknown) => void };
+  const win = getCurrentWebviewWindow() as unknown as MockWin;
+
+    const p = proxy.waitForLoadFinished(1000);
+    // not resolved yet
+    let resolved = false;
+    p.then(() => {
+      resolved = true;
+    });
+
+    // emit a different id -> should not resolve
+    win.__emit("child-webview:ready", { id: "beta" });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(resolved).toBe(false);
+
+    // emit the matching id -> should resolve
+    win.__emit("child-webview:ready", { id: "alpha" });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(resolved).toBe(true);
   });
 });
