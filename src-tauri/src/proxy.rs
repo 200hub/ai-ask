@@ -212,13 +212,13 @@ pub fn build_client_with_proxy(config: &ProxyTestConfig) -> Result<reqwest::Clie
                 .as_deref()
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
-                .ok_or_else(|| "代理地址不能为空".to_string())?;
+                .ok_or_else(|| "Proxy host is required".to_string())?;
             let port = config
                 .port
                 .as_deref()
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
-                .ok_or_else(|| "代理端口不能为空".to_string())?;
+                .ok_or_else(|| "Proxy port is required".to_string())?;
             let proxy_url = if host.contains("://") {
                 host.to_string()
             } else {
@@ -229,7 +229,7 @@ pub fn build_client_with_proxy(config: &ProxyTestConfig) -> Result<reqwest::Clie
         }
         "system" => { /* no explicit proxy; reqwest picks env/system if set */ }
         "none" => { /* no proxy */ }
-        other => return Err(format!("不支持的代理类型: {}", other)),
+        other => return Err(format!("Unsupported proxy type: {}", other)),
     }
 
     builder.build().map_err(|e| e.to_string())

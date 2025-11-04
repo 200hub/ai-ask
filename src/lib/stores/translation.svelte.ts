@@ -8,6 +8,7 @@ import {
   updateTranslationPlatform,
 } from "../utils/storage";
 import { configStore } from "./config.svelte";
+import { logger } from "../utils/logger";
 
 /**
  * 翻译平台管理类
@@ -62,7 +63,7 @@ class TranslationStore {
         await configStore.setCurrentTranslator(active.id);
       }
     } catch (error) {
-      console.error("Failed to initialize translation platforms:", error);
+      logger.error("Failed to initialize translation platforms", error);
     }
   }
 
@@ -111,7 +112,7 @@ class TranslationStore {
 
       this.platforms = [...this.platforms];
     } catch (error) {
-      console.error("Failed to toggle translation platform:", error);
+      logger.error("Failed to toggle translation platform", error);
       throw error;
     }
   }
@@ -138,7 +139,7 @@ class TranslationStore {
       }
       this.platforms = [...this.platforms];
     } catch (error) {
-      console.error("Failed to update translation platform:", error);
+      logger.error("Failed to update translation platform", error);
       throw error;
     }
   }
@@ -150,7 +151,7 @@ class TranslationStore {
     try {
       await saveTranslationPlatforms(this.platforms);
     } catch (error) {
-      console.error("Failed to save translation platforms:", error);
+      logger.error("Failed to save translation platforms", error);
       throw error;
     }
   }

@@ -7,6 +7,7 @@
     import Button from "../common/Button.svelte";
     import { platformsStore } from "$lib/stores/platforms.svelte";
     import { i18n } from "$lib/i18n";
+    import { logger } from "$lib/utils/logger";
 
     const t = i18n.t;
 
@@ -31,7 +32,7 @@
             try {
                 await platformsStore.init();
             } catch (error) {
-                console.error("Failed to load AI platforms:", error);
+                logger.error("Failed to load AI platforms", error);
             }
         }
     });
@@ -62,7 +63,7 @@
         try {
             await platformsStore.togglePlatform(id);
         } catch (error) {
-            console.error("Failed to toggle platform:", error);
+            logger.error("Failed to toggle platform", error);
             window.alert(t("platforms.errorToggle"));
         }
     }
@@ -73,7 +74,7 @@
         try {
             await platformsStore.removePlatform(id);
         } catch (error) {
-            console.error("Failed to delete platform:", error);
+            logger.error("Failed to delete platform", error);
             window.alert(t("platforms.errorDelete"));
         }
     }
@@ -88,13 +89,13 @@
     }
 
     async function movePlatform(id: string, direction: "up" | "down") {
-        console.log('[PlatformSettings] movePlatform called:', { id, direction });
+        logger.info("Moving platform", { id, direction });
         
         try {
             await platformsStore.movePlatform(id, direction);
-            console.log('[PlatformSettings] Platform moved successfully');
+            logger.info("Platform moved successfully");
         } catch (error) {
-            console.error("Failed to reorder platform:", error);
+            logger.error("Failed to reorder platform", error);
             window.alert(t("platforms.errorOrder"));
         }
     }
@@ -150,7 +151,7 @@
             });
             closeAddModal();
         } catch (error) {
-            console.error("Failed to add platform:", error);
+            logger.error("Failed to add platform", error);
             formError = t("platforms.errorAdd");
         } finally {
             isSubmitting = false;

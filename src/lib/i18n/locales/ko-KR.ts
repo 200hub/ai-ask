@@ -148,6 +148,7 @@ export const koKR = {
         portRangeError: "프록시 포트는 1에서 65535 사이여야 합니다",
         noChanges: "저장할 변경 사항이 없습니다",
         invalidSettings: "프록시 설정이 올바르지 않습니다",
+        unsupportedProxyType: "지원되지 않는 프록시 유형: {type}",
         testSuccess: "연결에 성공했습니다{latency}",
         testFailed: "연결에 실패했습니다",
         latencySuffix: " (지연 {latency}ms)",

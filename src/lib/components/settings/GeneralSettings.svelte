@@ -8,6 +8,7 @@
         TRANSLATION_SHORTCUTS,
     } from "$lib/utils/constants";
     import { i18n, SUPPORTED_LOCALES, type Locale } from "$lib/i18n";
+    import { logger } from "$lib/utils/logger";
 
     const t = i18n.t;
 
@@ -31,7 +32,7 @@
         try {
             await configStore.setTheme(theme);
         } catch (error) {
-            console.error("Failed to change theme:", error);
+            logger.error("Failed to change theme", error);
         } finally {
             isSaving = false;
         }
@@ -48,7 +49,7 @@
             await configStore.setGlobalHotkey(hotkey);
             // TODO: 重新注册全局快捷键
         } catch (error) {
-            console.error("Failed to change hotkey:", error);
+            logger.error("Failed to change hotkey", error);
         }
     }
 
@@ -63,7 +64,7 @@
             await configStore.setTranslationHotkey(hotkey);
             // TODO: 重新注册翻译快捷键
         } catch (error) {
-            console.error("Failed to change translation hotkey:", error);
+            logger.error("Failed to change translation hotkey", error);
         }
     }
 
@@ -78,7 +79,7 @@
             await configStore.setAutoStart(autoStart);
             // TODO: 配置系统自动启动
         } catch (error) {
-            console.error("Failed to change auto start:", error);
+            logger.error("Failed to change auto start", error);
         }
     }
 
@@ -92,7 +93,7 @@
         try {
             await configStore.setAutoUpdateEnabled(enabled);
         } catch (error) {
-            console.error("Failed to change auto update:", error);
+            logger.error("Failed to change auto update", error);
         }
     }
 
@@ -120,7 +121,7 @@
             // 保存到配置
             await configStore.update({ locale });
         } catch (error) {
-            console.error("Failed to change locale:", error);
+            logger.error("Failed to change locale", error);
         }
     }
 

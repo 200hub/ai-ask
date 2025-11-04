@@ -113,7 +113,7 @@
                 webview
                     .close()
                     .catch((error) => {
-                        console.error(`关闭 WebView ${id} 失败:`, error);
+                        logger.error("Failed to close AI platform WebView", { id, error });
                     }),
             );
         }
@@ -392,13 +392,13 @@
      */
     export async function reloadCurrentPlatform() {
         if (!activePlatformId || !appState.selectedPlatform) {
-            console.warn("没有激活的平台，无法刷新");
+            logger.warn("No active platform to reload");
             return;
         }
 
         const currentWebview = webviewWindows.get(activePlatformId);
         if (!currentWebview) {
-            console.warn(`未找到平台 ${activePlatformId} 的 WebView`);
+            logger.warn("Platform WebView not found", { platformId: activePlatformId });
             return;
         }
 
