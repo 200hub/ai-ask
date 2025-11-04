@@ -108,7 +108,10 @@ pub(crate) async fn ensure_child_webview(
         .unwrap_or(false);
 
     if should_recreate {
-        log::info!("Proxy configuration changed, recreating child webview: {}", payload.id);
+        log::info!(
+            "Proxy configuration changed, recreating child webview: {}",
+            payload.id
+        );
         if let Some(entry) = webviews.remove(&payload.id) {
             let _ = entry.webview.close();
         }
@@ -119,7 +122,11 @@ pub(crate) async fn ensure_child_webview(
 
         if let Ok(current_url) = webview.url() {
             if current_url.as_str() != payload.url {
-                log::debug!("Updating child webview URL: {} -> {}", current_url, payload.url);
+                log::debug!(
+                    "Updating child webview URL: {} -> {}",
+                    current_url,
+                    payload.url
+                );
                 webview
                     .navigate(parse_external_url(&payload.url)?)
                     .map_err(|err| err.to_string())?;

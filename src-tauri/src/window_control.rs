@@ -27,8 +27,9 @@ pub(crate) fn resolve_main_window(app: &tauri::AppHandle) -> Option<Window> {
 pub(crate) async fn hide_main_window(window: &Window) -> Result<(), String> {
     log::debug!("Hiding main window");
 
+    const WEBVIEW_HIDE_DELAY_MS: u64 = 100;
     let _ = window.emit("hideAllWebviews", ());
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(WEBVIEW_HIDE_DELAY_MS)).await;
 
     window.hide().map_err(|err| {
         log::error!("Failed to hide window: {}", err);
@@ -80,7 +81,11 @@ pub(crate) async fn toggle_main_window_visibility(window: &Window) -> Result<(),
         err.to_string()
     })?;
 
-    log::debug!("Toggling window state: visible={}, minimized={}", is_visible, is_minimized);
+    log::debug!(
+        "Toggling window state: visible={}, minimized={}",
+        is_visible,
+        is_minimized
+    );
 
     if is_visible && !is_minimized {
         hide_main_window(window).await

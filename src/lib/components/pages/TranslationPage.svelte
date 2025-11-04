@@ -12,6 +12,7 @@
     } from "$lib/utils/childWebview";
     import { createProxySignature, resolveProxyUrl } from "$lib/utils/proxy";
     import { logger } from "$lib/utils/logger";
+    import { EVENT_NAMES, WEBVIEW_PREFIXES, TAURI_EVENTS, WINDOW_EVENT_TYPES } from "$lib/utils/constants";
 
     const t = i18n.t;
 
@@ -53,9 +54,9 @@
     };
 
     const domEventHandlers = [
-        { event: "hideAllWebviews", handler: handleHideAllWebviewsEvent },
-        { event: "resize", handler: () => handleMainWindowResize() },
-        { event: "ensureTranslationVisible", handler: handleEnsureTranslationVisible },
+        { event: EVENT_NAMES.HIDE_ALL_WEBVIEWS, handler: handleHideAllWebviewsEvent },
+        { event: EVENT_NAMES.RESIZE, handler: () => handleMainWindowResize() },
+        { event: EVENT_NAMES.ENSURE_TRANSLATION_VISIBLE, handler: handleEnsureTranslationVisible },
     ];
 
     $effect(() => {
@@ -142,7 +143,7 @@
 
             if (!webview) {
                 const proxyUrl = resolveProxyUrl(configStore.config.proxy);
-                webview = new ChildWebviewProxy(`translator-${platform.id}`, platform.url, proxyUrl);
+                webview = new ChildWebviewProxy(`${WEBVIEW_PREFIXES.TRANSLATOR}${platform.id}`, platform.url, proxyUrl);
                 webviewWindows.set(platform.id, webview);
                 await webview.ensure(bounds);
             } else {
@@ -382,11 +383,11 @@
                     handleMainWindowResize();
                 });
 
-                windowEventUnlisteners.focus = await mainWindow.listen("tauri://focus", () => {
+                windowEventUnlisteners.focus = await mainWindow.listen(TAURI_EVENTS.FOCUS, () => {
                     isMainWindowFocused = true;
                 });
 
-                windowEventUnlisteners.blur = await mainWindow.listen("tauri://blur", () => {
+                windowEventUnlisteners.blur = await mainWindow.listen(TAURI_EVENTS.BLUR, () => {
                     isMainWindowFocused = false;
                 });
 
@@ -394,22 +395,22 @@
                     await closeAllWebviews();
                 });
 
-                windowEventUnlisteners.hideWebviews = await mainWindow.listen("hideAllWebviews", () => {
+                windowEventUnlisteners.hideWebviews = await mainWindow.listen(EVENT_NAMES.HIDE_ALL_WEBVIEWS, () => {
                     void hideAllWebviews({ markForRestore: true });
                 });
 
-                windowEventUnlisteners.windowEvent = await mainWindow.listen("tauri://window-event", (event) => {
+                windowEventUnlisteners.windowEvent = await mainWindow.listen(TAURI_EVENTS.WINDOW_EVENT, (event) => {
                     const payload = event.payload as { event: string } | undefined;
-                    if (payload?.event === "minimized" || payload?.event === "hidden") {
+                    if (payload?.event === WINDOW_EVENT_TYPES.MINIMIZED || payload?.event === WINDOW_EVENT_TYPES.HIDDEN) {
                         void hideAllWebviews({ markForRestore: true });
                     }
 
-                    if (payload?.event === "restored" || payload?.event === "shown") {
+                    if (payload?.event === WINDOW_EVENT_TYPES.RESTORED || payload?.event === WINDOW_EVENT_TYPES.SHOWN) {
                         void restoreActiveWebview(true);
                     }
                 });
 
-                windowEventUnlisteners.restoreWebviews = await mainWindow.listen("restoreWebviews", () => {
+                windowEventUnlisteners.restoreWebviews = await mainWindow.listen(EVENT_NAMES.RESTORE_WEBVIEWS, () => {
                     void restoreActiveWebview(true);
                 });
 

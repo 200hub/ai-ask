@@ -167,7 +167,11 @@ pub(crate) async fn test_proxy_connection(
             let latency = start.elapsed().as_millis();
             let status = response.status();
 
-            log::info!("Proxy test completed: status={}, latency={}ms", status, latency);
+            log::info!(
+                "Proxy test completed: status={}, latency={}ms",
+                status,
+                latency
+            );
 
             if status.is_success() {
                 Ok(ProxyTestResult {

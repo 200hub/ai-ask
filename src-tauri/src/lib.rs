@@ -1,4 +1,4 @@
-﻿//! AI Ask - 桌面应用后端
+//! AI Ask - 桌面应用后端
 //!
 //! 基于 Tauri 2.0 构建的跨平台桌面应用，提供窗口控制、
 //! 子 WebView 生命周期管理、代理测试、系统托盘与快捷键支持。
@@ -50,7 +50,8 @@ pub fn run() {
             log::debug!("Starting application setup");
 
             let show_item = MenuItem::with_id(app, "show", "Show Main Window", true, None::<&str>)?;
-            let settings_item = MenuItem::with_id(app, "settings", "Preferences", true, None::<&str>)?;
+            let settings_item =
+                MenuItem::with_id(app, "settings", "Preferences", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &settings_item, &quit_item])?;
 
@@ -113,6 +114,7 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let shortcut = "Ctrl+Shift+A";
 
+            const SHORTCUT_THROTTLE_MS: u64 = 350;
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
             if let Ok(shortcut) = shortcut.parse::<Shortcut>() {
                 log::info!("Registering global shortcut: {}", shortcut);
@@ -124,10 +126,11 @@ pub fn run() {
                             let now = Instant::now();
                             if let Some(previous) = *last {
                                 let elapsed = now.duration_since(previous);
-                                if elapsed < Duration::from_millis(350) {
+                                if elapsed < Duration::from_millis(SHORTCUT_THROTTLE_MS) {
                                     log::debug!(
-                                        "Shortcut trigger throttled: {}ms < 350ms",
-                                        elapsed.as_millis()
+                                        "Shortcut trigger throttled: {}ms < {}ms",
+                                        elapsed.as_millis(),
+                                        SHORTCUT_THROTTLE_MS
                                     );
                                     return;
                                 }

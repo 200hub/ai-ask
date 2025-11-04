@@ -17,6 +17,7 @@
     import { createProxySignature, resolveProxyUrl } from "$lib/utils/proxy";
     import { logger } from "$lib/utils/logger";
     import { i18n } from "$lib/i18n";
+    import { EVENT_NAMES, WEBVIEW_PREFIXES, TAURI_EVENTS, WINDOW_EVENT_TYPES } from "$lib/utils/constants";
 
     const t = i18n.t;
     type ManagedWebview = ChildWebviewProxy;
@@ -208,7 +209,7 @@
     async function createWebviewForPlatform(platform: AIPlatform): Promise<ManagedWebview> {
     const bounds = await calculateChildWebviewBounds(mainWindow);
     const proxyUrl = resolveProxyUrl(configStore.config.proxy);
-        const webview = new ChildWebviewProxy(`ai-chat-${platform.id}`, platform.url, proxyUrl);
+        const webview = new ChildWebviewProxy(`${WEBVIEW_PREFIXES.AI_CHAT}${platform.id}`, platform.url, proxyUrl);
         await webview.ensure(bounds);
         return webview;
     }
@@ -486,9 +487,9 @@
         // ========== DOM 事件监听器 ==========
         
         const domEventHandlers = [
-            { event: "refreshWebview", handler: handleRefreshEvent as EventListener },
-            { event: "hideAllWebviews", handler: handleHideAllWebviewsEvent },
-            { event: "resize", handler: () => handleMainWindowResize() },
+            { event: EVENT_NAMES.REFRESH_WEBVIEW, handler: handleRefreshEvent as EventListener },
+            { event: EVENT_NAMES.HIDE_ALL_WEBVIEWS, handler: handleHideAllWebviewsEvent },
+            { event: EVENT_NAMES.RESIZE, handler: () => handleMainWindowResize() },
         ];
 
         // 注册 DOM 事件监听器
@@ -525,12 +526,12 @@
                 });
 
                 // 注册窗口获得焦点监听
-                windowEventUnlisteners.focus = await mainWindow.listen("tauri://focus", () => {
+                windowEventUnlisteners.focus = await mainWindow.listen(TAURI_EVENTS.FOCUS, () => {
                     isMainWindowFocused = true;
                 });
 
                 // 注册窗口失去焦点监听
-                windowEventUnlisteners.blur = await mainWindow.listen("tauri://blur", () => {
+                windowEventUnlisteners.blur = await mainWindow.listen(TAURI_EVENTS.BLUR, () => {
                     isMainWindowFocused = false;
                 });
 
@@ -540,27 +541,27 @@
                 });
 
                 // 注册来自 Rust 端的隐藏子 webview 事件（托盘/快捷键触发）
-                windowEventUnlisteners.hideWebviews = await mainWindow.listen("hideAllWebviews", () => {
+                windowEventUnlisteners.hideWebviews = await mainWindow.listen(EVENT_NAMES.HIDE_ALL_WEBVIEWS, () => {
                     void hideAllWebviews({ markForRestore: true });
                 });
 
                 // 注册窗口事件监听（最小化、隐藏等）
                 windowEventUnlisteners.windowEvent = await mainWindow.listen(
-                    "tauri://window-event",
+                    TAURI_EVENTS.WINDOW_EVENT,
                     (event) => {
                         const payload = event.payload as { event: string } | undefined;
-                        if (payload?.event === "minimized" || payload?.event === "hidden") {
+                        if (payload?.event === WINDOW_EVENT_TYPES.MINIMIZED || payload?.event === WINDOW_EVENT_TYPES.HIDDEN) {
                             void hideAllWebviews({ markForRestore: true });
                         }
 
-                        if (payload?.event === "restored" || payload?.event === "shown") {
+                        if (payload?.event === WINDOW_EVENT_TYPES.RESTORED || payload?.event === WINDOW_EVENT_TYPES.SHOWN) {
                             void restoreActiveWebview(true);
                         }
                     }
                 );
 
                 windowEventUnlisteners.restoreWebviews = await mainWindow.listen(
-                    "restoreWebviews",
+                    EVENT_NAMES.RESTORE_WEBVIEWS,
                     () => {
                         void restoreActiveWebview(true);
                     }
