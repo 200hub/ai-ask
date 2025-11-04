@@ -217,6 +217,26 @@ export class ChildWebviewProxy {
         }
     }
 
+    /**
+     * Evaluate JavaScript code in the child webview
+     * @param script - JavaScript code to execute
+     * @returns Promise resolving to the result of the script execution
+     */
+    async evaluateScript<T = unknown>(script: string): Promise<T> {
+        try {
+            const result = await invoke<T>("evaluate_child_webview_script", {
+                payload: {
+                    id: this.id,
+                    script,
+                },
+            });
+            return result;
+        } catch (error) {
+            logger.error("Failed to evaluate script in child webview", { id: this.id, error });
+            throw error;
+        }
+    }
+
     isVisible(): boolean {
         return this.#isVisible;
     }

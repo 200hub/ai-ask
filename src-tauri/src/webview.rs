@@ -329,3 +329,45 @@ pub(crate) async fn hide_all_child_webviews(
     log::debug!("All child webviews hidden");
     Ok(())
 }
+
+/// Evaluate JavaScript code in a specific child webview
+#[derive(Debug, Deserialize)]
+pub(crate) struct EvaluateScriptPayload {
+    id: String,
+    script: String,
+}
+
+#[tauri::command]
+pub(crate) async fn evaluate_child_webview_script(
+    state: State<'_, ChildWebviewManager>,
+    payload: EvaluateScriptPayload,
+) -> Result<serde_json::Value, String> {
+    log::debug!(
+        "Evaluating script in child webview: id={}, script_len={}",
+        payload.id,
+        payload.script.len()
+    );
+
+    let webviews = state
+        .webviews
+        .lock()
+        .map_err(|err| format!("failed to lock webview map: {err}"))?;
+
+    if let Some(entry) = webviews.get(&payload.id) {
+        entry
+            .webview
+            .eval(&payload.script)
+            .map_err(|err| format!("script evaluation failed: {err}"))?;
+
+        log::debug!(
+            "Script evaluated successfully in child webview: {}",
+            payload.id
+        );
+
+        // Return a success indicator since eval() doesn't return a value directly
+        // For getting return values, we would need to use with_webview() and execute_script_with_callback()
+        Ok(serde_json::json!({ "success": true, "message": "Script executed successfully" }))
+    } else {
+        Err(format!("child webview not found: {}", payload.id))
+    }
+}
