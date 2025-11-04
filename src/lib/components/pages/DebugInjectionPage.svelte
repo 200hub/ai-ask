@@ -71,8 +71,9 @@
 			const mainWindow = getCurrentWebviewWindow();
 			const bounds = await calculateChildWebviewBounds(mainWindow);
 
-			// 创建并初始化 webview
-			webviewProxy = new ChildWebviewProxy(selectedPlatform.id, selectedPlatform.url, null);
+			// 创建并初始化 webview - 使用 debug- 前缀避免与正常平台冲突
+			const debugWebviewId = `debug-${selectedPlatform.id}`;
+			webviewProxy = new ChildWebviewProxy(debugWebviewId, selectedPlatform.url, null);
 			await webviewProxy.ensure(bounds);
 			await webviewProxy.show();
 
@@ -177,10 +178,12 @@
 	 * 返回设置页面
 	 */
 	function goBack() {
+		// 自动清理 webview
 		if (webviewProxy) {
 			webviewProxy.close().catch((err) => {
-				logger.error('Failed to close webview on go back', err);
+				logger.error('Failed to close debug webview on back', err);
 			});
+			webviewProxy = null;
 		}
 		appState.openSettings();
 	}

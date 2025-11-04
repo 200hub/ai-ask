@@ -103,8 +103,11 @@ class AppState {
    * 切换到调试视图
    */
   switchToDebugView() {
+    logger.info('Opening debug page');
     this.currentView = 'debug';
     this.showSettings = false;
+    // 触发事件隐藏所有活跃的子webview（聊天、翻译等）
+    window.dispatchEvent(new CustomEvent('hideAllWebviews'));
   }
 
   /**
