@@ -272,6 +272,7 @@ export const enUS = {
         selectPlatform: "Select Platform",
         pleaseSelect: "Please select...",
         initWebview: "Initialize WebView",
+        showWebview: "Show WebView",
         closeWebview: "Close WebView",
         messageToInject: "Message to Inject",
         messagePlaceholder: "Enter message to inject into AI platform...",

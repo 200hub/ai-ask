@@ -22,6 +22,7 @@
 	let loading = $state(false);
 	let result = $state<InjectionResult | null>(null);
 	let logs = $state<Array<{ time: string; type: string; message: string }>>([]);
+	let showWebview = $state(false); // 是否显示 webview（隐藏控制面板）
 
 	// 注册所有内置模板
 	onMount(() => {
@@ -68,6 +69,12 @@
 			result = null;
 			addLog('info', `${t('debug.initializing')} ${selectedPlatform.name}...`);
 
+			// 切换到 webview 显示模式
+			showWebview = true;
+
+			// 等待 DOM 更新后再计算 bounds
+			await new Promise(resolve => setTimeout(resolve, 100));
+
 			const mainWindow = getCurrentWebviewWindow();
 			const bounds = await calculateChildWebviewBounds(mainWindow);
 
@@ -90,8 +97,41 @@
 				success: false,
 				error: String(error)
 			};
+			showWebview = false; // 失败时回到控制面板
 		} finally {
 			loading = false;
+		}
+	}
+
+	/**
+	 * 隐藏 WebView，回到控制面板
+	 */
+	function hideWebview() {
+		showWebview = false;
+		if (webviewProxy) {
+			webviewProxy.hide().catch((err) => {
+				logger.error('Failed to hide webview', err);
+			});
+		}
+	}
+
+	/**
+	 * 显示 WebView
+	 */
+	async function showWebviewAgain() {
+		if (!webviewProxy) return;
+		
+		try {
+			showWebview = true;
+			await new Promise(resolve => setTimeout(resolve, 100));
+			
+			const mainWindow = getCurrentWebviewWindow();
+			const bounds = await calculateChildWebviewBounds(mainWindow);
+			await webviewProxy.updateBounds(bounds);
+			await webviewProxy.show();
+		} catch (error) {
+			logger.error('Failed to show webview', error);
+			showWebview = false;
 		}
 	}
 
@@ -105,6 +145,7 @@
 			addLog('info', t('debug.closingWebview'));
 			await webviewProxy.close();
 			webviewProxy = null;
+			showWebview = false;
 			addLog('success', t('debug.webviewClosed'));
 		} catch (error) {
 			addLog('error', `${t('debug.closeFailed')}: ${error}`);
@@ -178,6 +219,12 @@
 	 * 返回设置页面
 	 */
 	function goBack() {
+		// 如果正在显示 webview，先隐藏它
+		if (showWebview) {
+			hideWebview();
+			return;
+		}
+		
 		// 自动清理 webview
 		if (webviewProxy) {
 			webviewProxy.close().catch((err) => {
@@ -190,21 +237,59 @@
 </script>
 
 <div class="debug-page">
-	<!-- 头部 -->
-	<div class="debug-header">
-		<button class="back-btn" onclick={goBack}>
-			<svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-				<path
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					stroke-width="2"
-					d="M15 19l-7-7 7-7"
-				/>
-			</svg>
-			{t('common.back')}
-		</button>
-		<h2>{t('debug.title')}</h2>
-	</div>
+	{#if showWebview}
+		<!-- WebView 模式 - 显示浮动控制栏 -->
+		<div class="floating-controls">
+			<button class="control-btn" onclick={goBack} title={t('common.back')}>
+				<svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						d="M15 19l-7-7 7-7"
+					/>
+				</svg>
+				{t('common.back')}
+			</button>
+
+			<div class="control-divider"></div>
+
+			<input
+				type="text"
+				bind:value={message}
+				placeholder={t('debug.messagePlaceholder')}
+				class="floating-input"
+				disabled={loading}
+			/>
+
+			<button
+				class="control-btn primary"
+				onclick={executeInjection}
+				disabled={loading || !message.trim()}
+			>
+				{loading ? t('debug.executing') : t('debug.executeInjection')}
+			</button>
+
+			<button class="control-btn danger" onclick={closeWebview}>
+				{t('debug.closeWebview')}
+			</button>
+		</div>
+	{:else}
+		<!-- 控制面板模式 -->
+		<div class="debug-header">
+			<button class="back-btn" onclick={goBack}>
+				<svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						d="M15 19l-7-7 7-7"
+					/>
+				</svg>
+				{t('common.back')}
+			</button>
+			<h2>{t('debug.title')}</h2>
+		</div>
 
 	<!-- 控制面板 -->
 	<div class="control-panel">
@@ -230,6 +315,9 @@
 					{loading ? t('debug.initializing') : t('debug.initWebview')}
 				</button>
 			{:else}
+				<button class="btn btn-accent" onclick={showWebviewAgain} disabled={loading}>
+					{t('debug.showWebview')}
+				</button>
 				<button class="btn btn-secondary" onclick={closeWebview} disabled={loading}>
 					{t('debug.closeWebview')}
 				</button>
@@ -272,22 +360,23 @@
 		</div>
 	{/if}
 
-	<!-- 日志面板 -->
-	<div class="logs-panel">
-		<div class="logs-header">
-			<h3>{t('debug.logs')}</h3>
-			<button class="btn-small" onclick={clearLogs}>{t('debug.clearLogs')}</button>
+		<!-- 日志面板 -->
+		<div class="logs-panel">
+			<div class="logs-header">
+				<h3>{t('debug.logs')}</h3>
+				<button class="btn-small" onclick={clearLogs}>{t('debug.clearLogs')}</button>
+			</div>
+			<div class="logs-content">
+				{#each logs as log}
+					<div class="log-entry log-{log.type}">
+						<span class="log-time">{log.time}</span>
+						<span class="log-type">[{log.type.toUpperCase()}]</span>
+						<span class="log-message">{log.message}</span>
+					</div>
+				{/each}
+			</div>
 		</div>
-		<div class="logs-content">
-			{#each logs as log}
-				<div class="log-entry log-{log.type}">
-					<span class="log-time">{log.time}</span>
-					<span class="log-type">[{log.type.toUpperCase()}]</span>
-					<span class="log-message">{log.message}</span>
-				</div>
-			{/each}
-		</div>
-	</div>
+	{/if}
 </div>
 
 <style>
@@ -550,5 +639,104 @@
 	.log-message {
 		color: var(--text-primary);
 		flex: 1;
+	}
+
+	/* 浮动控制栏样式 */
+	.floating-controls {
+		position: fixed;
+		top: 60px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 1000;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: rgba(0, 0, 0, 0.85);
+		backdrop-filter: blur(10px);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 0.75rem;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+	}
+
+	.control-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.5rem 1rem;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 0.5rem;
+		background: rgba(255, 255, 255, 0.1);
+		color: white;
+		font-size: 0.875rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.control-btn:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.2);
+		border-color: rgba(255, 255, 255, 0.3);
+	}
+
+	.control-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.control-btn svg {
+		width: 18px;
+		height: 18px;
+	}
+
+	.control-btn.primary {
+		background: var(--accent-color);
+		border-color: var(--accent-color);
+	}
+
+	.control-btn.primary:hover:not(:disabled) {
+		opacity: 0.9;
+	}
+
+	.control-btn.danger {
+		background: rgba(239, 68, 68, 0.8);
+		border-color: rgba(239, 68, 68, 0.8);
+	}
+
+	.control-btn.danger:hover:not(:disabled) {
+		background: rgba(239, 68, 68, 1);
+	}
+
+	.control-divider {
+		width: 1px;
+		height: 24px;
+		background: rgba(255, 255, 255, 0.2);
+		margin: 0 0.25rem;
+	}
+
+	.floating-input {
+		flex: 1;
+		min-width: 300px;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 0.5rem;
+		background: rgba(255, 255, 255, 0.1);
+		color: white;
+		font-size: 0.875rem;
+	}
+
+	.floating-input::placeholder {
+		color: rgba(255, 255, 255, 0.5);
+	}
+
+	.floating-input:focus {
+		outline: none;
+		border-color: var(--accent-color);
+		background: rgba(255, 255, 255, 0.15);
+	}
+
+	.floating-input:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 </style>

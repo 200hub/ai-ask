@@ -272,6 +272,7 @@ export const zhCN = {
     selectPlatform: "选择平台",
     pleaseSelect: "请选择...",
     initWebview: "初始化 WebView",
+    showWebview: "显示 WebView",
     closeWebview: "关闭 WebView",
     messageToInject: "要注入的消息",
     messagePlaceholder: "输入要注入到 AI 平台的消息...",

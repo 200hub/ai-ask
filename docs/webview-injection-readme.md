@@ -25,9 +25,6 @@ src/lib/
 │   ├── injection-templates.ts            # 平台模板配置
 │   ├── childWebview.ts                   # 扩展的 WebView 代理
 │   └── constants.ts                      # 新增注入相关常量
-├── components/
-│   └── examples/
-│       └── InjectionExample.svelte       # 使用示例组件
 └── __tests__/
     └── injection.test.ts                 # 单元测试（61个测试通过）
 
@@ -207,10 +204,6 @@ pnpm lint
 ⚠️ **性能**: 设置合理的 timeout 防止死锁  
 ⚠️ **可靠性**: 在真实环境中测试选择器  
 ⚠️ **异步通信**: 脚本结果通过 IPC 事件异步返回，默认超时 10 秒
-
-## 示例组件
-
-参见 `src/lib/components/examples/InjectionExample.svelte` 查看完整的使用示例。
 
 ## 详细文档
 

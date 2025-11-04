@@ -271,6 +271,7 @@ export const jaJP = {
         selectPlatform: "プラットフォームを選択",
         pleaseSelect: "選択してください...",
         initWebview: "WebViewを初期化",
+        showWebview: "WebViewを表示",
         closeWebview: "WebViewを閉じる",
         messageToInject: "挿入するメッセージ",
         messagePlaceholder: "AIプラットフォームに挿入するメッセージを入力...",

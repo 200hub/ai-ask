@@ -272,6 +272,7 @@ export const koKR = {
         selectPlatform: "플랫폼 선택",
         pleaseSelect: "선택해주세요...",
         initWebview: "WebView 초기화",
+        showWebview: "WebView 표시",
         closeWebview: "WebView 닫기",
         messageToInject: "주입할 메시지",
         messagePlaceholder: "AI 플랫폼에 주입할 메시지 입력...",
