@@ -131,6 +131,7 @@ export const enUS = {
         errorOrder: "Unable to update order. Please try again.",
         errorAdd: "Unable to add platform. Please try again.",
         iconOptionalHint: "Optional; leave blank to use a default icon.",
+        onlyCustomDeletable: "Only custom platforms can be deleted",
     },
 
     proxy: {

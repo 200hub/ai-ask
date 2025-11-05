@@ -325,6 +325,8 @@ export const EVENTS = {
   CHILD_WEBVIEW_LOAD_STARTED: 'child-webview:load-started',
   /** 子 WebView 页面加载完成 */
   CHILD_WEBVIEW_READY: 'child-webview:ready',
+  /** 注入结果（通过特殊导航传回） */
+  CHILD_WEBVIEW_INJECTION_RESULT: 'child-webview:injection-result',
 } as const;
 
 /**

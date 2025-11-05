@@ -3,36 +3,14 @@
  */
 
 /**
- * Selector configuration for targeting DOM elements
- */
-export interface SelectorConfig {
-	/**
-	 * CSS selector to find the target element
-	 */
-	selector: string;
-	/**
-	 * Optional iframe selector if element is inside iframe
-	 */
-	iframeSelector?: string;
-	/**
-	 * Optional shadow DOM selector path
-	 */
-	shadowRoot?: string;
-	/**
-	 * Wait timeout in milliseconds (default: 5000)
-	 */
-	timeout?: number;
-}
-
-/**
  * Fill text action configuration
  */
 export interface FillTextAction {
 	type: 'fill';
 	/**
-	 * Target element selector config
+	 * CSS selector to find the target element
 	 */
-	target: SelectorConfig;
+	selector: string;
 	/**
 	 * Text content to fill
 	 */
@@ -45,6 +23,10 @@ export interface FillTextAction {
 	 * Delay before filling in milliseconds (default: 0)
 	 */
 	delay?: number;
+	/**
+	 * Wait timeout in milliseconds (default: 5000)
+	 */
+	timeout?: number;
 }
 
 /**
@@ -53,9 +35,9 @@ export interface FillTextAction {
 export interface ClickAction {
 	type: 'click';
 	/**
-	 * Target element selector config
+	 * CSS selector to find the target element
 	 */
-	target: SelectorConfig;
+	selector: string;
 	/**
 	 * Delay before clicking in milliseconds (default: 0)
 	 */
@@ -64,38 +46,36 @@ export interface ClickAction {
 	 * Whether to wait for element to be visible (default: true)
 	 */
 	waitForVisible?: boolean;
+	/**
+	 * Wait timeout in milliseconds (default: 5000)
+	 */
+	timeout?: number;
 }
 
 /**
- * Wait action configuration
+ * Extract content action configuration
  */
-export interface WaitAction {
-	type: 'wait';
+export interface ExtractAction {
+	type: 'extract';
 	/**
-	 * Wait duration in milliseconds
+	 * Maximum time to wait for content in milliseconds (default: 10000)
 	 */
-	duration: number;
-}
-
-/**
- * Custom script action configuration
- */
-export interface CustomScriptAction {
-	type: 'custom';
+	timeout?: number;
 	/**
-	 * Custom JavaScript code to execute
+	 * Polling interval in milliseconds (default: 500)
 	 */
-	script: string;
+	pollInterval?: number;
 	/**
-	 * Delay before executing in milliseconds (default: 0)
+	 * Custom JavaScript code to extract content
+	 * Function receives no parameters: () => string
 	 */
-	delay?: number;
+	extractScript: string;
 }
 
 /**
  * Union type of all action types
  */
-export type InjectionAction = FillTextAction | ClickAction | WaitAction | CustomScriptAction;
+export type InjectionAction = FillTextAction | ClickAction | ExtractAction;
 
 /**
  * Injection template for a specific platform

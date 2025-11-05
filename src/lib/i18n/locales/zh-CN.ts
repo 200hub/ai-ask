@@ -131,6 +131,7 @@ export const zhCN = {
     errorOrder: "无法更新排序，请重试。",
     errorAdd: "无法添加平台，请重试。",
     iconOptionalHint: "可选，留空将使用默认图标。",
+    onlyCustomDeletable: "只能删除自定义平台",
   },
 
   proxy: {

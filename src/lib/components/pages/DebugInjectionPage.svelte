@@ -11,7 +11,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { i18n } from '$lib/i18n';
 	import { appState } from '$lib/stores/app.svelte';
-	import { responseMonitor } from '$lib/stores/response-monitor.svelte';
+
 	import type { InjectionResult } from '$lib/types/injection';
 	import type { AIPlatform } from '$lib/types/platform';
 
@@ -25,8 +25,7 @@
 	let logs = $state<Array<{ time: string; type: string; message: string }>>([]);
 	let showWebview = $state(false); // 是否显示 webview（隐藏控制面板）
 	let shouldRestoreWebview = false; // 是否在恢复事件后重新显示 webview
-	let isMonitoringResponse = $state(false); // 是否正在监听回复
-	let lastAIResponse = $state<string>(''); // 最后接收到的 AI 回复
+	let extractedContent = $state<string>(''); // 提取的内容
 
 	// Debug: track showWebview changes
 	$effect(() => {
@@ -57,6 +56,8 @@
 		void showWebviewAgain();
 	}
 
+	let unlistenInjectionResult: (() => void) | null = null;
+
 	// 注册所有内置模板
 	onMount(() => {
 		ALL_TEMPLATES.forEach((template) => {
@@ -67,6 +68,74 @@
 		window.addEventListener(EVENTS.HIDE_ALL_WEBVIEWS, handleHideAllWebviewsEvent as EventListener);
 		window.addEventListener(EVENTS.RESTORE_WEBVIEWS, handleRestoreWebviewsEvent as EventListener);
 
+		// Listen for injection result events from Rust (captured via navigation intercept)
+		// CRITICAL: Register listener immediately in onMount to avoid race condition
+		const mainWindow = getCurrentWebviewWindow();
+		logger.info('[DEBUG] Registering event listener for:', EVENTS.CHILD_WEBVIEW_INJECTION_RESULT);
+		mainWindow.listen(EVENTS.CHILD_WEBVIEW_INJECTION_RESULT, (ev) => {
+			logger.info('[DEBUG] Event handler called!', ev);
+			const payload = ev.payload as { id?: string; data?: string | null; error?: string | null } | undefined;
+			if (!payload) {
+				logger.warn('[DEBUG] Event payload is empty');
+				return;
+			}
+			addLog('info', `收到注入结果事件 id=${payload.id ?? 'n/a'}`);
+			try {
+				if (payload.error) {
+					addLog('error', '注入回传出错: ' + String(payload.error));
+					return;
+				}
+				if (payload.data) {
+					addLog('info', `开始解码 base64url 数据 (长度: ${payload.data.length})`);
+					// Decode base64url using TextDecoder
+					let s = payload.data;
+					s = s.replace(/-/g, '+').replace(/_/g, '/');
+					const pad = s.length % 4; if (pad) s += '='.repeat(4 - pad);
+					addLog('info', `解码步骤 1: base64url -> base64 完成`);
+					const binary = window.atob(s);
+					addLog('info', `解码步骤 2: base64 -> binary 完成 (${binary.length} bytes)`);
+					let json: string;
+					if (typeof (window as any).TextDecoder !== 'undefined') {
+						const bytes = new Uint8Array(binary.length);
+						for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+						json = new (window as any).TextDecoder().decode(bytes);
+						addLog('info', `解码步骤 3: binary -> UTF-8 完成 (TextDecoder)`);
+					} else {
+						// Fallback for environments without TextDecoder
+						json = decodeURIComponent(escape(binary));
+						addLog('info', `解码步骤 3: binary -> UTF-8 完成 (fallback)`);
+					}
+					addLog('info', `解码后的 JSON: ${json.slice(0, 100)}...`);
+					const parsed = JSON.parse(json) as InjectionResult & { content?: string };
+					addLog('info', `JSON 解析成功: success=${parsed.success}`);
+					result = {
+						success: parsed.success,
+						actionsExecuted: parsed.actionsExecuted ?? 0,
+						duration: parsed.duration ?? 0,
+						error: parsed.success ? undefined : parsed.error,
+					};
+					if ((parsed as any).results) {
+						const extract = (parsed as any).results.find((r: any) => r.type === 'extract');
+						if (extract?.result?.content) {
+							extractedContent = extract.result.content;
+							addLog('success', '提取成功: ' + extractedContent.slice(0, 120));
+						}
+					}
+					addLog(parsed.success ? 'success' : 'error', parsed.success ? '注入完成' : `注入失败: ${parsed.error}`);
+				} else {
+					addLog('info', 'payload.data 为空');
+				}
+			} catch (e) {
+				addLog('error', '处理注入结果失败: ' + (e as Error).message);
+				logger.error('[DEBUG] Decode error:', e);
+			}
+		}).then(fn => { 
+			unlistenInjectionResult = fn; 
+			addLog('info', '事件监听器已注册');
+		}).catch((e) => { 
+			addLog('error', '注册事件监听器失败: ' + e); 
+		});
+
 		return () => {
 			window.removeEventListener(
 				EVENTS.HIDE_ALL_WEBVIEWS,
@@ -76,13 +145,13 @@
 				EVENTS.RESTORE_WEBVIEWS,
 				handleRestoreWebviewsEvent as EventListener
 			);
+			if (unlistenInjectionResult) {
+				try { unlistenInjectionResult(); } catch (_e) { /* ignore */ }
+			}
 		};
 	});
 
 	onDestroy(() => {
-		// 停止所有监听
-		responseMonitor.stopAll();
-		
 		if (webviewProxy) {
 			webviewProxy.close().catch((err) => {
 				logger.error('Failed to close webview', err);
@@ -302,48 +371,26 @@
 			result = null;
 			addLog('info', t('debug.executingInjection'));
 
-			// 查找模板
-			const template = injectionManager.findTemplateForUrl(
-				selectedPlatform.url,
-				selectedPlatform.id
+			// Generate script from template
+			const script = injectionManager.generateFromTemplate(
+				selectedPlatform.id,
+				'Send Message',
+				message
 			);
 
-			if (!template) {
+			if (!script) {
 				throw new Error(t('debug.templateNotFound'));
 			}
 
-			addLog('info', `${t('debug.foundTemplate')}: ${template.name}`);
-
-			// 克隆模板并自定义内容
-			const customTemplate = JSON.parse(JSON.stringify(template));
-			if (customTemplate.actions[0]?.type === 'fill') {
-				customTemplate.actions[0].content = message;
-			}
-
-			// 生成脚本
-			const script = injectionManager.generateTemplateScript(customTemplate);
 			addLog('info', `${t('debug.generatedScript')}: ${script.length} ${t('debug.characters')}`);
-			
-			// Debug: log the generated script to console
 			logger.info('Generated injection script:', script);
 
-			// 执行注入
+			// Execute injection
 			const startTime = Date.now();
-			const rawResult = await webviewProxy.evaluateScript<InjectionResult>(script);
+			await webviewProxy.evaluateScript<InjectionResult>(script);
+			addLog('info', `脚本已发送，等待结果事件...`);
 			const duration = Date.now() - startTime;
-
-			result = injectionManager.parseResult(rawResult);
-			logger.info('Injection result received', { rawResult });
-
-			if (result.success) {
-				addLog(
-					'success',
-					`${t('debug.injectionSuccess')} (${duration}ms, ${result.actionsExecuted} ${t('debug.actions')})`
-				);
-				message = ''; // 清空输入
-			} else {
-				addLog('error', `${t('debug.injectionFailed')}: ${result.error}`);
-			}
+			// 结果将通过事件处理器 (CHILD_WEBVIEW_INJECTION_RESULT) 到达
 		} catch (error) {
 			addLog('error', `${t('debug.executionError')}: ${error}`);
 			result = {
@@ -358,57 +405,100 @@
 	/**
 	 * 开始监听 AI 回复
 	 */
-	async function startMonitoringResponse() {
-		if (!webviewProxy || !selectedPlatform) {
-			addLog('error', '请先初始化 WebView 并选择平台');
+	/**
+	 * 测试单步执行 - 只填充
+	 */
+	async function testFillOnly() {
+		if (!webviewProxy || !message.trim()) {
+			addLog('error', '请输入消息');
 			return;
 		}
 
-		const responseSelector = 'div[data-message-author-role="assistant"]'; // ChatGPT 回复选择器
-
 		try {
-			isMonitoringResponse = true;
-			addLog('info', `开始监听 ${selectedPlatform.name} 的回复...`);
+			loading = true;
+			addLog('info', '[TEST] 测试填充功能...');
 
-			await responseMonitor.startMonitoring(
-				selectedPlatform.id,
-				webviewProxy.id,
-				responseSelector,
-				1000, // 每秒轮询一次
-				(response) => {
-					// 收到新回复时的回调
-					lastAIResponse = response.content;
-					addLog('success', `📩 收到回复 (${response.content.length} 字符, ${response.isComplete ? '✅ 完成' : '⏳ 进行中'})`);
-				}
-			);
-
-			addLog('success', '✅ 监听已启动，等待 AI 回复...');
+			const script = injectionManager.generateFill('#prompt-textarea', message, true, 5000);
+			addLog('info', `[TEST] 生成的脚本长度: ${script.length}`);
+			
+			await webviewProxy.evaluateScript(script);
+			addLog('success', '[TEST] 填充脚本已发送，请查看子窗口是否填充成功');
 		} catch (error) {
-			addLog('error', `启动监听失败: ${error}`);
-			isMonitoringResponse = false;
+			addLog('error', `[TEST] 填充失败: ${error}`);
+		} finally {
+			loading = false;
 		}
 	}
 
 	/**
-	 * 停止监听 AI 回复
+	 * 测试单步执行 - 只点击
 	 */
-	function stopMonitoringResponse() {
-		if (!selectedPlatform || !webviewProxy) return;
+	async function testClickOnly() {
+		if (!webviewProxy) {
+			addLog('error', '请先初始化 WebView');
+			return;
+		}
 
-		responseMonitor.stopMonitoring(selectedPlatform.id, webviewProxy.id);
-		isMonitoringResponse = false;
-		addLog('info', '🛑 已停止监听回复');
+		try {
+			loading = true;
+			addLog('info', '[TEST] 测试点击功能...');
+
+			const script = injectionManager.generateClick('button[data-testid="send-button"]', true, 3000);
+			addLog('info', `[TEST] 生成的脚本长度: ${script.length}`);
+			
+			await webviewProxy.evaluateScript(script);
+			addLog('success', '[TEST] 点击脚本已发送，请查看子窗口是否点击成功');
+		} catch (error) {
+			addLog('error', `[TEST] 点击失败: ${error}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	/**
+	 * 提取 AI 回复内容
+	 */
+	async function extractResponse() {
+		if (!webviewProxy || !selectedPlatform) {
+			addLog('error', '请先初始化 WebView');
+			return;
+		}
+
+		try {
+			loading = true;
+			addLog('info', '开始提取 AI 回复...');
+
+			// Use simple extract script
+			const extractScript = `
+				(function() {
+					console.log('[EXTRACT-TEST] Starting extraction...');
+					const ps = document.querySelectorAll('div[data-message-author-role="assistant"] p');
+					console.log('[EXTRACT-TEST] Found paragraphs:', ps.length);
+					const lastP = ps[ps.length - 1];
+					console.log('[EXTRACT-TEST] Last paragraph:', lastP);
+					const content = lastP?.textContent?.trim() || '';
+					console.log('[EXTRACT-TEST] Content:', content);
+					return { success: true, content };
+				})();
+			`;
+			const result = await webviewProxy.evaluateScript<{ success: boolean; content: string }>(extractScript);
+			if (result.success) {
+				extractedContent = result.content;
+				addLog('success', '✅ 提取成功：' + extractedContent);
+			} else {
+				throw new Error('提取脚本返回失败');
+			}
+		} catch (error) {
+			addLog('error', `提取失败: ${error}`);
+		} finally {
+			loading = false;
+		}
 	}
 
 	/**
 	 * 返回设置页面
 	 */
 	function goBack() {
-		// 停止监听
-		if (isMonitoringResponse) {
-			stopMonitoringResponse();
-		}
-		
 		// 如果正在显示 webview，先隐藏它
 		if (showWebview) {
 			hideWebview();
@@ -543,27 +633,24 @@
 					{loading ? t('debug.executing') : t('debug.executeInjection')}
 				</button>
 
-				<!-- 监听 AI 回复控制 -->
-				<div class="monitor-section">
-					<div class="monitor-label">AI 回复监听:</div>
-					<div class="monitor-controls">
-						{#if !isMonitoringResponse}
-							<button class="btn btn-success" onclick={startMonitoringResponse} disabled={loading}>
-								🎧 开始监听回复
-							</button>
-						{:else}
-							<button class="btn btn-warning" onclick={stopMonitoringResponse}>
-								🛑 停止监听
-							</button>
-						{/if}
-					</div>
+				<!-- 测试按钮 -->
+				<div class="test-buttons" style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+					<button class="btn btn-secondary" onclick={testFillOnly} disabled={loading || !message.trim()}>
+						🧪 测试填充
+					</button>
+					<button class="btn btn-secondary" onclick={testClickOnly} disabled={loading}>
+						🧪 测试点击
+					</button>
+					<button class="btn btn-info" onclick={extractResponse} disabled={loading}>
+						📥 提取 AI 回复
+					</button>
 				</div>
 
-				<!-- 显示最后一次回复 -->
-				{#if lastAIResponse}
-					<div class="ai-response">
-						<h4>📝 最后收到的 AI 回复:</h4>
-						<pre>{lastAIResponse}</pre>
+				<!-- 显示提取的内容 -->
+				{#if extractedContent}
+					<div class="extracted-content">
+						<h4>📝 提取的内容:</h4>
+						<pre>{extractedContent}</pre>
 					</div>
 				{/if}
 			</div>
@@ -997,47 +1084,22 @@
 		cursor: not-allowed;
 	}
 
-	/* 监听控制样式 */
-	.monitor-section {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
+	/* 提取控制样式 */
+	.extract-section {
 		margin-top: 0.5rem;
-		padding-top: 0.75rem;
-		border-top: 1px solid var(--border-color);
 	}
 
-	.monitor-label {
-		color: var(--text-primary);
-		font-weight: 500;
-		font-size: 0.9rem;
-	}
-
-	.monitor-controls {
-		display: flex;
-		gap: 0.5rem;
-	}
-
-	.btn-success {
-		background-color: #10b981;
+	.btn-info {
+		background-color: #3b82f6;
 		color: white;
 	}
 
-	.btn-success:hover:not(:disabled) {
-		background-color: #059669;
+	.btn-info:hover:not(:disabled) {
+		background-color: #2563eb;
 	}
 
-	.btn-warning {
-		background-color: #f59e0b;
-		color: white;
-	}
-
-	.btn-warning:hover:not(:disabled) {
-		background-color: #d97706;
-	}
-
-	/* AI 回复显示 */
-	.ai-response {
+	/* 提取内容显示 */
+	.extracted-content {
 		margin-top: 0.75rem;
 		padding: 1rem;
 		background: var(--bg-tertiary);
@@ -1045,14 +1107,14 @@
 		border: 1px solid var(--border-color);
 	}
 
-	.ai-response h4 {
+	.extracted-content h4 {
 		margin: 0 0 0.75rem 0;
 		font-size: 0.875rem;
 		color: var(--text-primary);
 		font-weight: 600;
 	}
 
-	.ai-response pre {
+	.extracted-content pre {
 		margin: 0;
 		padding: 0.75rem;
 		background: var(--bg-primary);

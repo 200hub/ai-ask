@@ -133,6 +133,7 @@ pub(crate) async fn ensure_child_webview(
             }
         }
 
+        // Attach navigation and page load events
         webview
             .set_position(Position::Logical(position))
             .map_err(|err| err.to_string())?;
@@ -154,9 +155,82 @@ pub(crate) async fn ensure_child_webview(
             }
         }
 
-        // Attach page load events to notify the main window when the child webview is ready
+        // Attach navigation and page load events
         let main_window = window.clone();
         let webview_id_for_events = payload.id.clone();
+        use std::sync::{Arc, Mutex};
+        let agg_state = Arc::new(Mutex::new((0usize, 0usize, String::new()))); // (expected, received, data)
+
+        // Intercept navigation to http(s)://injection.localhost/* to shuttle injection results
+        {
+            let main_window_nav = main_window.clone();
+            let webview_id_nav = webview_id_for_events.clone();
+            let agg_nav = agg_state.clone();
+            builder = builder.on_navigation(move |url| {
+                if let Some(host) = url.host_str() {
+                    if (url.scheme() == "http" || url.scheme() == "https") && host == "injection.localhost" {
+                        log::info!("[NAV-INTERCEPT] Caught navigation to: {}", url);
+                        let path = url.path().trim_start_matches('/');
+                        let get_param = |name: &str| -> Option<String> {
+                            url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.to_string())
+                        };
+                        if path.starts_with("begin") {
+                            if let Some(t_str) = get_param("t") {
+                                if let Ok(t) = t_str.parse::<usize>() {
+                                    log::info!("[NAV-INTERCEPT] Begin: expecting {} chunks", t);
+                                    if let Ok(mut st) = agg_nav.lock() { st.0 = t; st.1 = 0; st.2.clear(); }
+                                }
+                            }
+                        } else if path.starts_with("chunk") {
+                            let d = get_param("d").unwrap_or_default();
+                            if let Ok(mut st) = agg_nav.lock() { 
+                                st.2.push_str(&d); 
+                                st.1 = st.1.saturating_add(1); 
+                                log::info!("[NAV-INTERCEPT] Chunk: received {}/{}, data_len={}", st.1, st.0, st.2.len());
+                            }
+                        } else if path.starts_with("end") {
+                            let (expected, received, data) = { let mut s = agg_nav.lock().unwrap(); (s.0, s.1, std::mem::take(&mut s.2)) };
+                            log::info!("[NAV-INTERCEPT] End: expected={}, received={}, data_len={}", expected, received, data.len());
+                            if expected == 0 || received == 0 || received != expected {
+                                log::warn!("[NAV-INTERCEPT] Chunk mismatch, emitting error event");
+                                if let Err(e) = main_window_nav.emit(
+                                    "child-webview:injection-result",
+                                    serde_json::json!({ "id": webview_id_nav, "error": "incomplete_chunks", "expected": expected, "received": received })
+                                ) {
+                                    log::error!("[NAV-INTERCEPT] Failed to emit error event: {}", e);
+                                } else {
+                                    log::info!("[NAV-INTERCEPT] Error event emitted successfully");
+                                }
+                            } else {
+                                log::info!("[NAV-INTERCEPT] Emitting success event with {} bytes", data.len());
+                                if let Err(e) = main_window_nav.emit(
+                                    "child-webview:injection-result",
+                                    serde_json::json!({ "id": webview_id_nav, "data": data })
+                                ) {
+                                    log::error!("[NAV-INTERCEPT] Failed to emit success event: {}", e);
+                                } else {
+                                    log::info!("[NAV-INTERCEPT] Success event emitted successfully");
+                                }
+                            }
+                        } else if path.starts_with("error") {
+                            let m = get_param("m");
+                            log::error!("[NAV-INTERCEPT] Error signal: {:?}", m);
+                            if let Err(e) = main_window_nav.emit(
+                                "child-webview:injection-result",
+                                serde_json::json!({ "id": webview_id_nav, "error": m })
+                            ) {
+                                log::error!("[NAV-INTERCEPT] Failed to emit injection error event: {}", e);
+                            }
+                        }
+                        // cancel navigation
+                        log::info!("[NAV-INTERCEPT] Navigation cancelled");
+                        return false;
+                    }
+                }
+                true
+            });
+        }
+
         builder = builder.on_page_load(move |_wv, payload| {
             use tauri::webview::PageLoadEvent;
             match payload.event() {
