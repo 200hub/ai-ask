@@ -67,15 +67,6 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 5,
   },
-  {
-    id: 'metaai',
-    name: 'Meta AI',
-    icon: metaIcon,
-    url: 'https://www.meta.ai',
-    enabled: true,
-    isCustom: false,
-    sortOrder: 6,
-  },
   // 国内平台
   {
     id: 'deepseek',
@@ -325,4 +316,28 @@ export const EVENTS = {
   CHILD_WEBVIEW_LOAD_STARTED: 'child-webview:load-started',
   /** 子 WebView 页面加载完成 */
   CHILD_WEBVIEW_READY: 'child-webview:ready',
+  /** 注入结果（通过特殊导航传回） */
+  CHILD_WEBVIEW_INJECTION_RESULT: 'child-webview:injection-result',
 } as const;
+
+/**
+ * 注入相关常量
+ */
+export const INJECTION = {
+  /** 默认选择器超时时间（毫秒） */
+  DEFAULT_TIMEOUT_MS: 5000,
+  /** 默认最大重试次数 */
+  DEFAULT_MAX_RETRIES: 3,
+  /** 重试延迟时间（毫秒） */
+  RETRY_DELAY_MS: 1000,
+} as const;
+
+// Export individual constants for convenience
+export const DEFAULT_INJECTION_TIMEOUT = INJECTION.DEFAULT_TIMEOUT_MS;
+export const DEFAULT_MAX_RETRIES = INJECTION.DEFAULT_MAX_RETRIES;
+export const INJECTION_RETRY_DELAY = INJECTION.RETRY_DELAY_MS;
+
+/**
+ * Debug/Injection UI constants
+ */
+export const DEBUG_FLOATING_CONTROLS_OFFSET = 120; // logical px reserved at top for floating controls

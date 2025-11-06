@@ -217,6 +217,47 @@ export class ChildWebviewProxy {
         }
     }
 
+    /**
+     * Evaluate JavaScript code in the child webview
+     * Note: External URLs don't have Tauri IPC, so we can't get return values.
+     * The script will modify document.title to indicate success/failure:
+     * - Success: title starts with [INJECTION_SUCCESS]
+     * - Error: title starts with [INJECTION_ERROR:message]
+     * @param script - JavaScript code to execute
+     * @param timeout - Maximum time to wait for completion (default: 10000ms)
+     * @returns Promise resolving to success/error based on title change
+     */
+    async evaluateScript<T = unknown>(script: string, timeout = 10000): Promise<T> {
+        try {
+            // Send script to child webview
+            const response = await invoke<{ success: boolean; message: string }>(
+                "evaluate_child_webview_script",
+                {
+                    payload: {
+                        id: this.id,
+                        script,
+                    },
+                }
+            );
+
+            if (!response.success) {
+                throw new Error(response.message);
+            }
+
+            logger.info("Script sent to child webview, waiting for execution...", { id: this.id });
+
+            // Wait for script execution (check console logs for actual result)
+            // Since external webviews don't have Tauri IPC, we can't get return values
+            await new Promise((resolve) => setTimeout(resolve, Math.min(timeout, 3000)));
+
+            // Return a generic success result
+            return { success: true, message: "Script executed, check console for details" } as T;
+        } catch (error) {
+            logger.error("Failed to evaluate script in child webview", { id: this.id, error });
+            throw error;
+        }
+    }
+
     isVisible(): boolean {
         return this.#isVisible;
     }

@@ -4,6 +4,7 @@
 import type { AIPlatform } from '../types/platform';
 import { getAIPlatforms, saveAIPlatforms, addCustomPlatform, updateAIPlatform, deleteAIPlatform } from '../utils/storage';
 import { logger } from '../utils/logger';
+import { i18n } from '$lib/i18n';
 
 /**
  * AI平台管理类
@@ -114,7 +115,8 @@ class PlatformsStore {
   async removePlatform(id: string) {
     const platform = this.getPlatformById(id);
     if (!platform || !platform.isCustom) {
-      throw new Error('Only custom platforms can be deleted');
+      const t = i18n.t;
+      throw new Error(t('platforms.onlyCustomDeletable'));
     }
 
     try {
