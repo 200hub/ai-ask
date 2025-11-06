@@ -67,15 +67,6 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 5,
   },
-  {
-    id: 'metaai',
-    name: 'Meta AI',
-    icon: metaIcon,
-    url: 'https://www.meta.ai',
-    enabled: true,
-    isCustom: false,
-    sortOrder: 6,
-  },
   // 国内平台
   {
     id: 'deepseek',
