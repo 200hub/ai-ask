@@ -2,6 +2,24 @@
 //!
 //! 负责维护子 WebView 的生命周期，包括创建、边界同步、
 //! 可见性切换以及代理配置更新时的安全重建。
+//!
+//! ## 注入结果回传架构 (Injection Result Return Channel)
+//!
+//! 外部网站的 WebView 无法使用 Tauri IPC，因此我们使用基于导航拦截的通信方案：
+//!
+//! ### 流程：
+//! 1. **子 WebView (JS)**: 注入脚本执行完成后，将结果编码为 base64url
+//! 2. **子 WebView (JS)**: 通过导航到 `http://injection.localhost/begin|chunk|end` 发送数据
+//!    - 使用分块传输避免 URL 长度限制（每块 ~1800 字符）
+//! 3. **Rust (on_navigation)**: 拦截这些导航请求，聚合所有分块
+//! 4. **Rust**: 解码 base64url → JSON，emit 事件到主窗口
+//! 5. **主窗口 (Svelte)**: 接收事件，直接使用解析后的 JSON 结果
+//!
+//! ### 关键设计：
+//! - 每个子 WebView 维护独立的聚合状态 (expected, received, data)
+//! - 导航被取消（返回 false），不会真正跳转，避免页面中断
+//! - Rust 端解码确保前端逻辑简单，降低出错概率
+//! - 错误通过 /error 路径传递，统一错误处理
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -13,18 +31,26 @@ use tauri::{
 };
 
 use crate::proxy::{parse_external_url, parse_proxy_url, resolve_proxy_data_directory};
+use crate::utils::decode_base64url_to_json;
 
 /// 保存所有活跃子 WebView 实例
+///
+/// 使用 Mutex 保证线程安全的并发访问
 #[derive(Default)]
 pub(crate) struct ChildWebviewManager {
     webviews: Mutex<HashMap<String, ManagedWebview>>,
 }
 
+/// 单个子 WebView 的管理信息
+///
+/// 包含 Webview 实例和关联的代理配置
+/// 代理配置变化时需要重建 Webview（浏览器引擎限制）
 struct ManagedWebview {
     webview: Webview,
     proxy_url: Option<String>,
 }
 
+/// WebView 位置参数（逻辑坐标）
 #[derive(Debug, Deserialize)]
 pub(crate) struct PositionPayload {
     #[serde(rename = "x")]
@@ -33,6 +59,7 @@ pub(crate) struct PositionPayload {
     y: f64,
 }
 
+/// WebView 尺寸参数（逻辑坐标）
 #[derive(Debug, Deserialize)]
 pub(crate) struct SizePayload {
     #[serde(rename = "width")]
@@ -41,6 +68,7 @@ pub(crate) struct SizePayload {
     height: f64,
 }
 
+/// WebView 边界参数（位置 + 尺寸 + 缩放因子）
 #[derive(Debug, Deserialize)]
 pub(crate) struct BoundsPayload {
     #[serde(rename = "positionLogical")]
@@ -51,6 +79,7 @@ pub(crate) struct BoundsPayload {
     _scale_factor: f64,
 }
 
+/// 创建或更新子 WebView 的请求参数
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EnsureChildWebviewPayload {
@@ -60,21 +89,25 @@ pub(crate) struct EnsureChildWebviewPayload {
     proxy_url: Option<String>,
 }
 
+/// 更新子 WebView 边界的请求参数
 #[derive(Debug, Deserialize)]
 pub(crate) struct ChildWebviewBoundsUpdatePayload {
     id: String,
     bounds: BoundsPayload,
 }
 
+/// 操作子 WebView 的 ID 参数（通用）
 #[derive(Debug, Deserialize)]
 pub(crate) struct ChildWebviewIdPayload {
     id: String,
 }
 
+/// 将边界参数转换为 Tauri 逻辑位置
 fn logical_position(bounds: &BoundsPayload) -> LogicalPosition<f64> {
     LogicalPosition::new(bounds.position_logical.x, bounds.position_logical.y)
 }
 
+/// 将边界参数转换为 Tauri 逻辑尺寸
 fn logical_size(bounds: &BoundsPayload) -> LogicalSize<f64> {
     LogicalSize::new(bounds.size_logical.width, bounds.size_logical.height)
 }
@@ -168,48 +201,109 @@ pub(crate) async fn ensure_child_webview(
             let agg_nav = agg_state.clone();
             builder = builder.on_navigation(move |url| {
                 if let Some(host) = url.host_str() {
-                    if (url.scheme() == "http" || url.scheme() == "https") && host == "injection.localhost" {
+                    if (url.scheme() == "http" || url.scheme() == "https")
+                        && host == "injection.localhost"
+                    {
                         log::info!("[NAV-INTERCEPT] Caught navigation to: {}", url);
                         let path = url.path().trim_start_matches('/');
                         let get_param = |name: &str| -> Option<String> {
-                            url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.to_string())
+                            url.query_pairs()
+                                .find(|(k, _)| k == name)
+                                .map(|(_, v)| v.to_string())
                         };
                         if path.starts_with("begin") {
                             if let Some(t_str) = get_param("t") {
                                 if let Ok(t) = t_str.parse::<usize>() {
                                     log::info!("[NAV-INTERCEPT] Begin: expecting {} chunks", t);
-                                    if let Ok(mut st) = agg_nav.lock() { st.0 = t; st.1 = 0; st.2.clear(); }
+                                    if let Ok(mut st) = agg_nav.lock() {
+                                        st.0 = t;
+                                        st.1 = 0;
+                                        st.2.clear();
+                                    }
                                 }
                             }
                         } else if path.starts_with("chunk") {
                             let d = get_param("d").unwrap_or_default();
-                            if let Ok(mut st) = agg_nav.lock() { 
-                                st.2.push_str(&d); 
-                                st.1 = st.1.saturating_add(1); 
-                                log::info!("[NAV-INTERCEPT] Chunk: received {}/{}, data_len={}", st.1, st.0, st.2.len());
+                            if let Ok(mut st) = agg_nav.lock() {
+                                st.2.push_str(&d);
+                                st.1 = st.1.saturating_add(1);
+                                log::info!(
+                                    "[NAV-INTERCEPT] Chunk: received {}/{}, data_len={}",
+                                    st.1,
+                                    st.0,
+                                    st.2.len()
+                                );
                             }
                         } else if path.starts_with("end") {
-                            let (expected, received, data) = { let mut s = agg_nav.lock().unwrap(); (s.0, s.1, std::mem::take(&mut s.2)) };
-                            log::info!("[NAV-INTERCEPT] End: expected={}, received={}, data_len={}", expected, received, data.len());
+                            let (expected, received, data) = {
+                                let mut s = agg_nav.lock().unwrap();
+                                (s.0, s.1, std::mem::take(&mut s.2))
+                            };
+                            log::info!(
+                                "[NAV-INTERCEPT] End: expected={}, received={}, data_len={}",
+                                expected,
+                                received,
+                                data.len()
+                            );
+
                             if expected == 0 || received == 0 || received != expected {
-                                log::warn!("[NAV-INTERCEPT] Chunk mismatch, emitting error event");
+                                log::warn!("[NAV-INTERCEPT] Chunk mismatch");
                                 if let Err(e) = main_window_nav.emit(
                                     "child-webview:injection-result",
-                                    serde_json::json!({ "id": webview_id_nav, "error": "incomplete_chunks", "expected": expected, "received": received })
+                                    serde_json::json!({
+                                        "id": webview_id_nav,
+                                        "success": false,
+                                        "error": "incomplete_chunks",
+                                        "expected": expected,
+                                        "received": received
+                                    }),
                                 ) {
-                                    log::error!("[NAV-INTERCEPT] Failed to emit error event: {}", e);
-                                } else {
-                                    log::info!("[NAV-INTERCEPT] Error event emitted successfully");
+                                    log::error!(
+                                        "[NAV-INTERCEPT] Failed to emit error event: {}",
+                                        e
+                                    );
                                 }
                             } else {
-                                log::info!("[NAV-INTERCEPT] Emitting success event with {} bytes", data.len());
-                                if let Err(e) = main_window_nav.emit(
-                                    "child-webview:injection-result",
-                                    serde_json::json!({ "id": webview_id_nav, "data": data })
-                                ) {
-                                    log::error!("[NAV-INTERCEPT] Failed to emit success event: {}", e);
-                                } else {
-                                    log::info!("[NAV-INTERCEPT] Success event emitted successfully");
+                                // Decode base64url to JSON on Rust side
+                                log::info!("[NAV-INTERCEPT] Decoding base64url data...");
+                                match decode_base64url_to_json(&data) {
+                                    Ok(json_value) => {
+                                        log::info!(
+                                            "[NAV-INTERCEPT] Decode successful, emitting event"
+                                        );
+                                        if let Err(e) = main_window_nav.emit(
+                                            "child-webview:injection-result",
+                                            serde_json::json!({
+                                                "id": webview_id_nav,
+                                                "result": json_value
+                                            }),
+                                        ) {
+                                            log::error!(
+                                                "[NAV-INTERCEPT] Failed to emit success event: {}",
+                                                e
+                                            );
+                                        } else {
+                                            log::info!(
+                                                "[NAV-INTERCEPT] Event emitted successfully"
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("[NAV-INTERCEPT] Decode failed: {}", e);
+                                        if let Err(emit_err) = main_window_nav.emit(
+                                            "child-webview:injection-result",
+                                            serde_json::json!({
+                                                "id": webview_id_nav,
+                                                "success": false,
+                                                "error": format!("decode_error: {}", e)
+                                            }),
+                                        ) {
+                                            log::error!(
+                                                "[NAV-INTERCEPT] Failed to emit decode error: {}",
+                                                emit_err
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         } else if path.starts_with("error") {
@@ -217,9 +311,16 @@ pub(crate) async fn ensure_child_webview(
                             log::error!("[NAV-INTERCEPT] Error signal: {:?}", m);
                             if let Err(e) = main_window_nav.emit(
                                 "child-webview:injection-result",
-                                serde_json::json!({ "id": webview_id_nav, "error": m })
+                                serde_json::json!({
+                                    "id": webview_id_nav,
+                                    "success": false,
+                                    "error": m
+                                }),
                             ) {
-                                log::error!("[NAV-INTERCEPT] Failed to emit injection error event: {}", e);
+                                log::error!(
+                                    "[NAV-INTERCEPT] Failed to emit injection error event: {}",
+                                    e
+                                );
                             }
                         }
                         // cancel navigation
@@ -404,9 +505,8 @@ pub(crate) async fn hide_all_child_webviews(
     Ok(())
 }
 
-/// Evaluate JavaScript code in a specific child webview
-/// Note: Child webviews loading external URLs don't have Tauri IPC available,
-/// so this executes the script without returning its result
+/// 执行脚本的请求参数
+/// 注意：加载外部 URL 的子 WebView 无法使用 Tauri IPC，因此脚本执行后不返回结果
 #[derive(Debug, Deserialize)]
 pub(crate) struct EvaluateScriptPayload {
     id: String,

@@ -43,10 +43,6 @@ export interface ClickAction {
 	 */
 	delay?: number;
 	/**
-	 * Whether to wait for element to be visible (default: true)
-	 */
-	waitForVisible?: boolean;
-	/**
 	 * Wait timeout in milliseconds (default: 5000)
 	 */
 	timeout?: number;

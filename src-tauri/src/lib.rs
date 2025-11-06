@@ -5,6 +5,7 @@
 
 mod proxy;
 mod update;
+mod utils;
 mod webview;
 mod window_control;
 

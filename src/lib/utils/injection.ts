@@ -137,8 +137,6 @@ ${finderScript}.then(element => {
  * Simulates full click sequence: pointerdown → mousedown → pointerup → mouseup → click
  */
 export function generateClickScript(action: ClickAction): string {
-	const waitForVisible = action.waitForVisible ?? true;
-
 	const finderScript = generateFinderScript(action.selector, action.timeout);
 
 	return `
@@ -148,7 +146,7 @@ ${finderScript}.then(element => {
 	
 	// Get element rect once and reuse
 	const rect = element.getBoundingClientRect();
-	${waitForVisible ? `
+	
 	// Check visibility
 	const style = window.getComputedStyle(element);
 	if (rect.width === 0 || rect.height === 0 || 
@@ -157,7 +155,6 @@ ${finderScript}.then(element => {
 		throw new Error('Element not visible');
 	}
 	console.log('[CLICK] Element is visible');
-	` : ''}
 	
 	// Focus and dispatch full click sequence
 	try { element.focus(); } catch(e) {}
@@ -278,42 +275,65 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
 
 	return `
 (async function() {
+	// =============================================================================
+	// AI-Ask Auto Injection Script
+	// This IIFE executes actions and returns results via navigation intercept
+	// All variables are scoped to avoid polluting the global namespace
+	// =============================================================================
+	
 	console.log('[INJECTION] Starting ${actions.length} actions');
 	const results = [];
 	const startTime = Date.now();
     
-	// Helper: base64url encode JSON and stream via host-based navigation (http://injection.localhost)
 	async function __sendResultLarge(obj) {
 		try {
-			console.log('[SEND-RESULT] Starting result transmission...');
+			console.log('[SEND-RESULT] Preparing transmission...');
 			const json = JSON.stringify(obj);
-			console.log('[SEND-RESULT] JSON length:', json.length);
-			// utf8 -> base64
+			
+			// Encode JSON to base64url (URL-safe base64)
 			const base64 = btoa(unescape(encodeURIComponent(json)));
-			// Convert to base64url
-			let b64u = base64.split('+').join('-').split('/').join('_');
-			while (b64u.endsWith('=')) b64u = b64u.slice(0, -1);
-			const CHUNK = 1800; // per-URL payload
-			const total = Math.ceil(b64u.length / CHUNK) || 1;
-			console.log('[SEND-RESULT] Will send', total, 'chunks');
-			// begin
-			console.log('[SEND-RESULT] Sending begin signal...');
-			try { window.location.href = 'http://injection.localhost/begin?t=' + total; } catch (e) { console.error('[SEND-RESULT] Begin nav error:', e); }
+			let b64u = base64.replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
+			
+			// Split into chunks to avoid URL length limits (safe limit: 1800 chars per chunk)
+			const CHUNK_SIZE = 1800;
+			const totalChunks = Math.ceil(b64u.length / CHUNK_SIZE) || 1;
+			console.log('[SEND-RESULT] Transmitting', b64u.length, 'bytes in', totalChunks, 'chunks');
+			
+			// Signal: begin
+			try { 
+				window.location.href = 'http://injection.localhost/begin?t=' + totalChunks; 
+			} catch (e) { 
+				console.error('[SEND-RESULT] Begin signal failed:', e); 
+			}
 			await new Promise(r => setTimeout(r, 10));
-			// chunks
-			for (let i = 0; i < total; i++) {
-				const part = b64u.slice(i * CHUNK, (i + 1) * CHUNK);
-				console.log('[SEND-RESULT] Sending chunk', i + 1, '/', total);
-				try { window.location.href = 'http://injection.localhost/chunk?i=' + i + '&t=' + total + '&d=' + part; } catch (e) { console.error('[SEND-RESULT] Chunk nav error:', e); }
+			
+			// Send chunks
+			for (let i = 0; i < totalChunks; i++) {
+				const chunk = b64u.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+				try { 
+					window.location.href = 'http://injection.localhost/chunk?i=' + i + '&t=' + totalChunks + '&d=' + chunk; 
+				} catch (e) { 
+					console.error('[SEND-RESULT] Chunk', i, 'failed:', e); 
+				}
 				await new Promise(r => setTimeout(r, 10));
 			}
-			// end
-			console.log('[SEND-RESULT] Sending end signal...');
-			try { window.location.href = 'http://injection.localhost/end?t=' + total; } catch (e) { console.error('[SEND-RESULT] End nav error:', e); }
+			
+			// Signal: end
+			try { 
+				window.location.href = 'http://injection.localhost/end?t=' + totalChunks; 
+			} catch (e) { 
+				console.error('[SEND-RESULT] End signal failed:', e); 
+			}
 			console.log('[SEND-RESULT] Transmission complete');
 		} catch (e) {
 			console.error('[SEND-RESULT] Fatal error:', e);
-			try { window.location.href = 'http://injection.localhost/error?m=' + encodeURIComponent(String(e && e.message || e)); } catch (_) {}
+			// Attempt to send error signal
+			try { 
+				const msg = encodeURIComponent(String((e && e.message) || e)); 
+				window.location.href = 'http://injection.localhost/error?m=' + msg; 
+			} catch (_) {
+				// Silent fail - nothing more we can do
+			}
 		}
 	}
     
@@ -328,28 +348,26 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
 			actionsExecuted: ${actions.length},
 			results
 		};
-		// Stream result to host via navigation chunks
-		console.log('[INJECTION] Calling __sendResultLarge...');
+		
+		// Send result back to Rust via navigation intercept
 		await __sendResultLarge(result);
-		console.log('[INJECTION] __sendResultLarge returned');
 		return result;
 	} catch (error) {
 		const duration = Date.now() - startTime;
 		console.error('[INJECTION] Failed:', error);
 		const result = {
 			success: false,
-			error: error.message || String(error),
+			error: (error && error.message) || String(error),
 			duration,
 			actionsExecuted: results.length,
 			results
 		};
-		console.log('[INJECTION] Calling __sendResultLarge (error path)...');
 		await __sendResultLarge(result);
-		console.log('[INJECTION] __sendResultLarge returned (error path)');
 		return result;
 	}
 })().catch(err => {
-	console.error('[INJECTION] Uncaught:', err);
+	// Top-level error handler - should never reach here due to try-catch above
+	console.error('[INJECTION] Uncaught error:', err);
 });
 	`.trim();
 }
@@ -433,11 +451,10 @@ export class InjectionManager {
 	/**
 	 * Generate standalone click script
 	 */
-	generateClick(selector: string, waitForVisible = true, timeout?: number): string {
+	generateClick(selector: string, timeout?: number): string {
 		const action: ClickAction = {
 			type: 'click',
 			selector,
-			waitForVisible,
 			timeout
 		};
 		return `(async function() { return await (${generateClickScript(action)}); })();`;

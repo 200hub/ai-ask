@@ -68,72 +68,66 @@
 		window.addEventListener(EVENTS.HIDE_ALL_WEBVIEWS, handleHideAllWebviewsEvent as EventListener);
 		window.addEventListener(EVENTS.RESTORE_WEBVIEWS, handleRestoreWebviewsEvent as EventListener);
 
-		// Listen for injection result events from Rust (captured via navigation intercept)
-		// CRITICAL: Register listener immediately in onMount to avoid race condition
+		// Listen for injection result events from Rust (navigation intercept + decode)
+		// Rust decodes base64url and sends parsed JSON directly
 		const mainWindow = getCurrentWebviewWindow();
-		logger.info('[DEBUG] Registering event listener for:', EVENTS.CHILD_WEBVIEW_INJECTION_RESULT);
+		logger.info('Registering injection result event listener');
 		mainWindow.listen(EVENTS.CHILD_WEBVIEW_INJECTION_RESULT, (ev) => {
-			logger.info('[DEBUG] Event handler called!', ev);
-			const payload = ev.payload as { id?: string; data?: string | null; error?: string | null } | undefined;
+			const payload = ev.payload as { 
+				id?: string; 
+				result?: InjectionResult; 
+				success?: boolean;
+				error?: string;
+			} | undefined;
+			
 			if (!payload) {
-				logger.warn('[DEBUG] Event payload is empty');
+				logger.warn('Empty event payload received');
 				return;
 			}
-			addLog('info', `收到注入结果事件 id=${payload.id ?? 'n/a'}`);
-			try {
-				if (payload.error) {
-					addLog('error', '注入回传出错: ' + String(payload.error));
-					return;
-				}
-				if (payload.data) {
-					addLog('info', `开始解码 base64url 数据 (长度: ${payload.data.length})`);
-					// Decode base64url using TextDecoder
-					let s = payload.data;
-					s = s.replace(/-/g, '+').replace(/_/g, '/');
-					const pad = s.length % 4; if (pad) s += '='.repeat(4 - pad);
-					addLog('info', `解码步骤 1: base64url -> base64 完成`);
-					const binary = window.atob(s);
-					addLog('info', `解码步骤 2: base64 -> binary 完成 (${binary.length} bytes)`);
-					let json: string;
-					if (typeof (window as any).TextDecoder !== 'undefined') {
-						const bytes = new Uint8Array(binary.length);
-						for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-						json = new (window as any).TextDecoder().decode(bytes);
-						addLog('info', `解码步骤 3: binary -> UTF-8 完成 (TextDecoder)`);
-					} else {
-						// Fallback for environments without TextDecoder
-						json = decodeURIComponent(escape(binary));
-						addLog('info', `解码步骤 3: binary -> UTF-8 完成 (fallback)`);
+			
+			addLog('info', `Event received from webview: ${payload.id ?? 'unknown'}`);
+			
+			// Handle error response
+			if (payload.success === false || payload.error) {
+				addLog('error', `Injection error: ${payload.error || 'unknown'}`);
+				result = {
+					success: false,
+					error: payload.error || 'Unknown error',
+				};
+				return;
+			}
+			
+			// Handle success response (Rust already decoded the JSON)
+			if (payload.result) {
+				const parsed = payload.result;
+				result = {
+					success: parsed.success,
+					actionsExecuted: parsed.actionsExecuted ?? 0,
+					duration: parsed.duration ?? 0,
+					error: parsed.success ? undefined : parsed.error,
+				};
+				
+				// Extract content from results if available
+				if ((parsed as any).results) {
+					const extract = (parsed as any).results.find((r: any) => r.type === 'extract');
+					if (extract?.result?.content) {
+						extractedContent = extract.result.content;
+						addLog('success', `Content extracted: ${extractedContent.slice(0, 80)}...`);
 					}
-					addLog('info', `解码后的 JSON: ${json.slice(0, 100)}...`);
-					const parsed = JSON.parse(json) as InjectionResult & { content?: string };
-					addLog('info', `JSON 解析成功: success=${parsed.success}`);
-					result = {
-						success: parsed.success,
-						actionsExecuted: parsed.actionsExecuted ?? 0,
-						duration: parsed.duration ?? 0,
-						error: parsed.success ? undefined : parsed.error,
-					};
-					if ((parsed as any).results) {
-						const extract = (parsed as any).results.find((r: any) => r.type === 'extract');
-						if (extract?.result?.content) {
-							extractedContent = extract.result.content;
-							addLog('success', '提取成功: ' + extractedContent.slice(0, 120));
-						}
-					}
-					addLog(parsed.success ? 'success' : 'error', parsed.success ? '注入完成' : `注入失败: ${parsed.error}`);
-				} else {
-					addLog('info', 'payload.data 为空');
 				}
-			} catch (e) {
-				addLog('error', '处理注入结果失败: ' + (e as Error).message);
-				logger.error('[DEBUG] Decode error:', e);
+				
+				addLog(
+					parsed.success ? 'success' : 'error', 
+					parsed.success 
+						? `Injection completed in ${parsed.duration}ms` 
+						: `Injection failed: ${parsed.error}`
+				);
 			}
 		}).then(fn => { 
 			unlistenInjectionResult = fn; 
-			addLog('info', '事件监听器已注册');
+			addLog('info', 'Event listener registered successfully');
 		}).catch((e) => { 
-			addLog('error', '注册事件监听器失败: ' + e); 
+			addLog('error', `Failed to register event listener: ${e}`); 
 		});
 
 		return () => {
@@ -358,6 +352,165 @@
 	}
 
 	/**
+	 * 诊断脚本注入问题
+	 */
+	async function diagnoseInjection() {
+		if (!webviewProxy) {
+			addLog('error', '请先初始化 WebView');
+			return;
+		}
+
+		try {
+			loading = true;
+			addLog('info', '===== 开始诊断注入问题 =====');
+
+			// 测试 1: 最简单的脚本（立即返回）
+			addLog('info', '[诊断 1/5] 测试基础脚本执行...');
+			try {
+				await webviewProxy.evaluateScript(`(function(){ return 'OK'; })();`, 3000);
+				addLog('success', '✅ [诊断 1/5] 基础脚本可以执行');
+			} catch (err) {
+				addLog('error', `❌ [诊断 1/5] 基础脚本失败: ${err}`);
+				addLog('error', '⚠️ WebView eval() 可能被 CSP 阻止！');
+				return; // 后续测试没意义了
+			}
+
+			await new Promise(resolve => setTimeout(resolve, 300));
+
+			// 测试 2: Console.log
+			addLog('info', '[诊断 2/5] 测试 console.log...');
+			try {
+				await webviewProxy.evaluateScript(`
+					(function(){
+						console.log('[DIAGNOSTIC] Test 2: Console works!');
+						console.error('[DIAGNOSTIC] Test 2: Error log works!');
+						console.warn('[DIAGNOSTIC] Test 2: Warn log works!');
+						return 'console-ok';
+					})();
+				`, 3000);
+				addLog('success', '✅ [诊断 2/5] Console 脚本已发送（请查看子窗口控制台）');
+			} catch (err) {
+				addLog('error', `❌ [诊断 2/5] Console 脚本失败: ${err}`);
+			}
+
+			await new Promise(resolve => setTimeout(resolve, 300));
+
+			// 测试 3: DOM 访问
+			addLog('info', '[诊断 3/5] 测试 DOM 访问...');
+			try {
+				await webviewProxy.evaluateScript(`
+					(function(){
+						console.log('[DIAGNOSTIC] Test 3: URL =', window.location.href);
+						console.log('[DIAGNOSTIC] Test 3: Title =', document.title);
+						console.log('[DIAGNOSTIC] Test 3: Body exists =', !!document.body);
+						return 'dom-ok';
+					})();
+				`, 3000);
+				addLog('success', '✅ [诊断 3/5] DOM 访问脚本已发送');
+			} catch (err) {
+				addLog('error', `❌ [诊断 3/5] DOM 访问失败: ${err}`);
+			}
+
+			await new Promise(resolve => setTimeout(resolve, 300));
+
+			// 测试 4: 查找 textarea
+			addLog('info', '[诊断 4/5] 查找 textarea 元素...');
+			try {
+				await webviewProxy.evaluateScript(`
+					(function(){
+						const selectors = [
+							'textarea[placeholder*="向千问提问"]',
+							'textarea[placeholder*="向千问"]',
+							'textarea[placeholder*="提问"]',
+							'textarea',
+							'div[contenteditable="true"]'
+						];
+						
+						console.log('[DIAGNOSTIC] Test 4: Searching for input elements...');
+						for (const sel of selectors) {
+							const elem = document.querySelector(sel);
+							console.log('[DIAGNOSTIC] Test 4: Selector:', sel, '→', elem);
+							if (elem) {
+								console.log('[DIAGNOSTIC] Test 4: ✅ Found element with selector:', sel);
+								console.log('[DIAGNOSTIC] Test 4: Element details:', {
+									tagName: elem.tagName,
+									placeholder: elem.placeholder,
+									className: elem.className,
+									id: elem.id
+								});
+								break;
+							}
+						}
+						
+						const allTextareas = document.querySelectorAll('textarea');
+						console.log('[DIAGNOSTIC] Test 4: Total textareas found:', allTextareas.length);
+						allTextareas.forEach((ta, i) => {
+							console.log(\`[DIAGNOSTIC] Test 4: Textarea \${i+1}:\`, {
+								placeholder: ta.placeholder,
+								name: ta.name,
+								id: ta.id,
+								className: ta.className
+							});
+						});
+						
+						return 'search-ok';
+					})();
+				`, 5000);
+				addLog('success', '✅ [诊断 4/5] 元素搜索脚本已发送（查看控制台结果）');
+			} catch (err) {
+				addLog('error', `❌ [诊断 4/5] 元素搜索失败: ${err}`);
+			}
+
+			await new Promise(resolve => setTimeout(resolve, 300));
+
+			// 测试 5: 查找发送按钮
+			addLog('info', '[诊断 5/5] 查找发送按钮...');
+			try {
+				await webviewProxy.evaluateScript(`
+					(function(){
+						console.log('[DIAGNOSTIC] Test 5: Searching for send button...');
+						
+						const buttonSelectors = [
+							'.operateBtn-JsB9e2',
+							'button[type="submit"]',
+							'button[aria-label*="发送"]',
+							'.send-button',
+							'.submit-button'
+						];
+						
+						for (const sel of buttonSelectors) {
+							const btn = document.querySelector(sel);
+							console.log('[DIAGNOSTIC] Test 5: Button selector:', sel, '→', btn);
+							if (btn) {
+								console.log('[DIAGNOSTIC] Test 5: ✅ Found button:', {
+									className: btn.className,
+									textContent: btn.textContent,
+									disabled: btn.disabled,
+									offsetParent: btn.offsetParent !== null
+								});
+							}
+						}
+						
+						const allButtons = document.querySelectorAll('button');
+						console.log('[DIAGNOSTIC] Test 5: Total buttons found:', allButtons.length);
+						
+						return 'button-search-ok';
+					})();
+				`, 5000);
+				addLog('success', '✅ [诊断 5/5] 按钮搜索脚本已发送');
+			} catch (err) {
+				addLog('error', `❌ [诊断 5/5] 按钮搜索失败: ${err}`);
+			}
+
+			addLog('success', '===== 诊断完成！请查看子窗口控制台的 [DIAGNOSTIC] 日志 =====');
+		} catch (error) {
+			addLog('error', `诊断过程出错: ${error}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	/**
 	 * 执行注入
 	 */
 	async function executeInjection() {
@@ -443,7 +596,7 @@
 			loading = true;
 			addLog('info', '[TEST] 测试点击功能...');
 
-			const script = injectionManager.generateClick('button[data-testid="send-button"]', true, 3000);
+			const script = injectionManager.generateClick('button[data-testid="send-button"]', 3000);
 			addLog('info', `[TEST] 生成的脚本长度: ${script.length}`);
 			
 			await webviewProxy.evaluateScript(script);
@@ -536,6 +689,10 @@
 
 			<button class="control-btn" onclick={testSimpleScript} disabled={loading} title="Test Script">
 				🧪 Test
+			</button>
+
+			<button class="control-btn" onclick={diagnoseInjection} disabled={loading} title="Diagnose Injection">
+				🔍 诊断
 			</button>
 
 			<input
@@ -635,6 +792,9 @@
 
 				<!-- 测试按钮 -->
 				<div class="test-buttons" style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+					<button class="btn btn-secondary" onclick={diagnoseInjection} disabled={loading}>
+						🔍 诊断注入
+					</button>
 					<button class="btn btn-secondary" onclick={testFillOnly} disabled={loading || !message.trim()}>
 						🧪 测试填充
 					</button>
