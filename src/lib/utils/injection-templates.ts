@@ -1,5 +1,5 @@
 /**
- * Pre-configured injection templates for different AI platforms
+ * Pre-configured injection templates for different AI platforms and translation services
  */
 
 import type { InjectionTemplate } from '$lib/types/injection';
@@ -98,7 +98,6 @@ export const CHATGPT_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
 	}
 ];
 
@@ -135,7 +134,6 @@ export const CLAUDE_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
 	}
 ];
 
@@ -191,7 +189,6 @@ export const GEMINI_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
 	}
 ];
 
@@ -228,7 +225,6 @@ export const DEEPSEEK_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
 	}
 ];
 
@@ -265,7 +261,6 @@ export const KIMI_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
 	}
 ];
 
@@ -302,7 +297,6 @@ export const COPILOT_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
 	}
 ];
 
@@ -340,7 +334,6 @@ export const QWEN_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
 	}
 ];
 
@@ -378,7 +371,6 @@ export const ERNIE_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
 	}
 ];
 
@@ -415,7 +407,6 @@ export const DOUBAO_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
 	}
 ];
 
@@ -453,7 +444,6 @@ export const YUANBAO_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
 	}
 ];
 
@@ -490,7 +480,290 @@ export const GROK_TEMPLATES: InjectionTemplate[] = [
 				}`
 			}
 		],
-		autoExecute: false
+	}
+];
+
+/**
+ * Google Translate injection templates
+ */
+export const GOOGLE_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
+	{
+		platformId: 'google',
+		name: 'Translate Text',
+		description: 'Fill source text and extract translation result',
+		urlPattern: 'https://translate\\.google\\.com.*',
+		actions: [
+			{
+				type: 'fill',
+				selector: 'textarea[aria-label*="Source text"], textarea[aria-label*="源文本"], textarea.er8xn',
+				content: '',
+				triggerEvents: true,
+				delay: 300,
+				timeout: 5000
+			},
+			{
+				type: 'extract',
+				timeout: 15000,
+				pollInterval: 800,
+				extractScript: `() => {
+					// Google Translate auto-translates, wait for result to appear
+					const resultSelectors = [
+						'span[data-language-for-alternatives]',
+						'span.ryNqvb',
+						'div[data-language-for-alternatives]',
+						'span[jsname="jqKxS"]',
+						'.Q4iAWc'
+					];
+					
+					for (const sel of resultSelectors) {
+						const elements = document.querySelectorAll(sel);
+						if (elements.length > 0) {
+							// Get the last/latest translation result
+							const element = elements[elements.length - 1];
+							const text = element.textContent?.trim();
+							// Filter out placeholder text
+							if (text && text !== 'Translation' && text !== '翻译' && text.length > 0) {
+								return text;
+							}
+						}
+					}
+					
+					// Fallback: try translation result panel
+					const panel = document.querySelector('[aria-live="polite"]');
+					if (panel) {
+						const text = panel.textContent?.trim();
+						if (text && text.length > 0) {
+							return text;
+						}
+					}
+					
+					return ''; // Not ready yet
+				}`
+			}
+		],
+	}
+];
+
+/**
+ * DeepL injection templates
+ */
+export const DEEPL_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
+	{
+		platformId: 'deepl',
+		name: 'Translate Text',
+		description: 'Fill source text and extract translation result',
+		urlPattern: 'https://www\\.deepl\\.com/translator.*',
+		actions: [
+			{
+				type: 'fill',
+				selector: 'textarea[data-testid="translator-source-input"], d-textarea[data-testid="translator-source-input"] textarea, div[contenteditable="true"][data-testid="translator-source-input"]',
+				content: '',
+				triggerEvents: true,
+				delay: 300,
+				timeout: 5000
+			},
+			{
+				type: 'extract',
+				timeout: 15000,
+				pollInterval: 800,
+				extractScript: `() => {
+					// DeepL auto-translates, wait for result
+					const resultSelectors = [
+						'textarea[data-testid="translator-target-input"]',
+						'd-textarea[data-testid="translator-target-input"] textarea',
+						'div[contenteditable="true"][data-testid="translator-target-input"]',
+						'.lmt__translations_as_text__text_btn'
+					];
+					
+					for (const sel of resultSelectors) {
+						const element = document.querySelector(sel);
+						if (element) {
+							const text = element.textContent?.trim() || (element as HTMLInputElement).value?.trim();
+							// Filter loading states
+							if (text && text !== 'Translating...' && text !== '翻译中...' && text.length > 0) {
+								return text;
+							}
+						}
+					}
+					
+					return ''; // Not ready yet
+				}`
+			}
+		],
+	}
+];
+
+/**
+ * Youdao Translate injection templates
+ */
+export const YOUDAO_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
+	{
+		platformId: 'youdao',
+		name: 'Translate Text',
+		description: 'Fill source text and extract translation result',
+		urlPattern: 'https://fanyi\\.youdao\\.com.*',
+		actions: [
+			{
+				type: 'fill',
+				selector: '#inputOriginal, #js_fanyi_input, textarea[placeholder*="请输入"]',
+				content: '',
+				triggerEvents: true,
+				delay: 300,
+				timeout: 5000
+			},
+			{
+				type: 'extract',
+				timeout: 15000,
+				pollInterval: 800,
+				extractScript: `() => {
+					// Youdao auto-translates
+					const resultSelectors = [
+						'#transTarget',
+						'#js_fanyi_output_resultOutput',
+						'.output-bd p',
+						'p[class*="wordGroup"]'
+					];
+					
+					for (const sel of resultSelectors) {
+						const element = document.querySelector(sel);
+						if (element) {
+							const text = element.textContent?.trim();
+							if (text && text.length > 0) {
+								return text;
+							}
+						}
+					}
+					
+					// Try finding the translation result container
+					const container = document.querySelector('.trans-container__trans, .fanyi__output');
+					if (container) {
+						const text = container.textContent?.trim();
+						if (text && text.length > 0) {
+							return text;
+						}
+					}
+					
+					return ''; // Not ready yet
+				}`
+			}
+		],
+	}
+];
+
+/**
+ * Baidu Translate injection templates
+ */
+export const BAIDU_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
+	{
+		platformId: 'baidu',
+		name: 'Translate Text',
+		description: 'Fill source text and extract translation result',
+		urlPattern: 'https://fanyi\\.baidu\\.com.*',
+		actions: [
+			{
+				type: 'fill',
+				selector: 'textarea.textarea-input-origin, #baidu_translate_input, textarea[placeholder*="请输入"]',
+				content: '',
+				triggerEvents: true,
+				delay: 300,
+				timeout: 5000
+			},
+			{
+				type: 'extract',
+				timeout: 15000,
+				pollInterval: 800,
+				extractScript: `() => {
+					// Baidu auto-translates
+					const resultSelectors = [
+						'p.target-output',
+						'.target-output',
+						'#transTarget p',
+						'p[class*="output"]'
+					];
+					
+					for (const sel of resultSelectors) {
+						const elements = document.querySelectorAll(sel);
+						if (elements.length > 0) {
+							// Get text from all paragraphs in result
+							const texts = Array.from(elements)
+								.map(el => el.textContent?.trim())
+								.filter(t => t && t.length > 0);
+							if (texts.length > 0) {
+								return texts.join('\\n');
+							}
+						}
+					}
+					
+					// Fallback to container
+					const container = document.querySelector('.output-bd, .target-output-wrap');
+					if (container) {
+						const text = container.textContent?.trim();
+						if (text && text.length > 0) {
+							return text;
+						}
+					}
+					
+					return ''; // Not ready yet
+				}`
+			}
+		],
+	}
+];
+
+/**
+ * Bing Translator injection templates
+ */
+export const BING_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
+	{
+		platformId: 'bing',
+		name: 'Translate Text',
+		description: 'Fill source text and extract translation result',
+		urlPattern: 'https://www\\.bing\\.com/translator.*',
+		actions: [
+			{
+				type: 'fill',
+				selector: 'textarea#tta_input_ta, textarea[id*="input"]',
+				content: '',
+				triggerEvents: true,
+				delay: 300,
+				timeout: 5000
+			},
+			{
+				type: 'extract',
+				timeout: 15000,
+				pollInterval: 800,
+				extractScript: `() => {
+					// Bing auto-translates
+					const resultSelectors = [
+						'textarea#tta_output_ta',
+						'textarea[id*="output"]',
+						'.lmt__target_textarea',
+						'#t_sv'
+					];
+					
+					for (const sel of resultSelectors) {
+						const element = document.querySelector(sel);
+						if (element) {
+							const text = (element as HTMLTextAreaElement).value?.trim() || element.textContent?.trim();
+							if (text && text.length > 0) {
+								return text;
+							}
+						}
+					}
+					
+					// Try to find output container
+					const container = document.querySelector('.t_out, [id*="output"]');
+					if (container) {
+						const text = container.textContent?.trim();
+						if (text && text.length > 0) {
+							return text;
+						}
+					}
+					
+					return ''; // Not ready yet
+				}`
+			}
+		],
 	}
 ];
 
@@ -508,7 +781,12 @@ export const ALL_TEMPLATES: InjectionTemplate[] = [
 	...ERNIE_TEMPLATES,
 	...DOUBAO_TEMPLATES,
 	...YUANBAO_TEMPLATES,
-	...GROK_TEMPLATES
+	...GROK_TEMPLATES,
+	...GOOGLE_TRANSLATE_TEMPLATES,
+	...DEEPL_TRANSLATE_TEMPLATES,
+	...YOUDAO_TRANSLATE_TEMPLATES,
+	...BAIDU_TRANSLATE_TEMPLATES,
+	...BING_TRANSLATE_TEMPLATES
 ];
 
 /**

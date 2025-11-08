@@ -9,7 +9,6 @@ import anthropicIcon from "$lib/assets/platform-icons/anthropic.svg";
 import geminiIcon from "$lib/assets/platform-icons/gemini.svg";
 import copilotIcon from "$lib/assets/platform-icons/copilot.svg";
 import grokIcon from "$lib/assets/platform-icons/grok.svg";
-import metaIcon from "$lib/assets/platform-icons/meta.svg";
 import deepseekIcon from "$lib/assets/platform-icons/deepseek.svg";
 import kimiIcon from "$lib/assets/platform-icons/kimi.svg";
 import tongyiIcon from "$lib/assets/platform-icons/alibabacloud.svg";
@@ -330,6 +329,82 @@ export const INJECTION = {
   DEFAULT_MAX_RETRIES: 3,
   /** 重试延迟时间（毫秒） */
   RETRY_DELAY_MS: 1000,
+  /** AI 聊天提取超时时间（毫秒） */
+  CHAT_EXTRACT_TIMEOUT_MS: 30000,
+  /** AI 聊天轮询间隔（毫秒） */
+  CHAT_POLL_INTERVAL_MS: 1000,
+} as const;
+
+// Export individual constants for convenience
+export const DEFAULT_INJECTION_TIMEOUT = INJECTION.DEFAULT_TIMEOUT_MS;
+export const DEFAULT_MAX_RETRIES = INJECTION.DEFAULT_MAX_RETRIES;
+export const INJECTION_RETRY_DELAY = INJECTION.RETRY_DELAY_MS;
+
+/**
+ * Debug/Injection UI constants
+ */
+export const DEBUG_FLOATING_CONTROLS_OFFSET = 120; // logical px reserved at top for floating controls
+
+/**
+ * Translation language code mapping
+ * Maps internal locale codes to platform-specific language codes
+ */
+export const TRANSLATION_LANG_CODES = {
+  /** Google Translate language codes */
+  google: {
+    'zh-CN': 'zh-CN',
+    'en-US': 'en',
+    'ja-JP': 'ja',
+    'ko-KR': 'ko',
+  },
+  /** DeepL language codes */
+  deepl: {
+    'zh-CN': 'zh',
+    'en-US': 'en',
+    'ja-JP': 'ja',
+    'ko-KR': 'ko',
+  },
+  /** Youdao Translate language codes */
+  youdao: {
+    'zh-CN': 'zh-CHS',
+    'en-US': 'en',
+    'ja-JP': 'ja',
+    'ko-KR': 'ko',
+  },
+  /** Baidu Translate language codes */
+  baidu: {
+    'zh-CN': 'zh',
+    'en-US': 'en',
+    'ja-JP': 'jp',
+    'ko-KR': 'kor',
+  },
+  /** Bing Translator language codes */
+  bing: {
+    'zh-CN': 'zh-Hans',
+    'en-US': 'en',
+    'ja-JP': 'ja',
+    'ko-KR': 'ko',
+  },
+} as const;
+
+/**
+ * Translation-specific injection constants
+ */
+export const TRANSLATION_INJECTION = {
+  /** Translation result extraction timeout (longer than chat) */
+  EXTRACT_TIMEOUT_MS: 15000,
+  /** Translation polling interval */
+  POLL_INTERVAL_MS: 800,
+  /** Fill action timeout */
+  FILL_TIMEOUT_MS: 5000,
+  /** Click action timeout */
+  CLICK_TIMEOUT_MS: 3000,
+  /** Delay before filling text */
+  FILL_DELAY_MS: 300,
+  /** Maximum retry attempts for translation */
+  MAX_RETRIES: 3,
+  /** Delay between retries */
+  RETRY_DELAY_MS: 600,
 } as const;
 
 // Export individual constants for convenience
