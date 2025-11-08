@@ -214,7 +214,7 @@ export const jaJP = {
         noPlatforms: "利用可能な翻訳プラットフォームがありません",
         noPlatformsDescription: "設定で翻訳プラットフォームを追加してください",
         selectorLabel: "翻訳プラットフォームを選択：",
-    enabledListLabel: "有効な翻訳プラットフォーム：",
+        enabledListLabel: "有効な翻訳プラットフォーム：",
         enabledListEmpty: "有効な翻訳プラットフォームがありません。",
         loading: "読み込み中...",
         loadErrorTitle: "読み込み失敗",
@@ -223,6 +223,19 @@ export const jaJP = {
         emptyHint: "設定で少なくとも 1 つの翻訳プラットフォームを有効にしてください",
         toastError: "翻訳プラットフォームの読み込みに失敗しました。ネットワーク接続を確認してください。",
         externalWindowHint: "{name} を専用ウィンドウで表示しています。必要に応じてメインウィンドウを移動してください。",
+        inject: {
+            button: "翻訳",
+            inputPlaceholder: "翻訳するテキストを入力...",
+            executing: "翻訳中...",
+            success: "翻訳成功",
+            failed: "翻訳失敗",
+            retry: "再試行",
+            resultLabel: "翻訳結果：",
+            noResult: "結果なし",
+            timeout: "翻訳タイムアウト、再試行してください",
+            networkError: "ネットワークエラー、接続を確認してください",
+            unsupportedLanguage: "現在の言語はサポートされていません",
+        },
     },
 
     welcome: {

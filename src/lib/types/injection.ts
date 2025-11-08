@@ -97,10 +97,6 @@ export interface InjectionTemplate {
 	 * Sequence of actions to perform
 	 */
 	actions: InjectionAction[];
-	/**
-	 * Whether to auto-execute on page load (default: false)
-	 */
-	autoExecute?: boolean;
 }
 
 /**

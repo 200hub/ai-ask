@@ -224,6 +224,19 @@ export const koKR = {
         emptyHint: "설정에서 최소 하나의 번역 플랫폼을 활성화하세요",
         toastError: "번역 플랫폼을 로드하지 못했습니다. 네트워크 연결을 확인하세요.",
         externalWindowHint: "{name}을(를) 전용 창에서 열었습니다. 필요하면 메인 창을 이동해 위치를 조정하세요.",
+        inject: {
+            button: "번역",
+            inputPlaceholder: "번역할 텍스트를 입력하세요...",
+            executing: "번역 중...",
+            success: "번역 성공",
+            failed: "번역 실패",
+            retry: "재시도",
+            resultLabel: "번역 결과:",
+            noResult: "결과 없음",
+            timeout: "번역 시간 초과, 다시 시도하세요",
+            networkError: "네트워크 오류, 연결을 확인하세요",
+            unsupportedLanguage: "현재 언어는 지원되지 않습니다",
+        },
     },
 
     welcome: {
