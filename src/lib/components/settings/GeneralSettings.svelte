@@ -3,9 +3,11 @@
      * 通用设置标签页
      */
     import { configStore } from "$lib/stores/config.svelte";
+    import { platformsStore } from "$lib/stores/platforms.svelte";
     import {
         AVAILABLE_SHORTCUTS,
         TRANSLATION_SHORTCUTS,
+        SELECTION_TOOLBAR_SHORTCUTS,
     } from "$lib/utils/constants";
     import { i18n, SUPPORTED_LOCALES, type Locale } from "$lib/i18n";
     import { logger } from "$lib/utils/logger";
@@ -69,6 +71,21 @@
     }
 
     /**
+     * 更新划词工具栏快捷键
+     */
+    async function handleSelectionToolbarHotkeyChange(event: Event) {
+        const target = event.target as HTMLSelectElement;
+        const hotkey = target.value;
+
+        try {
+            await configStore.setSelectionToolbarHotkey(hotkey);
+            // TODO: 重新注册划词工具栏快捷键
+        } catch (error) {
+            logger.error("Failed to change selection toolbar hotkey", error);
+        }
+    }
+
+    /**
      * 切换自动启动
      */
     async function handleAutoStartChange(event: Event) {
@@ -94,6 +111,34 @@
             await configStore.setAutoUpdateEnabled(enabled);
         } catch (error) {
             logger.error("Failed to change auto update", error);
+        }
+    }
+
+    /**
+     * 切换划词工具栏
+     */
+    async function handleSelectionToolbarChange(event: Event) {
+        const target = event.target as HTMLInputElement;
+        const enabled = target.checked;
+
+        try {
+            await configStore.setSelectionToolbarEnabled(enabled);
+        } catch (error) {
+            logger.error("Failed to change selection toolbar", error);
+        }
+    }
+
+    /**
+     * 更新默认解释平台
+     */
+    async function handleDefaultExplainPlatformChange(event: Event) {
+        const target = event.target as HTMLSelectElement;
+        const platformId = target.value || null;
+
+        try {
+            await configStore.setDefaultExplainPlatformId(platformId);
+        } catch (error) {
+            logger.error("Failed to change default explain platform", error);
         }
     }
 
@@ -157,6 +202,47 @@
                 {/each}
             </select>
         </div>
+    </div>
+
+    <!-- 划词工具栏设置 -->
+    <div class="setting-group">
+        <h3 class="group-title">{t("general.selectionToolbar")}</h3>
+
+        <div class="setting-item">
+            <div class="setting-label">
+                <span class="label-text">{t("general.selectionToolbarEnabled")}</span>
+                <span class="label-description">{t("general.selectionToolbarDescription")}</span>
+            </div>
+            <label class="toggle-switch">
+                <input 
+                    type="checkbox" 
+                    checked={configStore.config.selectionToolbarEnabled} 
+                    onchange={handleSelectionToolbarChange} 
+                />
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+
+        {#if configStore.config.selectionToolbarEnabled}
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span class="label-text">{t("general.defaultExplainPlatform")}</span>
+                    <span class="label-description">
+                        {t("general.defaultExplainPlatformDescription")}
+                    </span>
+                </div>
+                <select
+                    class="setting-select"
+                    value={configStore.config.defaultExplainPlatformId || ""}
+                    onchange={handleDefaultExplainPlatformChange}
+                >
+                    <option value="">{t("general.selectPlatform")}</option>
+                    {#each platformsStore.enabledPlatforms as platform}
+                        <option value={platform.id}>{platform.name}</option>
+                    {/each}
+                </select>
+            </div>
+        {/if}
     </div>
 
     <!-- 启动/更新设置 -->
@@ -244,6 +330,24 @@
                 onchange={handleTranslationHotkeyChange}
             >
                 {#each TRANSLATION_SHORTCUTS as shortcut}
+                    <option value={shortcut}>{formatHotkey(shortcut)}</option>
+                {/each}
+            </select>
+        </div>
+
+        <div class="setting-item">
+            <div class="setting-label">
+                <span class="label-text">{t("general.selectionToolbarHotkey")}</span>
+                <span class="label-description">
+                    {t("general.selectionToolbarHotkeyDescription")}
+                </span>
+            </div>
+            <select
+                class="setting-select"
+                value={configStore.config.selectionToolbarHotkey}
+                onchange={handleSelectionToolbarHotkeyChange}
+            >
+                {#each SELECTION_TOOLBAR_SHORTCUTS as shortcut}
                     <option value={shortcut}>{formatHotkey(shortcut)}</option>
                 {/each}
             </select>

@@ -27,6 +27,15 @@ export const jaJP = {
         custom: "カスタム",
     },
 
+    selectionToolbar: {
+        translate: "翻訳",
+        explain: "説明",
+        collect: "収集",
+        tooltipTranslate: "選択したテキストを翻訳",
+        tooltipExplain: "AIに説明を依頼",
+        tooltipCollect: "クリップボードに保存",
+    },
+
     app: {
         name: "AI Ask",
         title: "AIアシスタント",
@@ -70,10 +79,18 @@ export const jaJP = {
         globalHotkeyDescription: "ウィンドウの表示/非表示",
         translationHotkey: "翻訳ホットキー",
         translationHotkeyDescription: "翻訳機能へのクイックアクセス",
+        selectionToolbarHotkey: "選択ツールバーホットキー",
+        selectionToolbarHotkeyDescription: "任意のアプリでテキストを選択した後、このショートカットを押して選択ツールバーを表示",
         startup: "スタートアップ",
         autoStart: "自動起動",
         autoStartDescription: "システム起動時に自動的に実行",
         autoUpdate: "自動更新",
+            selectionToolbar: "選択ツールバー",
+            selectionToolbarEnabled: "選択ツールバーを有効化",
+            selectionToolbarDescription: "任意のアプリでテキストを選択したときに翻訳とAI説明ボタンを表示",
+            defaultExplainPlatform: "デフォルト説明プラットフォーム",
+            defaultExplainPlatformDescription: "説明ボタンをクリックしたときに使用するAIプラットフォーム",
+            selectPlatform: "プラットフォームを選択",
         autoUpdateDescription: "バックグラウンドで更新をダウンロードし、次回起動時にインストール",
         cacheManagement: "キャッシュ管理",
         clearCache: "ページキャッシュをクリア",
@@ -277,6 +294,19 @@ export const jaJP = {
         loadFailed: "読み込み失敗",
         saveFailed: "保存失敗",
         unknownError: "未知のエラー",
+
+        selectionToolbar: {
+            translate: "翻訳",
+            explain: "説明",
+            collect: "収集",
+            tooltipTranslate: "選択したテキストを翻訳",
+            tooltipExplain: "AIに説明を依頼",
+            tooltipCollect: "クリップボードに保存",
+            translationFailed: "翻訳に失敗しました",
+            explanationFailed: "説明に失敗しました",
+            noTranslatorConfigured: "まず翻訳プラットフォームを有効にしてください。",
+            noAiPlatform: "まず AI プラットフォームを有効にしてください。",
+        },
     },
 
     debug: {

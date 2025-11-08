@@ -81,6 +81,8 @@ export const enUS = {
         globalHotkeyDescription: "Show/Hide application window",
         translationHotkey: "Translation Hotkey",
         translationHotkeyDescription: "Quick access to translation",
+        selectionToolbarHotkey: "Selection Toolbar Hotkey",
+        selectionToolbarHotkeyDescription: "After selecting text in any app, press this shortcut to show the selection toolbar",
         startup: "Startup",
         autoStart: "Launch at Startup",
         autoStartDescription: "Automatically run when system starts",
@@ -279,6 +281,19 @@ export const enUS = {
         loadFailed: "Load Failed",
         saveFailed: "Save Failed",
         unknownError: "Unknown Error",
+
+        selectionToolbar: {
+            translate: "Translate",
+            explain: "Explain",
+            collect: "Collect",
+            tooltipTranslate: "Translate selected text",
+            tooltipExplain: "Ask AI to explain",
+            tooltipCollect: "Save to clipboard",
+            translationFailed: "Translation failed",
+            explanationFailed: "Explanation failed",
+            noTranslatorConfigured: "Please enable a translation platform first.",
+            noAiPlatform: "Please enable an AI platform first.",
+        },
     },
 
     debug: {

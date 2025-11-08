@@ -8,6 +8,8 @@
     import Header from "$lib/components/layout/Header.svelte";
     import Sidebar from "$lib/components/layout/Sidebar.svelte";
     import MainContent from "$lib/components/layout/MainContent.svelte";
+    import GlobalSelectionMonitor from "$lib/components/common/GlobalSelectionMonitor.svelte";
+    import { executeTranslation, executeExplanation } from "$lib/utils/selection-actions";
     import { appState } from "$lib/stores/app.svelte";
     import { configStore } from "$lib/stores/config.svelte";
     import { platformsStore } from "$lib/stores/platforms.svelte";
@@ -17,10 +19,18 @@
 
     let openSettingsUnlisten: UnlistenFn | null = null;
     let translationHotkeyUnlisten: UnlistenFn | null = null;
+    let selectionTranslateUnlisten: UnlistenFn | null = null;
+    let selectionExplainUnlisten: UnlistenFn | null = null;
+    let selectionCollectUnlisten: UnlistenFn | null = null;
+
+    type SelectionToolbarEventPayload = {
+        text?: string;
+    };
 
     onMount(() => {
         void registerOpenSettingsListener();
         void registerTranslationHotkeyListener();
+        void registerSelectionToolbarListeners();
         void initializeStores();
     });
 
@@ -30,7 +40,95 @@
         
         translationHotkeyUnlisten?.();
         translationHotkeyUnlisten = null;
+
+        selectionTranslateUnlisten?.();
+        selectionTranslateUnlisten = null;
+
+        selectionExplainUnlisten?.();
+        selectionExplainUnlisten = null;
+
+        selectionCollectUnlisten?.();
+        selectionCollectUnlisten = null;
     });
+
+    function extractSelectionText(payload: SelectionToolbarEventPayload | null | undefined): string | null {
+        const raw = payload?.text ?? "";
+        const trimmed = raw.trim();
+        return trimmed.length > 0 ? trimmed : null;
+    }
+
+    async function handleSelectionToolbarTranslate(payload: SelectionToolbarEventPayload | null) {
+        const text = extractSelectionText(payload);
+        if (!text) {
+            logger.debug("Selection toolbar translate request skipped: empty payload");
+            return;
+        }
+
+        try {
+            await executeTranslation(text);
+        } catch (error) {
+            logger.error("Failed to handle selection toolbar translate request:", error);
+        }
+    }
+
+    async function handleSelectionToolbarExplain(payload: SelectionToolbarEventPayload | null) {
+        const text = extractSelectionText(payload);
+        if (!text) {
+            logger.debug("Selection toolbar explain request skipped: empty payload");
+            return;
+        }
+
+        try {
+            await executeExplanation(text);
+        } catch (error) {
+            logger.error("Failed to handle selection toolbar explain request:", error);
+        }
+    }
+
+    function handleSelectionToolbarCollect(payload: SelectionToolbarEventPayload | null) {
+        const text = extractSelectionText(payload);
+        if (!text) {
+            logger.debug("Selection toolbar collect request skipped: empty payload");
+            return;
+        }
+
+        logger.warn("Selection toolbar collect request is not implemented", { textLength: text.length });
+    }
+
+    async function registerSelectionToolbarListeners() {
+        try {
+            selectionTranslateUnlisten = await listen<SelectionToolbarEventPayload>(
+                "selection-toolbar:translate",
+                (event) => {
+                    void handleSelectionToolbarTranslate(event.payload ?? null);
+                }
+            );
+        } catch (error) {
+            logger.error("Failed to listen for selection-toolbar:translate event:", error);
+        }
+
+        try {
+            selectionExplainUnlisten = await listen<SelectionToolbarEventPayload>(
+                "selection-toolbar:explain",
+                (event) => {
+                    void handleSelectionToolbarExplain(event.payload ?? null);
+                }
+            );
+        } catch (error) {
+            logger.error("Failed to listen for selection-toolbar:explain event:", error);
+        }
+
+        try {
+            selectionCollectUnlisten = await listen<SelectionToolbarEventPayload>(
+                "selection-toolbar:collect",
+                (event) => {
+                    handleSelectionToolbarCollect(event.payload ?? null);
+                }
+            );
+        } catch (error) {
+            logger.error("Failed to listen for selection-toolbar:collect event:", error);
+        }
+    }
 
     /**
      * 处理翻译快捷键触发
@@ -93,6 +191,7 @@
 </script>
 
 <div class="app-container">
+    <GlobalSelectionMonitor />
     <Header />
     <div class="app-body">
         <Sidebar />

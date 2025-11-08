@@ -26,6 +26,8 @@ class ConfigStore {
 
       // 应用主题
       this.applyTheme();
+
+      await this.syncSelectionToolbarEnabled();
       
       // 同步自启动状态
       await this.syncAutoLaunchStatus();
@@ -57,6 +59,20 @@ class ConfigStore {
   }
 
   /**
+   * 同步划词工具栏启用状态到后端
+   */
+  async syncSelectionToolbarEnabled() {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('set_selection_toolbar_enabled', {
+        enabled: this.config.selectionToolbarEnabled,
+      });
+    } catch (error) {
+      logger.error('Failed to sync selection toolbar state', error);
+    }
+  }
+
+  /**
    * 更新配置
    * 
    * @param updates - 要更新的配置字段
@@ -80,6 +96,14 @@ class ConfigStore {
    */
   async setTheme(theme: 'system' | 'light' | 'dark') {
     await this.update({ theme });
+    
+    // 通知所有窗口主题已更改
+    try {
+      const { emit } = await import('@tauri-apps/api/event');
+      await emit('theme-changed', { theme });
+    } catch (error) {
+      logger.error('Failed to emit theme-changed event', error);
+    }
   }
 
   /**
@@ -110,6 +134,13 @@ class ConfigStore {
    */
   async setTranslationHotkey(hotkey: string) {
     await this.update({ translationHotkey: hotkey });
+  }
+
+  /**
+   * 设置划词工具栏快捷键
+   */
+  async setSelectionToolbarHotkey(hotkey: string) {
+    await this.update({ selectionToolbarHotkey: hotkey });
   }
 
   /**
@@ -163,6 +194,28 @@ class ConfigStore {
   }
 
   /**
+   * 设置划词工具栏开关
+   */
+  async setSelectionToolbarEnabled(enabled: boolean) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('set_selection_toolbar_enabled', { enabled });
+    } catch (error) {
+      logger.error('Failed to update selection toolbar state in backend', error);
+      throw error;
+    }
+
+    await this.update({ selectionToolbarEnabled: enabled });
+  }
+
+  /**
+   * 设置默认解释平台
+   */
+  async setDefaultExplainPlatformId(platformId: string | null) {
+    await this.update({ defaultExplainPlatformId: platformId });
+  }
+
+  /**
    * 设置窗口尺寸
    */
   async setWindowSize(width: number, height: number) {
@@ -195,6 +248,7 @@ class ConfigStore {
       await saveConfig(DEFAULT_CONFIG);
       this.config = DEFAULT_CONFIG;
       this.applyTheme();
+      await this.syncSelectionToolbarEnabled();
     } catch (error) {
       logger.error('Failed to reset config', error);
       throw error;

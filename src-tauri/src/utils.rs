@@ -15,6 +15,8 @@
 ///
 /// # Examples
 /// ```
+/// use ai_ask_lib::decode_base64;
+///
 /// let decoded = decode_base64("SGVsbG8gV29ybGQ=").unwrap();
 /// assert_eq!(decoded, b"Hello World");
 /// ```
@@ -92,6 +94,8 @@ pub fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
 ///
 /// # Examples
 /// ```
+/// use ai_ask_lib::decode_base64url;
+///
 /// let decoded = decode_base64url("SGVsbG8gV29ybGQ").unwrap();
 /// assert_eq!(decoded, b"Hello World");
 /// ```
@@ -162,7 +166,7 @@ mod tests {
         // Test URL-safe characters (- and _)
         let input = "PDw_Pz8-Pj4"; // "<<????>>" in base64url
         let result = decode_base64url(input).unwrap();
-        assert_eq!(result, b"<<????>>");
+        assert_eq!(result, b"<<???>>>");
     }
 
     #[test]

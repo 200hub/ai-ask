@@ -11,6 +11,7 @@ export interface AppConfig {
   // 快捷键设置
   globalHotkey: string;
   translationHotkey: string;
+  selectionToolbarHotkey: string;
 
   // 启动设置
   autoStart: boolean;
@@ -23,6 +24,10 @@ export interface AppConfig {
 
   // 翻译设置
   currentTranslator: string;
+
+  // 划词工具栏设置
+  selectionToolbarEnabled: boolean;
+  defaultExplainPlatformId: string | null;
 
   // 代理设置
   proxy?: ProxyConfig;
@@ -68,11 +73,14 @@ export const DEFAULT_CONFIG: AppConfig = {
   locale: "zh-CN",
   globalHotkey: "CommandOrControl+Shift+A",
   translationHotkey: "CommandOrControl+Shift+T",
+  selectionToolbarHotkey: "CommandOrControl+Shift+S",
   autoStart: false,
   autoUpdateEnabled: false,
   defaultPlatform: null,
   lastUsedPlatform: null,
   currentTranslator: "google",
+  selectionToolbarEnabled: true,
+  defaultExplainPlatformId: null,
   proxy: { type: "system" },
   windowSize: {
     width: 1200,
@@ -95,4 +103,4 @@ export type SettingsTab =
 /**
  * 视图类型
  */
-export type ViewType = "welcome" | "chat" | "translation" | "settings" | "debug";
+export type ViewType = "welcome" | "chat" | "translation" | "settings" | "debug" | "toolbar";

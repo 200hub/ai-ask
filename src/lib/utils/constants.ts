@@ -251,6 +251,16 @@ export const TRANSLATION_SHORTCUTS = [
 ];
 
 /**
+ * 划词工具栏快捷键列表
+ */
+export const SELECTION_TOOLBAR_SHORTCUTS = [
+  "CommandOrControl+Shift+S",
+  "CommandOrControl+Shift+D",
+  "CommandOrControl+Alt+S",
+  "Alt+Shift+S",
+];
+
+/**
  * 默认窗口配置
  */
 export const DEFAULT_WINDOW_CONFIG = {
@@ -285,6 +295,8 @@ export const TIMING = {
   MIN_WEBVIEW_LOADING_MS: 800,
   /** WebView 聚焦后额外的就绪等待时间（毫秒） */
   WEBVIEW_READY_EXTRA_DELAY_MS: 200,
+  /** 等待子 WebView 加载完成的最长时间（毫秒） */
+  CHILD_WEBVIEW_READY_TIMEOUT_MS: 15000,
 } as const;
 
 /**
@@ -344,6 +356,27 @@ export const INJECTION_RETRY_DELAY = INJECTION.RETRY_DELAY_MS;
  * Debug/Injection UI constants
  */
 export const DEBUG_FLOATING_CONTROLS_OFFSET = 120; // logical px reserved at top for floating controls
+
+/**
+ * Selection Toolbar constants
+ */
+export const SELECTION_TOOLBAR = {
+  /** Toolbar window width (logical pixels) */
+  WINDOW_WIDTH: 120,
+  /** Toolbar window height (logical pixels) */
+  WINDOW_HEIGHT: 38,
+  /** Offset from cursor position (logical pixels) */
+  CURSOR_OFFSET_X: 10,
+  CURSOR_OFFSET_Y: 12,
+  /** Minimum text selection length to show toolbar */
+  MIN_SELECTION_LENGTH: 2,
+  /** Auto-hide delay after showing (milliseconds) */
+  AUTO_HIDE_DELAY_MS: 10000,
+  /** Debounce delay for text selection events (milliseconds) */
+  SELECTION_DEBOUNCE_MS: 300,
+  /** Debounce delay before hiding when selection clears (milliseconds) */
+  SELECTION_CLEAR_DEBOUNCE_MS: 120,
+} as const;
 
 /**
  * Translation language code mapping
@@ -406,13 +439,3 @@ export const TRANSLATION_INJECTION = {
   /** Delay between retries */
   RETRY_DELAY_MS: 600,
 } as const;
-
-// Export individual constants for convenience
-export const DEFAULT_INJECTION_TIMEOUT = INJECTION.DEFAULT_TIMEOUT_MS;
-export const DEFAULT_MAX_RETRIES = INJECTION.DEFAULT_MAX_RETRIES;
-export const INJECTION_RETRY_DELAY = INJECTION.RETRY_DELAY_MS;
-
-/**
- * Debug/Injection UI constants
- */
-export const DEBUG_FLOATING_CONTROLS_OFFSET = 120; // logical px reserved at top for floating controls

@@ -301,12 +301,11 @@ export const COPILOT_TEMPLATES: InjectionTemplate[] = [
 ];
 
 /**
- * 通义千问 (Qwen) injection templates
- * TODO
+ * 通义千问 (Tongyi Qianwen) injection templates
  */
-export const QWEN_TEMPLATES: InjectionTemplate[] = [
+export const TONGYI_TEMPLATES: InjectionTemplate[] = [
 	{
-		platformId: 'qwen',
+		platformId: 'tongyi',
 		name: 'Send Message',
 		description: '向通义千问发送消息',
 		urlPattern: 'https://www\\.tongyi\\.com.*',
@@ -339,11 +338,10 @@ export const QWEN_TEMPLATES: InjectionTemplate[] = [
 
 /**
  * 文心一言 (ERNIE Bot) injection templates
- * TODO
  */
-export const ERNIE_TEMPLATES: InjectionTemplate[] = [
+export const WENXIN_TEMPLATES: InjectionTemplate[] = [
 	{
-		platformId: 'ernie',
+		platformId: 'wenxin',
 		name: 'Send Message',
 		description: '向文心一言发送消息',
 		urlPattern: 'https://yiyan\\.baidu\\.com.*',
@@ -777,8 +775,8 @@ export const ALL_TEMPLATES: InjectionTemplate[] = [
 	...DEEPSEEK_TEMPLATES,
 	...KIMI_TEMPLATES,
 	...COPILOT_TEMPLATES,
-	...QWEN_TEMPLATES,
-	...ERNIE_TEMPLATES,
+	...TONGYI_TEMPLATES,
+	...WENXIN_TEMPLATES,
 	...DOUBAO_TEMPLATES,
 	...YUANBAO_TEMPLATES,
 	...GROK_TEMPLATES,
@@ -788,6 +786,28 @@ export const ALL_TEMPLATES: InjectionTemplate[] = [
 	...BAIDU_TRANSLATE_TEMPLATES,
 	...BING_TRANSLATE_TEMPLATES
 ];
+
+const CHAT_TEMPLATE_REGISTRY = new Map<string, InjectionTemplate[]>([
+	['chatgpt', CHATGPT_TEMPLATES],
+	['claude', CLAUDE_TEMPLATES],
+	['gemini', GEMINI_TEMPLATES],
+	['deepseek', DEEPSEEK_TEMPLATES],
+	['kimi', KIMI_TEMPLATES],
+	['copilot', COPILOT_TEMPLATES],
+	['tongyi', TONGYI_TEMPLATES],
+	['wenxin', WENXIN_TEMPLATES],
+	['doubao', DOUBAO_TEMPLATES],
+	['yuanbao', YUANBAO_TEMPLATES],
+	['grok', GROK_TEMPLATES],
+]);
+
+const TRANSLATION_TEMPLATE_REGISTRY = new Map<string, InjectionTemplate[]>([
+	['google', GOOGLE_TRANSLATE_TEMPLATES],
+	['deepl', DEEPL_TRANSLATE_TEMPLATES],
+	['youdao', YOUDAO_TRANSLATE_TEMPLATES],
+	['baidu', BAIDU_TRANSLATE_TEMPLATES],
+	['bing', BING_TRANSLATE_TEMPLATES],
+]);
 
 /**
  * Get templates by platform ID
@@ -801,4 +821,20 @@ export function getTemplatesByPlatform(platformId: string): InjectionTemplate[] 
  */
 export function findTemplate(platformId: string, name: string): InjectionTemplate | undefined {
 	return ALL_TEMPLATES.find((t) => t.platformId === platformId && t.name === name);
+}
+
+/**
+ * Get default chat template (first registered template) by platform ID
+ */
+export function getDefaultChatTemplate(platformId: string): InjectionTemplate | undefined {
+	const templates = CHAT_TEMPLATE_REGISTRY.get(platformId);
+	return templates?.[0];
+}
+
+/**
+ * Get default translation template (first registered template) by platform ID
+ */
+export function getDefaultTranslationTemplate(platformId: string): InjectionTemplate | undefined {
+	const templates = TRANSLATION_TEMPLATE_REGISTRY.get(platformId);
+	return templates?.[0];
 }

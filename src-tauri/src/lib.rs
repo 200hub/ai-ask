@@ -3,11 +3,15 @@
 //! 基于 Tauri 2.0 构建的跨平台桌面应用，提供窗口控制、
 //! 子 WebView 生命周期管理、代理测试、系统托盘与快捷键支持。
 
+mod global_selection;
 mod proxy;
+mod selection_toolbar;
 mod update;
 mod utils;
 mod webview;
 mod window_control;
+
+pub use utils::{decode_base64, decode_base64url, decode_base64url_to_json};
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -15,10 +19,14 @@ use std::time::{Duration, Instant};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconEvent,
-    Emitter, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 
 use proxy::test_proxy_connection;
+use selection_toolbar::{
+    get_cursor_position, hide_selection_toolbar, set_selection_toolbar_enabled,
+    show_selection_toolbar, ToolbarManager,
+};
 use update::{
     check_update, download_update, get_download_status, init as init_update, install_update_now,
     schedule_install,
@@ -88,6 +96,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(ChildWebviewManager::default())
+        .manage(ToolbarManager::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -98,6 +107,8 @@ pub fn run() {
         ))
         .setup(|app| {
             log::debug!("Application setup starting");
+
+            global_selection::start_global_selection_monitor(app.handle().clone());
 
             let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let settings_item = MenuItem::with_id(app, "settings", "偏好设置", true, None::<&str>)?;
@@ -223,6 +234,35 @@ pub fn run() {
                         });
             }
 
+            // 注册划词工具栏快捷键
+            #[cfg(target_os = "macos")]
+            let selection_shortcut = "Cmd+Shift+S";
+            #[cfg(not(target_os = "macos"))]
+            let selection_shortcut = "Ctrl+Shift+S";
+
+            if let Ok(shortcut) = selection_shortcut.parse::<Shortcut>() {
+                log::info!("Registering selection toolbar shortcut: {}", shortcut);
+                let handle_clone = handle.clone();
+                let _ =
+                    app.global_shortcut()
+                        .on_shortcut(shortcut, move |_app, _event, _shortcut| {
+                            log::debug!("Selection toolbar shortcut triggered");
+
+                            let app_handle = handle_clone.clone();
+                            if let Some(toolbar_state) = app_handle.try_state::<ToolbarManager>() {
+                                let toolbar_manager = toolbar_state.inner().clone();
+                                global_selection::trigger_toolbar_from_hotkey(
+                                    app_handle,
+                                    toolbar_manager,
+                                );
+                            } else {
+                                log::warn!(
+                                    "Selection toolbar shortcut triggered but manager state missing"
+                                );
+                            }
+                        });
+            }
+
             log::info!("Application setup completed");
             Ok(())
         })
@@ -258,7 +298,11 @@ pub fn run() {
             schedule_install,
             enable_auto_launch,
             disable_auto_launch,
-            is_auto_launch_enabled
+            is_auto_launch_enabled,
+            show_selection_toolbar,
+            hide_selection_toolbar,
+            set_selection_toolbar_enabled,
+            get_cursor_position
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
