@@ -208,7 +208,7 @@ export const BUILT_IN_TRANSLATION_PLATFORMS: TranslationPlatform[] = [
  */
 export const APP_INFO = {
   name: "AI Ask",
-  version: "0.0.1-alpha.7",
+  version: "0.0.1-alpha.8",
   description: "一个简洁高效的AI问答助手",
   author: "AI Ask Team",
   repository: "https://github.com/200hub/ai-ask",
