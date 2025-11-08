@@ -145,15 +145,12 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
       
-      # Read original SemVer for artifact naming (all platforms)
-      - name: Read application version
-        shell: bash
-        run: |
-          SEMVER=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          echo "Detected SemVer: $SEMVER"
-          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
-      
-      # Derive MSI-friendly version (Windows only): x.y.z.YYYYMMDDHHMMSS
+      # Derive MSI-friendly version (Windows only)
+      # Maps SemVer to numeric-only format (max 65535 per segment):
+      #   0.0.1-alpha.4 -> 0.0.1.10004
+      #   0.0.1-beta.7  -> 0.0.1.20007
+      #   0.0.1-rc.3    -> 0.0.1.30003
+      #   0.0.1         -> 0.0.1.50000
       - name: Derive MSI-friendly version (Windows only)
         if: ${{ runner.os == 'Windows' }}
         shell: bash
@@ -162,10 +159,32 @@ jobs:
           SEMVER=$(node -p "require('./src-tauri/tauri.conf.json').version")
           echo "Original SemVer: $SEMVER"
 
-          # Extract base x.y.z and generate UTC timestamp
-          BASE=$(echo "$SEMVER" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          TS=$(date -u +%Y%m%d%H%M%S)
-          MSI_VERSION="${BASE}.${TS}"
+          # Map SemVer pre-release to numeric suffix (Windows requirement: max 65535)
+          if [[ "$SEMVER" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-alpha\.([0-9]+)$ ]]; then
+            BASE="${BASH_REMATCH[1]}"
+            NUM="${BASH_REMATCH[2]}"
+            MSI_VERSION="${BASE}.$((10000 + NUM))"
+            echo "Mapped alpha.${NUM} -> $((10000 + NUM))"
+          elif [[ "$SEMVER" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$ ]]; then
+            BASE="${BASH_REMATCH[1]}"
+            NUM="${BASH_REMATCH[2]}"
+            MSI_VERSION="${BASE}.$((20000 + NUM))"
+            echo "Mapped beta.${NUM} -> $((20000 + NUM))"
+          elif [[ "$SEMVER" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then
+            BASE="${BASH_REMATCH[1]}"
+            NUM="${BASH_REMATCH[2]}"
+            MSI_VERSION="${BASE}.$((30000 + NUM))"
+            echo "Mapped rc.${NUM} -> $((30000 + NUM))"
+          elif [[ "$SEMVER" =~ ^([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            # Stable release
+            MSI_VERSION="${SEMVER}.50000"
+            echo "Stable release -> 50000"
+          else
+            # Fallback: strip everything after base version
+            BASE=$(echo "$SEMVER" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+            MSI_VERSION="${BASE}.0"
+            echo "WARN: Unrecognized format '$SEMVER', fallback to ${MSI_VERSION}"
+          fi
 
           echo "MSI-friendly version: $MSI_VERSION"
 
@@ -176,8 +195,8 @@ jobs:
       # Build Tauri application
       - name: Build Tauri application
         env:
-          # Only Windows needs the numeric MSI version override
-          TAURI_APP_VERSION: ${{ runner.os == 'Windows' && env.MSI_VERSION || '' }}
+          # On Windows this is a numeric-only version; on other OS it's empty
+          TAURI_APP_VERSION: ${{ env.MSI_VERSION }}
         run: pnpm tauri build --target ${{ matrix.target }}
       
       # Upload artifacts

@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![AI Ask](https://img.shields.io/badge/AI%20Ask-v0.0.1--alpha.6-blue?style=for-the-badge)
+![AI Ask](https://img.shields.io/badge/AI%20Ask-v0.0.1--alpha.7-blue?style=for-the-badge)
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?style=for-the-badge&logo=tauri)](https://tauri.app/)
 [![Svelte](https://img.shields.io/badge/Svelte-5.0-FF3E00?style=for-the-badge&logo=svelte)](https://svelte.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
