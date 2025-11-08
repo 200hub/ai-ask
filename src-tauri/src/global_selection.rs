@@ -8,6 +8,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 // removed unused time imports after provider refactor
 
+#[cfg(target_os = "macos")]
+use rdev::ListenError;
 use rdev::{listen, Button, Event, EventType};
 use tauri::{AppHandle, Manager};
 
@@ -17,8 +19,94 @@ use crate::selection_toolbar::{
 };
 use crate::window_control::resolve_main_window;
 
+#[cfg(target_os = "macos")]
+use core_foundation::base::TCFType;
+#[cfg(target_os = "macos")]
+use core_foundation::boolean::CFBoolean;
+#[cfg(target_os = "macos")]
+use core_foundation::dictionary::CFDictionary;
+#[cfg(target_os = "macos")]
+use core_foundation::string::CFString;
+
 const MIN_TEXT_LENGTH: usize = 2;
 const TRIGGER_DEBOUNCE_MS: u64 = 200;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+const LISTENER_RETRY_DELAY_MS: u64 = 2_000;
+
+/// Check if macOS accessibility permissions are granted
+#[cfg(target_os = "macos")]
+fn check_macos_accessibility_permission() -> bool {
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrusted() -> bool;
+    }
+
+    unsafe { AXIsProcessTrusted() }
+}
+
+/// Request macOS accessibility permissions with prompt
+#[cfg(target_os = "macos")]
+fn request_macos_accessibility_permission() -> bool {
+    use core_foundation::base::ToVoid;
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrustedWithOptions(options: *const std::ffi::c_void) -> bool;
+    }
+
+    let prompt_key = CFString::from_static_string("AXTrustedCheckOptionPrompt");
+    let prompt_value = CFBoolean::true_value();
+
+    let options =
+        CFDictionary::from_CFType_pairs(&[(prompt_key.as_CFType(), prompt_value.as_CFType())]);
+
+    unsafe { AXIsProcessTrustedWithOptions(options.to_void()) }
+}
+
+/// Tauri command to check accessibility permission status
+#[tauri::command]
+pub async fn check_accessibility_permission() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(check_macos_accessibility_permission())
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows doesn't require explicit permission for UI Automation
+        Ok(true)
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Ok(false)
+    }
+}
+
+/// Tauri command to request accessibility permission
+#[tauri::command]
+pub async fn request_accessibility_permission() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let granted = request_macos_accessibility_permission();
+        if granted {
+            log::info!("Accessibility permission granted");
+        } else {
+            log::warn!("Accessibility permission not granted, system prompt shown");
+        }
+        Ok(granted)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Ok(true)
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Err("Accessibility permissions not supported on this platform".to_string())
+    }
+}
 
 trait GlobalSelectionProvider: Send + Sync {
     fn name(&self) -> &'static str;
@@ -279,7 +367,6 @@ use windows_uia::WindowsUIAutomationProvider;
 mod macos_accessibility {
     use super::{normalize_selection, GlobalSelectionProvider};
     use accessibility::{AXAttribute, AXUIElement, Error as AccessibilityError};
-    use core_foundation::base::{CFType, TCFType};
     use core_foundation::string::CFString;
     use log::debug;
     use tauri::AppHandle;
@@ -296,16 +383,8 @@ mod macos_accessibility {
 
         fn capture_impl(&self) -> Option<String> {
             let system = AXUIElement::system_wide();
-            let focused = match Self::focused_element(&system) {
-                Some(element) => element,
-                None => return None,
-            };
-
-            let selected = match Self::read_selected_text(&focused) {
-                Some(text) => text,
-                None => return None,
-            };
-
+            let focused = Self::focused_element(&system)?;
+            let selected = Self::read_selected_text(&focused)?;
             normalize_selection(&selected)
         }
 
@@ -333,8 +412,8 @@ mod macos_accessibility {
             };
 
             match raw_value.downcast::<AXUIElement>() {
-                Ok(element) => Some(element),
-                Err(_) => {
+                Some(element) => Some(element),
+                None => {
                     debug!("macOS accessibility provider focused element has unexpected type");
                     None
                 }
@@ -365,8 +444,8 @@ mod macos_accessibility {
             };
 
             match value.downcast::<CFString>() {
-                Ok(cf_string) => Some(cf_string.to_string()),
-                Err(_) => {
+                Some(cf_string) => Some(cf_string.to_string()),
+                None => {
                     debug!(
                         "macOS accessibility provider selected text attribute is not a CFString"
                     );
@@ -394,36 +473,142 @@ use macos_accessibility::MacosAccessibilityProvider;
 struct MonitorState {
     last_trigger_at: Option<Instant>,
     last_text: Option<String>,
+    last_mouse_position: (f64, f64),
 }
 
 pub fn start_global_selection_monitor(app: AppHandle) {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
+        // Check accessibility permission on macOS
+        #[cfg(target_os = "macos")]
+        {
+            if !check_macos_accessibility_permission() {
+                log::warn!(
+                    "Global selection monitor: accessibility permission not granted. \
+                    The monitor will start but will not receive events until permission is granted. \
+                    Please enable accessibility permission in System Settings > Privacy & Security > Accessibility."
+                );
+            } else {
+                log::info!("Global selection monitor: accessibility permission verified");
+            }
+        }
+
         let app_handle = app.clone();
         let toolbar_manager = app.state::<ToolbarManager>().inner().clone();
         let providers = Arc::new(build_providers());
         let shared_state = Arc::new(Mutex::new(MonitorState::default()));
 
-        thread::spawn(move || {
-            if let Err(error) = listen(move |event| {
-                handle_event(
-                    event,
-                    &app_handle,
-                    &toolbar_manager,
-                    &shared_state,
-                    &providers,
-                );
-            }) {
-                log::error!("Global selection monitor stopped: {:?}", error);
-            }
-        });
+        #[cfg(target_os = "macos")]
+        spawn_macos_selection_listener(app_handle, toolbar_manager, providers, shared_state);
 
-        log::info!("Global selection monitor started");
+        #[cfg(target_os = "windows")]
+        spawn_windows_selection_listener(app_handle, toolbar_manager, providers, shared_state);
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         log::warn!("Global selection monitor is not available on this platform");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_macos_selection_listener(
+    app_handle: AppHandle,
+    toolbar_manager: ToolbarManager,
+    providers: Arc<ProviderList>,
+    shared_state: Arc<Mutex<MonitorState>>,
+) {
+    thread::spawn(move || {
+        let mut attempt: u64 = 0;
+
+        loop {
+            attempt += 1;
+            log::info!(
+                "Starting global selection monitor listener (attempt #{})",
+                attempt
+            );
+
+            let listener_app = app_handle.clone();
+            let listener_toolbar = toolbar_manager.clone();
+            let listener_state = shared_state.clone();
+            let listener_providers = providers.clone();
+
+            match listen(move |event| {
+                handle_event(
+                    event,
+                    &listener_app,
+                    &listener_toolbar,
+                    &listener_state,
+                    &listener_providers,
+                );
+            }) {
+                Ok(()) => {
+                    log::warn!("Global selection monitor listener exited unexpectedly; restarting");
+                }
+                Err(error) => {
+                    log_listener_error(&error);
+                }
+            }
+
+            log::info!(
+                "Retrying global selection monitor in {} ms",
+                LISTENER_RETRY_DELAY_MS
+            );
+            thread::sleep(Duration::from_millis(LISTENER_RETRY_DELAY_MS));
+        }
+    });
+
+    log::info!("Global selection monitor worker spawned");
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_windows_selection_listener(
+    app_handle: AppHandle,
+    toolbar_manager: ToolbarManager,
+    providers: Arc<ProviderList>,
+    shared_state: Arc<Mutex<MonitorState>>,
+) {
+    thread::spawn(move || {
+        if let Err(error) = listen(move |event| {
+            handle_event(
+                event,
+                &app_handle,
+                &toolbar_manager,
+                &shared_state,
+                &providers,
+            );
+        }) {
+            log::error!("Global selection monitor stopped: {:?}", error);
+        }
+    });
+
+    log::info!("Global selection monitor started");
+}
+
+#[cfg(target_os = "macos")]
+fn log_listener_error(error: &ListenError) {
+    match error {
+        ListenError::EventTapError | ListenError::LoopSourceError => {
+            log::warn!(
+                "Global selection monitor cannot access macOS input events. \
+                Please grant Input Monitoring and Accessibility permissions in System Settings; the app will keep retrying."
+            );
+        }
+        ListenError::KeyHookError(code) => {
+            log::error!(
+                "Global selection monitor key hook error (code {}), restarting",
+                code
+            );
+        }
+        ListenError::MouseHookError(code) => {
+            log::error!(
+                "Global selection monitor mouse hook error (code {}), restarting",
+                code
+            );
+        }
+        other => {
+            log::error!("Global selection monitor stopped: {:?}", other);
+        }
     }
 }
 
@@ -435,6 +620,14 @@ fn handle_event(
     monitor_state: &Arc<Mutex<MonitorState>>,
     providers: &ProviderList,
 ) {
+    // Track mouse position from MouseMove events
+    if let EventType::MouseMove { x, y } = event.event_type {
+        if let Ok(mut state) = monitor_state.lock() {
+            state.last_mouse_position = (x, y);
+        }
+        return;
+    }
+
     if !matches!(event.event_type, EventType::ButtonRelease(Button::Left)) {
         return;
     }
@@ -480,6 +673,17 @@ fn handle_event(
         return;
     };
 
+    log::info!(
+        "Global selection detected: {} characters (preview: \"{}\")",
+        selected_text.len(),
+        selected_text
+            .chars()
+            .take(50)
+            .collect::<String>()
+            .replace('\n', " ")
+            .replace('\r', "")
+    );
+
     let mut state = match monitor_state.lock() {
         Ok(guard) => guard,
         Err(err) => {
@@ -498,15 +702,12 @@ fn handle_event(
     }
 
     state.last_text = Some(selected_text.clone());
-    drop(state);
-
-    let position = match platform_cursor_position() {
-        Ok((x, y)) => CursorPosition { x, y },
-        Err(err) => {
-            log::warn!("Failed to read cursor position: {}", err);
-            return;
-        }
+    // Get the last known mouse position from the state
+    let position = CursorPosition {
+        x: state.last_mouse_position.0,
+        y: state.last_mouse_position.1,
     };
+    drop(state);
 
     let app_clone = app.clone();
     let toolbar_manager_clone = toolbar_manager.clone();

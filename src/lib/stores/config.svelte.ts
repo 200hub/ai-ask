@@ -16,6 +16,9 @@ class ConfigStore {
   // 是否已初始化
   initialized = $state<boolean>(false);
 
+  // 辅助功能权限状态（macOS）
+  accessibilityPermissionGranted = $state<boolean>(true);
+
   /**
    * 初始化配置
    */
@@ -28,9 +31,12 @@ class ConfigStore {
       this.applyTheme();
 
       await this.syncSelectionToolbarEnabled();
-      
+
       // 同步自启动状态
       await this.syncAutoLaunchStatus();
+
+      // 检查辅助功能权限
+      await this.checkAccessibilityPermission();
     } catch (error) {
       logger.error('Failed to initialize config', error);
       this.config = DEFAULT_CONFIG;
@@ -260,6 +266,50 @@ class ConfigStore {
    */
   async reload() {
     await this.init();
+  }
+
+  /**
+   * 检查辅助功能权限状态
+   */
+  async checkAccessibilityPermission(): Promise<boolean> {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const granted = await invoke<boolean>('check_accessibility_permission');
+      this.accessibilityPermissionGranted = granted;
+
+      if (!granted) {
+        logger.warn('Accessibility permission not granted');
+      } else {
+        logger.info('Accessibility permission verified');
+      }
+
+      return granted;
+    } catch (error) {
+      logger.error('Failed to check accessibility permission', error);
+      return true; // 假设已授权，避免在不支持的平台上显示警告
+    }
+  }
+
+  /**
+   * 请求辅助功能权限
+   */
+  async requestAccessibilityPermission(): Promise<boolean> {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const granted = await invoke<boolean>('request_accessibility_permission');
+      this.accessibilityPermissionGranted = granted;
+
+      if (granted) {
+        logger.info('Accessibility permission granted after request');
+      } else {
+        logger.warn('Accessibility permission denied or prompt shown');
+      }
+
+      return granted;
+    } catch (error) {
+      logger.error('Failed to request accessibility permission', error);
+      throw error;
+    }
   }
 }
 

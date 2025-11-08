@@ -22,6 +22,7 @@ use tauri::{
     Emitter, Manager, WindowEvent,
 };
 
+use global_selection::{check_accessibility_permission, request_accessibility_permission};
 use proxy::test_proxy_connection;
 use selection_toolbar::{
     get_cursor_position, hide_selection_toolbar, set_selection_toolbar_enabled,
@@ -302,7 +303,9 @@ pub fn run() {
             show_selection_toolbar,
             hide_selection_toolbar,
             set_selection_toolbar_enabled,
-            get_cursor_position
+            get_cursor_position,
+            check_accessibility_permission,
+            request_accessibility_permission
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

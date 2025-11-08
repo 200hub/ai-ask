@@ -273,7 +273,6 @@ fn ensure_toolbar_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .title("Selection Toolbar")
         .inner_size(TOOLBAR_WIDTH, TOOLBAR_HEIGHT)
         .decorations(false)
-        .transparent(true)
         .resizable(false)
         .skip_taskbar(true)
         .visible(false)
@@ -301,14 +300,18 @@ pub(crate) fn platform_cursor_position() -> Result<(f64, f64), String> {
     #[cfg(target_os = "macos")]
     {
         use core_graphics::event::CGEvent;
-        use core_graphics::event::CGEventTapLocation;
+        use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
-        if let Some(event) = CGEvent::new(CGEventTapLocation::HID) {
-            let location = event.location();
-            return Ok((location.x, location.y));
+        match CGEventSource::new(CGEventSourceStateID::HIDSystemState) {
+            Ok(source) => match CGEvent::new(source) {
+                Ok(event) => {
+                    let location = event.location();
+                    Ok((location.x, location.y))
+                }
+                Err(_) => Err("Failed to create CGEvent".into()),
+            },
+            Err(_) => Err("Failed to create CGEventSource".into()),
         }
-
-        return Err("Failed to read cursor position".into());
     }
 
     #[cfg(target_os = "linux")]

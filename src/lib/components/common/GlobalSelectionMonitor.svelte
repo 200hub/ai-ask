@@ -14,6 +14,7 @@
 
   let selectionTimeout: number | null = null;
   let selectionChangeTimeout: number | null = null;
+  let toolbarVisible = false;
 
   function clearDocumentSelection(): void {
     const selection = window.getSelection();
@@ -26,12 +27,18 @@
     }
   }
 
-  async function hideToolbar(clearSelection = false) {
+  async function hideToolbar(clearSelection = false, reason = 'unspecified') {
+    logger.debug('Hiding selection toolbar', {
+      clearSelection,
+      reason,
+      toolbarVisible,
+    });
     try {
       await invoke('hide_selection_toolbar');
     } catch (error) {
       logger.error('Failed to hide selection toolbar', error);
     } finally {
+      toolbarVisible = false;
       if (clearSelection) {
         clearDocumentSelection();
       }
@@ -65,7 +72,7 @@
     void emit('selection-monitor-log', mouseupPayload);
 
     if (!isPlainSelection || !selectedText || selectedText.length < SELECTION_TOOLBAR.MIN_SELECTION_LENGTH) {
-      await hideToolbar(true);
+      await hideToolbar(true, 'selection-too-short-on-mouseup');
       return;
     }
 
@@ -86,12 +93,12 @@
 
       // 检查是否启用了划词工具栏
       if (!configStore.config.selectionToolbarEnabled) {
-        await hideToolbar(true);
+        await hideToolbar(true, 'toolbar-disabled');
         return;
       }
 
       if (!debouncedText || debouncedText.length < SELECTION_TOOLBAR.MIN_SELECTION_LENGTH) {
-        await hideToolbar(true);
+        await hideToolbar(true, 'selection-too-short-after-debounce');
         return;
       }
 
@@ -116,7 +123,7 @@
 
         if (!rect || (rect.width === 0 && rect.height === 0)) {
           logger.debug('Selection toolbar aborted: unable to determine bounding rect');
-          await hideToolbar(true);
+          await hideToolbar(true, 'missing-bounding-rect');
           return;
         }
 
@@ -130,6 +137,7 @@
             y: windowPosition.y + rectTop * scaleFactor,
           },
         });
+        toolbarVisible = true;
 
         logger.info('Selection toolbar shown', {
           textLength: selectedText.length,
@@ -166,14 +174,31 @@
       logger.info('Selection monitor selectionchange', selectionChangePayload);
       void emit('selection-monitor-log', selectionChangePayload);
 
-      if (!selectedText || selectedText.length < SELECTION_TOOLBAR.MIN_SELECTION_LENGTH) {
-        void hideToolbar(true);
+      // 只在选择被完全清空时才隐藏工具栏
+      // 不要在选择变化过程中隐藏，避免工具栏闪烁
+      if (!selectedText || selectedText.length === 0) {
+        void hideToolbar(true, 'selection-cleared');
       }
     }, SELECTION_TOOLBAR.SELECTION_CLEAR_DEBOUNCE_MS);
   }
 
-  function handleWindowBlur() {
-    void hideToolbar(true);
+  async function handleWindowBlur() {
+    // 延迟检查，避免因工具栏窗口获取焦点而误隐藏
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // 检查焦点是否转移到了工具栏窗口
+    // 如果是，则不隐藏工具栏
+    if (document.hasFocus()) {
+      // 焦点又回来了，不隐藏
+      return;
+    }
+
+    if (toolbarVisible) {
+      logger.debug('Window blur ignored because toolbar is active');
+      return;
+    }
+
+    void hideToolbar(true, 'window-blur');
 
     if (selectionTimeout !== null) {
       window.clearTimeout(selectionTimeout);

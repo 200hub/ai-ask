@@ -143,6 +143,37 @@
     }
 
     /**
+     * 请求辅助功能权限
+     */
+    async function handleRequestPermission() {
+        try {
+            await configStore.requestAccessibilityPermission();
+            // 延迟检查，因为用户需要时间去设置
+            setTimeout(async () => {
+                await configStore.checkAccessibilityPermission();
+            }, 1000);
+        } catch (error) {
+            logger.error("Failed to request accessibility permission", error);
+        }
+    }
+
+    /**
+     * 重新检查权限状态
+     */
+    async function handleCheckPermission() {
+        try {
+            const granted = await configStore.checkAccessibilityPermission();
+            if (granted) {
+                logger.info("Accessibility permission is now granted");
+            } else {
+                logger.warn("Accessibility permission is still not granted");
+            }
+        } catch (error) {
+            logger.error("Failed to check accessibility permission", error);
+        }
+    }
+
+    /**
      * 格式化快捷键显示
      */
     function formatHotkey(hotkey: string): string {
@@ -222,6 +253,22 @@
                 <span class="toggle-slider"></span>
             </label>
         </div>
+
+        {#if configStore.config.selectionToolbarEnabled && !configStore.accessibilityPermissionGranted}
+            <div class="permission-warning">
+                <div class="warning-icon">⚠️</div>
+                <div class="warning-content">
+                    <div class="warning-title">{t("general.accessibilityPermissionRequired")}</div>
+                    <div class="warning-message">{t("general.accessibilityPermissionMessage")}</div>
+                    <button class="permission-button" onclick={handleRequestPermission}>
+                        {t("general.openSystemSettings")}
+                    </button>
+                    <button class="permission-button secondary" onclick={handleCheckPermission}>
+                        {t("general.recheckPermission")}
+                    </button>
+                </div>
+            </div>
+        {/if}
 
         {#if configStore.config.selectionToolbarEnabled}
             <div class="setting-item">
@@ -625,5 +672,74 @@
 
     .btn-clear-cache:active {
         transform: scale(0.98);
+    }
+
+    .permission-warning {
+        display: flex;
+        gap: 1rem;
+        padding: 1rem;
+        background-color: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
+
+    :global(.dark) .permission-warning {
+        background-color: rgba(255, 193, 7, 0.15);
+        border-color: rgba(255, 193, 7, 0.3);
+    }
+
+    .warning-icon {
+        font-size: 1.5rem;
+        flex-shrink: 0;
+    }
+
+    .warning-content {
+        flex: 1;
+    }
+
+    .warning-title {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.5rem;
+    }
+
+    .warning-message {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.75rem;
+        line-height: 1.5;
+    }
+
+    .permission-button {
+        padding: 0.5rem 1rem;
+        background-color: var(--accent-color);
+        color: white;
+        border: none;
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        margin-right: 0.5rem;
+    }
+
+    .permission-button:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+    }
+
+    .permission-button:active {
+        transform: translateY(0);
+    }
+
+    .permission-button.secondary {
+        background-color: transparent;
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+    }
+
+    .permission-button.secondary:hover {
+        background-color: var(--bg-secondary);
     }
 </style>
