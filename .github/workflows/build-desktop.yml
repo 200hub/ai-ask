@@ -145,52 +145,47 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
       
-      # Sanitize version for Windows MSI (must be numeric-only pre-release identifier)
-      - name: Sanitize version for Windows MSI
+      # Read original SemVer for artifact naming (all platforms)
+      - name: Read application version
+        shell: bash
+        run: |
+          SEMVER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "Detected SemVer: $SEMVER"
+          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
+      
+      # Derive MSI-friendly version (Windows only): x.y.z.YYYYMMDDHHMMSS
+      - name: Derive MSI-friendly version (Windows only)
         if: ${{ runner.os == 'Windows' }}
         shell: bash
         run: |
-          # Read current version from tauri.conf.json
-          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          echo "Original version: $VERSION"
-          
-          # Transform version for Windows MSI compatibility
-          # Examples:
-          #   0.0.1-alpha.1 -> 0.0.1-1
-          #   1.0.0-beta.2 -> 1.0.0-2
-          #   1.0.0-rc.3 -> 1.0.0-3
-          #   1.0.0 -> 1.0.0 (unchanged)
-          
-          if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-([a-z]+)\.([0-9]+)$ ]]; then
-            # Format: x.y.z-alpha.n -> x.y.z-n
-            BASE="${BASH_REMATCH[1]}"
-            NUM="${BASH_REMATCH[3]}"
-            SANITIZED_VERSION="${BASE}-${NUM}"
-            echo "Sanitized version: $SANITIZED_VERSION"
-            
-            # Update tauri.conf.json
-            node -e "const fs=require('fs'); const config=require('./src-tauri/tauri.conf.json'); config.version='${SANITIZED_VERSION}'; fs.writeFileSync('./src-tauri/tauri.conf.json', JSON.stringify(config, null, 2));"
-            
-            # Update package.json
-            node -e "const fs=require('fs'); const pkg=require('./package.json'); pkg.version='${SANITIZED_VERSION}'; fs.writeFileSync('./package.json', JSON.stringify(pkg, null, 2));"
-            
-            # Update Cargo.toml
-            sed -i "s/^version = \".*\"/version = \"${SANITIZED_VERSION}\"/" src-tauri/Cargo.toml
-            
-            echo "✅ Version sanitized for Windows MSI: $VERSION -> $SANITIZED_VERSION"
-          else
-            echo "✅ Version is already MSI-compatible: $VERSION"
-          fi
+          # Read original SemVer from tauri.conf.json (do not modify files)
+          SEMVER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "Original SemVer: $SEMVER"
+
+          # Extract base x.y.z and generate UTC timestamp
+          BASE=$(echo "$SEMVER" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          TS=$(date -u +%Y%m%d%H%M%S)
+          MSI_VERSION="${BASE}.${TS}"
+
+          echo "MSI-friendly version: $MSI_VERSION"
+
+          # Export variables for later steps
+          echo "SEMVER=$SEMVER" >> $GITHUB_ENV
+          echo "MSI_VERSION=$MSI_VERSION" >> $GITHUB_ENV
       
       # Build Tauri application
       - name: Build Tauri application
+        env:
+          # Only Windows needs the numeric MSI version override
+          TAURI_APP_VERSION: ${{ runner.os == 'Windows' && env.MSI_VERSION || '' }}
         run: pnpm tauri build --target ${{ matrix.target }}
       
       # Upload artifacts
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform }}-${{ matrix.arch }}
+          # Keep artifact name showing original SemVer across all platforms
+          name: ${{ matrix.platform }}-${{ matrix.arch }}-${{ env.SEMVER }}
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
             src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
