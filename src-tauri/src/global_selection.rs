@@ -30,7 +30,7 @@ use core_foundation::string::CFString;
 
 const MIN_TEXT_LENGTH: usize = 2;
 const TRIGGER_DEBOUNCE_MS: u64 = 200;
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(target_os = "macos")]
 const LISTENER_RETRY_DELAY_MS: u64 = 2_000;
 
 /// Check if macOS accessibility permissions are granted
