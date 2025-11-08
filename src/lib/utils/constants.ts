@@ -406,3 +406,13 @@ export const TRANSLATION_INJECTION = {
   /** Delay between retries */
   RETRY_DELAY_MS: 600,
 } as const;
+
+// Export individual constants for convenience
+export const DEFAULT_INJECTION_TIMEOUT = INJECTION.DEFAULT_TIMEOUT_MS;
+export const DEFAULT_MAX_RETRIES = INJECTION.DEFAULT_MAX_RETRIES;
+export const INJECTION_RETRY_DELAY = INJECTION.RETRY_DELAY_MS;
+
+/**
+ * Debug/Injection UI constants
+ */
+export const DEBUG_FLOATING_CONTROLS_OFFSET = 120; // logical px reserved at top for floating controls
