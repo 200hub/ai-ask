@@ -222,6 +222,13 @@ class ConfigStore {
   }
 
   /**
+   * 设置平台预加载开关
+   */
+  async setPreloadDefaultPlatforms(enabled: boolean) {
+    await this.update({ preloadDefaultPlatforms: enabled });
+  }
+
+  /**
    * 设置窗口尺寸
    */
   async setWindowSize(width: number, height: number) {

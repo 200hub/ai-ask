@@ -39,6 +39,9 @@
     /** 当前代理配置签名，用于监听变更 */
     let proxySignature = $state(createProxySignature(configStore.config.proxy));
     
+    /** 平台切换序列号，用于识别并取消过期的异步操作 */
+    let platformSwitchSequence = 0;
+    
     // ========== 重新布局相关状态 ==========
     
     /** 是否有待处理的重新布局请求 */
@@ -81,6 +84,9 @@
         const platform = appState.selectedPlatform;
         const currentView = appState.currentView;
 
+        // 递增序列号，使所有正在进行的异步操作失效
+        platformSwitchSequence++;
+
         if (!platform) {
             activePlatformId = null;
             appState.setWebviewLoading(false);
@@ -96,7 +102,7 @@
             return;
         }
 
-        showPlatformWebview(platform);
+        void showPlatformWebview(platform, platformSwitchSequence);
     });
 
     // ========== WebView 管理核心方法 ==========
@@ -122,8 +128,11 @@
         webviewWindows = new Map();
         shouldRestoreWebviews = false;
 
+        // 递增序列号，触发重新显示当前平台
+        platformSwitchSequence++;
+        
         if (appState.currentView === "chat" && appState.selectedPlatform) {
-            await showPlatformWebview(appState.selectedPlatform);
+            await showPlatformWebview(appState.selectedPlatform, platformSwitchSequence);
         }
     }
 
@@ -137,23 +146,55 @@
      * 4. 显示并获取焦点
      * 
      * @param platform - 要显示的AI平台配置
+     * @param expectedSequence - 预期的切换序列号，用于检测并放弃过期的操作
      */
-    async function showPlatformWebview(platform: AIPlatform) {
+    async function showPlatformWebview(platform: AIPlatform, expectedSequence: number) {
         try {
             appState.setWebviewLoading(true);
             const start = Date.now();
 
+            // 检查序列号：如果有更新的请求，立即放弃当前操作
+            if (platformSwitchSequence !== expectedSequence) {
+                logger.debug('Platform switch cancelled (newer request arrived)', { 
+                    platform: platform.name,
+                    expectedSequence,
+                    currentSequence: platformSwitchSequence,
+                });
+                return;
+            }
+
             // 1. 隐藏其他平台的WebView
             await hideOtherWebviews(platform.id);
+
+            // 再次检查序列号
+            if (platformSwitchSequence !== expectedSequence) {
+                logger.debug('Platform switch cancelled after hiding others', { platform: platform.name });
+                return;
+            }
 
             // 2. 获取或创建目标WebView
             let webview = webviewWindows.get(platform.id);
             
             if (!webview) {
                 webview = await createWebviewForPlatform(platform);
+                
+                // 检查序列号：创建过程中可能有新请求
+                if (platformSwitchSequence !== expectedSequence) {
+                    logger.debug('Platform switch cancelled after creation', { platform: platform.name });
+                    await webview.hide();
+                    return;
+                }
+                
                 webviewWindows.set(platform.id, webview);
                 // 等待页面真正加载完成再显示，避免用户看到空白页
                 await webview.waitForLoadFinished();
+                
+                // 再次检查序列号
+                if (platformSwitchSequence !== expectedSequence) {
+                    logger.debug('Platform switch cancelled after load finished', { platform: platform.name });
+                    await webview.hide();
+                    return;
+                }
             } else if (webview.isVisible() && !shouldRestoreWebviews) {
                 await webview.setFocus();
                 scheduleWebviewReflow({ shouldEnsureActiveFront: true });
@@ -163,16 +204,34 @@
                     const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_MS - elapsed, 0);
                     if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
                 }
-                appState.setWebviewLoading(false);
+                
+                // 最终检查序列号
+                if (platformSwitchSequence === expectedSequence) {
+                    appState.setWebviewLoading(false);
+                }
                 return;
             } else {
                 // 已存在的 webview，更新位置
                 const bounds = await calculateChildWebviewBounds(mainWindow);
                 await webview.updateBounds(bounds);
+                
+                // 检查序列号
+                if (platformSwitchSequence !== expectedSequence) {
+                    logger.debug('Platform switch cancelled after bounds update', { platform: platform.name });
+                    return;
+                }
             }
 
             // 3. 显示窗口并获取焦点
             await webview.show();
+            
+            // 检查序列号
+            if (platformSwitchSequence !== expectedSequence) {
+                logger.debug('Platform switch cancelled after show', { platform: platform.name });
+                await webview.hide();
+                return;
+            }
+            
             await webview.setFocus();
             // 聚焦后再稍作等待，避免页面首帧尚未渲染导致的闪烁
             await new Promise((r) => setTimeout(r, TIMING.WEBVIEW_READY_EXTRA_DELAY_MS));
@@ -184,11 +243,25 @@
                 const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_MS - elapsed, 0);
                 if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
             }
-            appState.setWebviewLoading(false);
+            
+            // 最终检查序列号后才关闭加载状态
+            if (platformSwitchSequence === expectedSequence) {
+                appState.setWebviewLoading(false);
+            } else {
+                logger.debug('Platform switch completed but cancelled (newer request)', { 
+                    platform: platform.name,
+                    expectedSequence,
+                    currentSequence: platformSwitchSequence,
+                });
+            }
         } catch (error) {
             logger.error("Failed to show AI platform WebView", { platform: platform.name, error });
-            appState.setError(t("chat.loadError"));
-            appState.setWebviewLoading(false);
+            
+            // 只有在序列号匹配时才显示错误
+            if (platformSwitchSequence === expectedSequence) {
+                appState.setError(t("chat.loadError"));
+                appState.setWebviewLoading(false);
+            }
         }
     }
 
@@ -407,7 +480,10 @@
         try {
             await currentWebview.close();
             webviewWindows.delete(activePlatformId);
-            await showPlatformWebview(appState.selectedPlatform);
+            
+            // 递增序列号并重新显示平台
+            platformSwitchSequence++;
+            await showPlatformWebview(appState.selectedPlatform, platformSwitchSequence);
         } catch (error) {
             logger.error("Failed to reload platform", { platform: appState.selectedPlatform.name, error });
             appState.setError(t("chat.loadError"));
@@ -474,7 +550,9 @@
                 await existing.show();
                 await existing.setFocus();
             } else {
-                await showPlatformWebview(platform);
+                // 递增序列号并显示平台
+                platformSwitchSequence++;
+                await showPlatformWebview(platform, platformSwitchSequence);
             }
 
             scheduleWebviewReflow({ shouldEnsureActiveFront: true });

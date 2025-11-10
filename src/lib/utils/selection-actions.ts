@@ -91,11 +91,42 @@ async function ensureWebviewEventListeners(): Promise<void> {
   }
 }
 
-async function waitForWebviewReady(id: string, timeoutMs: number): Promise<void> {
+/**
+ * 智能等待 WebView 就绪
+ * 
+ * 自动检测 WebView 是否已存在，并使用相应的超时策略：
+ * - 已存在: 2秒超时（只需等待页面加载）
+ * - 新创建: 8秒超时（需要创建窗口+加载页面）
+ * 
+ * 注意：超时时间只是保护上限，如果页面提前加载完成，会立即继续执行
+ */
+async function waitForWebviewReady(id: string): Promise<void> {
   await ensureWebviewEventListeners();
+
+  // 检查 WebView 是否已存在，自动选择合适的超时时间
+  let alreadyExists = false;
+  try {
+    alreadyExists = await invoke<boolean>('check_child_webview_exists', {
+      payload: { id },
+    });
+  } catch (error) {
+    logger.warn('Failed to check webview existence, assuming new', { webviewId: id, error });
+  }
+
+  const timeoutMs = alreadyExists
+    ? TIMING.EXISTING_WEBVIEW_READY_TIMEOUT_MS
+    : TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS;
+
+  const startTime = Date.now();
+  logger.info('Waiting for webview ready (smart timeout)', {
+    webviewId: id,
+    alreadyExists,
+    timeoutMs,
+  });
 
   const entry = webviewReadyState.get(id);
   if (entry?.ready) {
+    logger.info('Webview already ready, skipping wait', { webviewId: id });
     return;
   }
 
@@ -115,6 +146,13 @@ async function waitForWebviewReady(id: string, timeoutMs: number): Promise<void>
         currentEntry.ready = true;
       }
 
+      const actualWaitTime = Date.now() - startTime;
+      logger.info('Webview ready event received', {
+        webviewId: id,
+        actualWaitMs: actualWaitTime,
+        wasTimeout: false,
+      });
+
       resolve();
     };
 
@@ -124,9 +162,13 @@ async function waitForWebviewReady(id: string, timeoutMs: number): Promise<void>
         currentEntry.resolvers = currentEntry.resolvers.filter((resolver) => resolver !== wrappedResolve);
       }
 
+      const actualWaitTime = Date.now() - startTime;
       logger.warn('Wait for child webview ready timed out, proceeding anyway', {
         webviewId: id,
         timeoutMs,
+        actualWaitMs: actualWaitTime,
+        alreadyExists,
+        wasTimeout: true,
       });
       resolve();
     }, timeoutMs);
@@ -136,18 +178,18 @@ async function waitForWebviewReady(id: string, timeoutMs: number): Promise<void>
 }
 
 /**
- * 执行翻译操作
+ * 执行翻译操作 - 优化版本
+ * 
+ * 优化策略：
+ * 1. 立即切换视图（用户立刻看到界面，0ms 延迟）
+ * 2. 异步等待 WebView 加载和注入内容（不阻塞 UI）
+ * 3. 智能超时：新建 8秒，已存在 2秒
  * 
  * @param selectedText - 选中的文本
  */
 export async function executeTranslation(selectedText: string): Promise<void> {
   try {
     logger.info('Executing translation', { textLength: selectedText.length });
-
-    appState.switchToTranslationView();
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('ensureTranslationVisible'));
-    }
 
     // 切换到翻译视图
     const currentTranslatorId = configStore.config.currentTranslator;
@@ -163,14 +205,28 @@ export async function executeTranslation(selectedText: string): Promise<void> {
       return;
     }
 
+    // 立即切换视图，给用户即时反馈（不等待 WebView 加载）
+    appState.switchToTranslationView();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ensureTranslationVisible'));
+    }
+
     const webviewId = `translator-${currentTranslator.id}`;
 
-    await waitForWebviewReady(webviewId, TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS);
+    // 在后台异步执行加载和注入，不阻塞当前操作
+    // 使用 void 明确表示我们不等待这个 Promise
+    void (async () => {
+      try {
+        await waitForWebviewReady(webviewId);
+        await injectTranslationText(selectedText, currentTranslator, webviewId);
+        logger.info('Translation executed successfully');
+      } catch (error) {
+        logger.error('Failed to inject translation text in background', error);
+        appState.setError(t('errors.selectionToolbar.translationFailed'));
+      }
+    })();
 
-    // 执行翻译注入
-    await injectTranslationText(selectedText, currentTranslator, webviewId);
-
-    logger.info('Translation executed successfully');
+    logger.info('Translation view switched, content will be injected when ready');
   } catch (error) {
     logger.error('Failed to execute translation', error);
     appState.setError(t('errors.selectionToolbar.translationFailed'));
@@ -249,7 +305,12 @@ async function injectTranslationText(
 }
 
 /**
- * 执行AI解释操作
+ * 执行AI解释操作 - 优化版本
+ * 
+ * 优化策略：
+ * 1. 立即切换视图（用户立刻看到界面，0ms 延迟）
+ * 2. 异步等待 WebView 加载和注入内容（不阻塞 UI）
+ * 3. 智能超时：新建 8秒，已存在 2秒
  * 
  * @param selectedText - 选中的文本
  */
@@ -265,20 +326,26 @@ export async function executeExplanation(selectedText: string): Promise<void> {
       return;
     }
 
-    // 切换到AI聊天视图
+    // 立即切换到AI聊天视图，给用户即时反馈（不等待 WebView 加载）
     appState.switchToChatView(platform);
 
     const webviewId = `ai-chat-${platform.id}`;
-
-    await waitForWebviewReady(webviewId, TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS);
-
-    // 构建解释提示词
     const prompt = buildExplanationPrompt(selectedText);
 
-    // 执行AI注入
-    await injectAIPrompt(prompt, platform, webviewId);
+    // 在后台异步执行加载和注入，不阻塞当前操作
+    // 使用 void 明确表示我们不等待这个 Promise
+    void (async () => {
+      try {
+        await waitForWebviewReady(webviewId);
+        await injectAIPrompt(prompt, platform, webviewId);
+        logger.info('AI explanation executed successfully');
+      } catch (error) {
+        logger.error('Failed to inject AI prompt in background', error);
+        appState.setError(t('errors.selectionToolbar.explanationFailed'));
+      }
+    })();
 
-    logger.info('AI explanation executed successfully');
+    logger.info('AI chat view switched, prompt will be injected when ready');
   } catch (error) {
     logger.error('Failed to execute AI explanation', error);
     appState.setError(t('errors.selectionToolbar.explanationFailed'));

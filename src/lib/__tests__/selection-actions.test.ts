@@ -140,15 +140,21 @@ beforeEach(async () => {
 
 describe("selection-actions", () => {
   it("注入翻译文本时使用共享模板并定位正确的 WebView", async () => {
-    const promise = selectionActions.executeTranslation("Hello world");
+    // 执行翻译（现在是异步的，立即返回）
+    await selectionActions.executeTranslation("Hello world");
 
+    // 视图应该立即切换
+    expect(appStateMock.switchToTranslationView).toHaveBeenCalledOnce();
+
+    // 触发 WebView 加载事件
     emitEvent(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, { id: "translator-google" });
     emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: "translator-google" });
 
-    await promise;
+    // 等待异步注入完成
+    await vi.waitFor(() => {
+      expect(generateInjectionScriptMock).toHaveBeenCalledOnce();
+    }, { timeout: 1000 });
 
-    expect(appStateMock.switchToTranslationView).toHaveBeenCalledOnce();
-    expect(generateInjectionScriptMock).toHaveBeenCalledOnce();
     const lastCall = generateInjectionScriptMock.mock.calls.at(-1);
     expect(lastCall).toBeDefined();
 
@@ -186,31 +192,44 @@ describe("selection-actions", () => {
   });
 
   it("翻译执行失败时会提示错误", async () => {
-    invokeMock.mockRejectedValueOnce(new Error("boom"));
+    // Mock check_child_webview_exists 成功，但后续的 evaluate_child_webview_script 失败
+    invokeMock
+      .mockResolvedValueOnce(true) // check_child_webview_exists
+      .mockRejectedValueOnce(new Error("boom")); // evaluate_child_webview_script
 
-    const promise = selectionActions.executeTranslation("Text to translate");
+    // 执行翻译（现在是异步的，立即返回）
+    await selectionActions.executeTranslation("Text to translate");
 
+    // 触发 WebView 加载事件
     emitEvent(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, { id: "translator-google" });
     emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: "translator-google" });
 
-    await expect(promise).rejects.toThrowError();
-    expect(appStateMock.setError).toHaveBeenCalledWith(
-      "errors.selectionToolbar.translationFailed",
-    );
+    // 等待异步错误处理完成
+    await vi.waitFor(() => {
+      expect(appStateMock.setError).toHaveBeenCalledWith(
+        "errors.selectionToolbar.translationFailed",
+      );
+    }, { timeout: 1000 });
   });
 
   it("AI 解释时复用聊天模板并注入提示词", async () => {
     configStoreMock.config.locale = "en-US";
 
-    const promise = selectionActions.executeExplanation("Why is the sky blue?");
+    // 执行解释（现在是异步的，立即返回）
+    await selectionActions.executeExplanation("Why is the sky blue?");
 
+    // 视图应该立即切换
+    expect(appStateMock.switchToChatView).toHaveBeenCalledWith(aiPlatform);
+
+    // 触发 WebView 加载事件
     emitEvent(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, { id: "ai-chat-chatgpt" });
     emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: "ai-chat-chatgpt" });
 
-    await promise;
+    // 等待异步注入完成
+    await vi.waitFor(() => {
+      expect(generateInjectionScriptMock).toHaveBeenCalledOnce();
+    }, { timeout: 1000 });
 
-    expect(appStateMock.switchToChatView).toHaveBeenCalledWith(aiPlatform);
-    expect(generateInjectionScriptMock).toHaveBeenCalledOnce();
     const lastCall = generateInjectionScriptMock.mock.calls.at(-1);
     expect(lastCall).toBeDefined();
 
@@ -260,16 +279,23 @@ describe("selection-actions", () => {
   });
 
   it("AI 注入失败时会反馈错误", async () => {
-    invokeMock.mockRejectedValueOnce(new Error("network failure"));
+    // Mock check_child_webview_exists 成功，但后续的 evaluate_child_webview_script 失败
+    invokeMock
+      .mockResolvedValueOnce(true) // check_child_webview_exists
+      .mockRejectedValueOnce(new Error("network failure")); // evaluate_child_webview_script
 
-    const promise = selectionActions.executeExplanation("Explain this");
+    // 执行解释（现在是异步的，立即返回）
+    await selectionActions.executeExplanation("Explain this");
 
+    // 触发 WebView 加载事件
     emitEvent(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, { id: "ai-chat-chatgpt" });
     emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: "ai-chat-chatgpt" });
 
-    await expect(promise).rejects.toThrowError();
-    expect(appStateMock.setError).toHaveBeenCalledWith(
-      "errors.selectionToolbar.explanationFailed",
-    );
+    // 等待异步错误处理完成
+    await vi.waitFor(() => {
+      expect(appStateMock.setError).toHaveBeenCalledWith(
+        "errors.selectionToolbar.explanationFailed",
+      );
+    }, { timeout: 1000 });
   });
 });

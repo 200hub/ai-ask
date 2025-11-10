@@ -485,6 +485,20 @@ pub(crate) async fn focus_child_webview(
     Ok(())
 }
 
+/// 检查子 WebView 是否已存在
+#[tauri::command]
+pub(crate) async fn check_child_webview_exists(
+    state: State<'_, ChildWebviewManager>,
+    payload: ChildWebviewIdPayload,
+) -> Result<bool, String> {
+    let webviews = state
+        .webviews
+        .lock()
+        .map_err(|err| format!("failed to lock webview map: {err}"))?;
+
+    Ok(webviews.contains_key(&payload.id))
+}
+
 /// 隐藏所有子 WebView
 #[tauri::command]
 pub(crate) async fn hide_all_child_webviews(

@@ -79,6 +79,22 @@ export class ChildWebviewProxy {
         this.#label = id;
     }
 
+    /**
+     * Check if this child webview exists (has been created)
+     * @returns Promise resolving to true if webview exists, false otherwise
+     */
+    async exists(): Promise<boolean> {
+        try {
+            const result = await invoke<boolean>("check_child_webview_exists", {
+                payload: { id: this.id },
+            });
+            return result;
+        } catch (error) {
+            logger.warn("Failed to check webview existence", { id: this.id, error });
+            return false;
+        }
+    }
+
     async ensure(bounds: ChildWebviewBounds) {
         this.#lastBounds = bounds;
         try {

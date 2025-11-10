@@ -29,6 +29,9 @@ export interface AppConfig {
   selectionToolbarEnabled: boolean;
   defaultExplainPlatformId: string | null;
 
+  // 性能优化设置
+  preloadDefaultPlatforms: boolean; // 启动时预加载默认平台
+
   // 代理设置
   proxy?: ProxyConfig;
 
@@ -81,6 +84,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   currentTranslator: "google",
   selectionToolbarEnabled: true,
   defaultExplainPlatformId: null,
+  preloadDefaultPlatforms: true, // 默认启用预加载
   proxy: { type: "system" },
   windowSize: {
     width: 1200,

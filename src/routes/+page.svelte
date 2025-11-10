@@ -10,6 +10,7 @@
     import MainContent from "$lib/components/layout/MainContent.svelte";
     import GlobalSelectionMonitor from "$lib/components/common/GlobalSelectionMonitor.svelte";
     import { executeTranslation, executeExplanation } from "$lib/utils/selection-actions";
+    import { preloadDefaultPlatforms } from "$lib/utils/preload";
     import { appState } from "$lib/stores/app.svelte";
     import { configStore } from "$lib/stores/config.svelte";
     import { platformsStore } from "$lib/stores/platforms.svelte";
@@ -174,6 +175,9 @@
                     appState.switchToChatView(platform);
                 }
             }
+
+            // 预加载默认平台（异步，不阻塞初始化）
+            void preloadDefaultPlatforms();
         } catch (error) {
             logger.error("Failed to initialize application stores:", error);
         }

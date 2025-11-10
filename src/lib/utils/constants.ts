@@ -295,8 +295,12 @@ export const TIMING = {
   MIN_WEBVIEW_LOADING_MS: 800,
   /** WebView 聚焦后额外的就绪等待时间（毫秒） */
   WEBVIEW_READY_EXTRA_DELAY_MS: 200,
-  /** 等待子 WebView 加载完成的最长时间（毫秒） */
-  CHILD_WEBVIEW_READY_TIMEOUT_MS: 15000,
+  /** 等待子 WebView 加载完成的最长时间（毫秒） - 用于新创建的 WebView */
+  CHILD_WEBVIEW_READY_TIMEOUT_MS: 8000,
+  /** 等待已存在的子 WebView 就绪的超时时间（毫秒） - 更短的超时用于已创建的 WebView */
+  EXISTING_WEBVIEW_READY_TIMEOUT_MS: 2000,
+  /** 显示加载状态的最小延迟（毫秒） - 如果 WebView 很快就绪，不显示加载动画 */
+  LOADING_INDICATOR_MIN_DELAY_MS: 500,
 } as const;
 
 /**
