@@ -673,7 +673,7 @@ fn handle_event(
         return;
     };
 
-    log::info!(
+    log::debug!(
         "Global selection detected: {} characters (preview: \"{}\")",
         selected_text.len(),
         selected_text

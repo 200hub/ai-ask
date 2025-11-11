@@ -11,9 +11,19 @@
   import { logger } from '$lib/utils/logger';
   import { SELECTION_TOOLBAR } from '$lib/utils/constants';
 
+  // 性能优化：缓存主窗体句柄，避免每次选择时重复获取
+  const mainWindow = getCurrentWindow();
+  
   let selectionTimeout: number | null = null;
   let selectionChangeTimeout: number | null = null;
   let toolbarVisible = false;
+  
+  /**
+   * 选区签名（文本+位置），用于跳过重复的展示请求
+   * 格式: "selectedText:centerX:topY"
+   * 在隐藏工具栏后复位为 null
+   */
+  let lastSelectionSignature: string | null = null;
 
   function clearDocumentSelection(): void {
     const selection = window.getSelection();
@@ -26,18 +36,33 @@
     }
   }
 
+  /**
+   * 隐藏划词工具栏
+   * 
+   * 性能优化：仅在工具栏可见时才调用原生 hide_selection_toolbar 命令，
+   * 避免重复调用带来的跨进程开销。隐藏后清空选区签名，允许后续相同选区重新显示。
+   * 
+   * @param clearSelection - 是否清空文档选区
+   * @param reason - 隐藏原因（用于调试日志）
+   */
   async function hideToolbar(clearSelection = false, reason = 'unspecified') {
     logger.debug('Hiding selection toolbar', {
       clearSelection,
       reason,
       toolbarVisible,
     });
+    const shouldInvoke = toolbarVisible;
     try {
-      await invoke('hide_selection_toolbar');
+      // 性能优化：仅在工具栏已显示时才发起原生调用
+      if (shouldInvoke) {
+        await invoke('hide_selection_toolbar');
+      }
     } catch (error) {
       logger.error('Failed to hide selection toolbar', error);
     } finally {
       toolbarVisible = false;
+      // 性能优化：清空选区签名，允许后续相同选区重新显示
+      lastSelectionSignature = null;
       if (clearSelection) {
         clearDocumentSelection();
       }
@@ -100,15 +125,17 @@
       }
 
       try {
-        const currentWindow = getCurrentWindow();
-        const windowPosition = await currentWindow.outerPosition();
+        // 性能优化：使用缓存的主窗体句柄，避免每次选择时重复获取
+        const windowPosition = await mainWindow.outerPosition();
         const scaleFactor = window.devicePixelRatio || 1;
 
         type BoundingRect = { left: number; top: number; width: number; height: number };
         let rect: BoundingRect | null = null;
         try {
-          if (selection && selection.rangeCount > 0) {
-            rect = selection.getRangeAt(0).getBoundingClientRect();
+          // 性能优化：优先使用去抖后的选区对象计算位置，确保精确性
+          const selectionForRect = debouncedSelection ?? selection;
+          if (selectionForRect && selectionForRect.rangeCount > 0) {
+            rect = selectionForRect.getRangeAt(0).getBoundingClientRect();
           }
         } catch (error) {
           logger.warn('Failed to read selection range', error);
@@ -126,18 +153,28 @@
 
         const rectCenterX = rect.left + rect.width / 2;
         const rectTop = rect.top;
+        // 性能优化：生成选区签名（文本+位置），用于跳过重复的展示请求
+        const selectionSignature = `${debouncedText ?? ''}:${Math.round(rectCenterX)}:${Math.round(rectTop)}`;
+
+        // 性能优化：若选区内容和位置均未变化且工具栏已显示，则跳过原生调用
+        if (selectionSignature === lastSelectionSignature && toolbarVisible) {
+          logger.debug('Selection toolbar show skipped due to unchanged selection');
+          return;
+        }
 
         await invoke('show_selection_toolbar', {
-          text: selectedText,
+          text: debouncedText,
           position: {
             x: windowPosition.x + rectCenterX * scaleFactor,
             y: windowPosition.y + rectTop * scaleFactor,
           },
         });
         toolbarVisible = true;
+        // 性能优化：记录当前选区签名，用于后续去重
+        lastSelectionSignature = selectionSignature;
 
         logger.info('Selection toolbar shown', {
-          textLength: selectedText.length,
+          textLength: debouncedText.length,
           position: {
             x: windowPosition.x + rectCenterX * scaleFactor,
             y: windowPosition.y + rectTop * scaleFactor,
@@ -150,7 +187,14 @@
     }, SELECTION_TOOLBAR.SELECTION_DEBOUNCE_MS);
   }
 
+  /**
+   * 处理选区变化事件（selectionchange）
+   * 
+   * 性能优化：仅在工具栏已显示或有待处理的选择定时器时才处理，
+   * 避免在空闲状态下产生不必要的去抖定时器和日志开销。
+   */
   function handleSelectionChange() {
+    // 性能优化：若工具栏未显示且无待处理的选择定时器，直接跳过
     if (!toolbarVisible && selectionTimeout === null) {
       return;
     }
@@ -181,9 +225,12 @@
           selectionTimeout = null;
         }
 
+        // 性能优化：仅在工具栏已显示时才调用隐藏逻辑
         if (toolbarVisible) {
           void hideToolbar(true, 'selection-cleared');
         }
+        // 性能优化：清空选区签名，允许后续相同选区重新显示
+        lastSelectionSignature = null;
       }
     }, SELECTION_TOOLBAR.SELECTION_CLEAR_DEBOUNCE_MS);
   }

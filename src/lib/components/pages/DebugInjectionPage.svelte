@@ -543,6 +543,7 @@
 			await webviewProxy.evaluateScript<InjectionResult>(script);
 			addLog('info', `脚本已发送，等待结果事件...`);
 			const duration = Date.now() - startTime;
+			logger.debug('Injection script dispatched', { durationMs: duration });
 			// 结果将通过事件处理器 (CHILD_WEBVIEW_INJECTION_RESULT) 到达
 		} catch (error) {
 			addLog('error', `${t('debug.executionError')}: ${error}`);

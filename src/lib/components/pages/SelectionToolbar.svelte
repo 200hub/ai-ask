@@ -163,7 +163,7 @@
         }
 
         restartAutoHideTimer();
-        logger.info('Selection toolbar received text', { textLength: trimmedText.length });
+  logger.debug('Selection toolbar received text', { textLength: trimmedText.length });
       });
     } catch (error) {
       logger.error('Failed to listen for toolbar text', error);
