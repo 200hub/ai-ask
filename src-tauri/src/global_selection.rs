@@ -122,6 +122,7 @@ fn build_providers() -> ProviderList {
     {
         // Windows UI Automation provider has highest priority
         list.push(Box::new(WindowsUIAutomationProvider::new()));
+        list.push(Box::new(WindowsWin32EditProvider::new()));
     }
 
     #[cfg(target_os = "macos")]
@@ -359,6 +360,135 @@ mod windows_uia {
 
 #[cfg(target_os = "windows")]
 use windows_uia::WindowsUIAutomationProvider;
+
+// -----------------------------------------------------------------------------
+// Windows Win32 Edit Control Fallback Provider
+// -----------------------------------------------------------------------------
+#[cfg(target_os = "windows")]
+mod windows_win32 {
+    // Agent fallback provider: proxy classic Win32 edit controls when UIA cannot supply text.
+    use super::{normalize_selection, GlobalSelectionProvider};
+    use std::collections::HashSet;
+    use std::sync::OnceLock;
+    use tauri::AppHandle;
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, RealGetWindowClassW, SendMessageW, WM_GETTEXT, WM_GETTEXTLENGTH,
+    };
+
+    const EM_GETSEL: u32 = 0x00B0;
+
+    pub struct WindowsWin32EditProvider;
+
+    impl WindowsWin32EditProvider {
+        pub fn new() -> Self {
+            Self
+        }
+
+        fn capture_impl(&self) -> Option<String> {
+            unsafe {
+                let hwnd: HWND = GetForegroundWindow();
+                if hwnd.0.is_null() {
+                    return None;
+                }
+
+                let class_name = get_window_class(hwnd)?;
+                if !is_supported_class(&class_name) {
+                    return None;
+                }
+
+                extract_selection_from_edit(hwnd).and_then(|text| normalize_selection(&text))
+            }
+        }
+    }
+
+    impl GlobalSelectionProvider for WindowsWin32EditProvider {
+        fn name(&self) -> &'static str {
+            "windows-win32-edit"
+        }
+
+        fn capture(&self, _app: &AppHandle) -> Option<String> {
+            self.capture_impl()
+        }
+    }
+
+    fn supported_classes() -> &'static HashSet<String> {
+        static CLASSES: OnceLock<HashSet<String>> = OnceLock::new();
+        CLASSES.get_or_init(|| {
+            [
+                "Edit",
+                "RichEdit20A",
+                "RichEdit20W",
+                "RichEdit50W",
+                "RichEdit41W",
+            ]
+            .iter()
+            .map(|name| name.to_string())
+            .collect()
+        })
+    }
+
+    fn is_supported_class(class: &str) -> bool {
+        supported_classes().contains(class)
+    }
+
+    unsafe fn get_window_class(hwnd: HWND) -> Option<String> {
+        let mut buffer = [0u16; 256];
+        let length = RealGetWindowClassW(hwnd, &mut buffer) as usize;
+        if length == 0 {
+            return None;
+        }
+        let trimmed_length = length.min(buffer.len());
+        Some(String::from_utf16_lossy(&buffer[..trimmed_length]))
+    }
+
+    unsafe fn extract_selection_from_edit(hwnd: HWND) -> Option<String> {
+        let mut start: u32 = 0;
+        let mut end: u32 = 0;
+
+        // EM_GETSEL writes into the provided pointers (start/end positions in UTF-16 code units)
+        let _ = SendMessageW(
+            hwnd,
+            EM_GETSEL,
+            Some(WPARAM((&mut start as *mut u32) as usize)),
+            Some(LPARAM((&mut end as *mut u32) as isize)),
+        );
+
+        if start >= end {
+            return None;
+        }
+
+        let text_length =
+            SendMessageW(hwnd, WM_GETTEXTLENGTH, Some(WPARAM(0)), Some(LPARAM(0))).0 as usize;
+        if text_length == 0 {
+            return None;
+        }
+
+        let mut buffer = vec![0u16; text_length + 1];
+        let copied = SendMessageW(
+            hwnd,
+            WM_GETTEXT,
+            Some(WPARAM(buffer.len())),
+            Some(LPARAM(buffer.as_mut_ptr() as isize)),
+        )
+        .0 as usize;
+
+        if copied == 0 {
+            return None;
+        }
+
+        let slice_end = end.min(copied as u32) as usize;
+        let slice_start = start.min(slice_end as u32) as usize;
+        if slice_start >= slice_end {
+            return None;
+        }
+
+        String::from_utf16(&buffer[slice_start..slice_end]).ok()
+    }
+}
+
+#[cfg(target_os = "windows")]
+use windows_win32::WindowsWin32EditProvider;
 
 // -----------------------------------------------------------------------------
 // macOS Accessibility Provider (Phase 2)
