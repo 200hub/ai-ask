@@ -6,7 +6,6 @@
    */
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { emit } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { configStore } from '$lib/stores/config.svelte';
   import { logger } from '$lib/utils/logger';
@@ -68,8 +67,7 @@
       textLength: selectedText?.length ?? 0,
       preview: initialPreview,
     };
-    logger.info('Selection monitor mouseup', mouseupPayload);
-    void emit('selection-monitor-log', mouseupPayload);
+    logger.debug('Selection monitor mouseup', mouseupPayload);
 
     if (!isPlainSelection || !selectedText || selectedText.length < SELECTION_TOOLBAR.MIN_SELECTION_LENGTH) {
       await hideToolbar(true, 'selection-too-short-on-mouseup');
@@ -88,8 +86,7 @@
         textLength: debouncedText?.length ?? 0,
         preview: debouncedPreview,
       };
-      logger.info('Selection monitor debounced selection', debouncedPayload);
-      void emit('selection-monitor-log', debouncedPayload);
+      logger.debug('Selection monitor debounced selection', debouncedPayload);
 
       // 检查是否启用了划词工具栏
       if (!configStore.config.selectionToolbarEnabled) {
@@ -154,6 +151,9 @@
   }
 
   function handleSelectionChange() {
+    if (!toolbarVisible && selectionTimeout === null) {
+      return;
+    }
     if (selectionChangeTimeout !== null) {
       window.clearTimeout(selectionChangeTimeout);
       selectionChangeTimeout = null;
@@ -171,13 +171,19 @@
         textLength: selectedText.length,
         preview,
       };
-      logger.info('Selection monitor selectionchange', selectionChangePayload);
-      void emit('selection-monitor-log', selectionChangePayload);
+      logger.debug('Selection monitor selectionchange', selectionChangePayload);
 
       // 只在选择被完全清空时才隐藏工具栏
       // 不要在选择变化过程中隐藏，避免工具栏闪烁
       if (!selectedText || selectedText.length === 0) {
-        void hideToolbar(true, 'selection-cleared');
+        if (selectionTimeout !== null) {
+          window.clearTimeout(selectionTimeout);
+          selectionTimeout = null;
+        }
+
+        if (toolbarVisible) {
+          void hideToolbar(true, 'selection-cleared');
+        }
       }
     }, SELECTION_TOOLBAR.SELECTION_CLEAR_DEBOUNCE_MS);
   }
