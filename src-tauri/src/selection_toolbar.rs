@@ -15,6 +15,10 @@ const TOOLBAR_HEIGHT: f64 = 35.0;
 const TOOLBAR_VERTICAL_OFFSET: f64 = 10.0;
 
 /// 工具栏窗口状态
+///
+/// 记录最近一次展示时间、文本内容以及整体启用状态。
+/// - `last_text` 在窗口隐藏时会被清空，这样前端在下一次请求快照时就知道需要重置按钮状态。
+/// - 该结构只在 Rust 侧持久化，前端通过 `get_selection_toolbar_state` 拉取一个只读快照。
 pub struct ToolbarState {
     last_shown_at: Option<Instant>,
     last_text: Option<String>,
@@ -39,6 +43,16 @@ impl ToolbarState {
 
 /// 工具栏窗口管理器
 pub type ToolbarManager = Arc<Mutex<ToolbarState>>;
+
+/// 工具栏窗口快照
+///
+/// 由前端在工具栏 Webview 初始化时主动请求一次，用于把 Rust 侧已有的选区同步给刚创建的窗口，
+/// 这样首次显示时按钮就能根据历史文本立即启用，避免“第一次全灰”的体验问题。
+#[derive(Debug, Serialize)]
+pub struct SelectionToolbarSnapshot {
+    pub last_text: Option<String>,
+    pub enabled: bool,
+}
 
 /// 光标位置信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +138,24 @@ pub async fn set_selection_toolbar_enabled(
     }
 
     Ok(())
+}
+
+/// 获取当前划词工具栏的状态快照
+///
+/// 主要用于前端在 Webview 首次挂载时同步 Rust 端已经缓存的文本与启用状态，
+/// 解决窗口初次显示时按钮全部禁用的问题。
+#[tauri::command]
+pub async fn get_selection_toolbar_state(
+    toolbar_state: tauri::State<'_, ToolbarManager>,
+) -> Result<SelectionToolbarSnapshot, String> {
+    let state = toolbar_state
+        .lock()
+        .map_err(|e| format!("Failed to lock toolbar state: {}", e))?;
+
+    Ok(SelectionToolbarSnapshot {
+        last_text: state.last_text.clone(),
+        enabled: state.enabled,
+    })
 }
 
 async fn hide_toolbar_internal(

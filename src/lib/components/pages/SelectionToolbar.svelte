@@ -21,6 +21,11 @@
     isDarkMode?: boolean;
   };
 
+  type ToolbarSnapshot = {
+    last_text: string | null;
+    enabled: boolean;
+  };
+
   let { isDarkMode = false }: Props = $props();
   const iconFill = $derived(isDarkMode ? '#f9fafb' : '#1f2937');
 
@@ -76,6 +81,34 @@
     } else {
       void hideToolbar();
     }
+  }
+
+  /**
+   * 统一处理来自 Rust 的选中文本
+   *
+   * 无论是事件推送还是初始快照，都复用这段逻辑：
+   * - 将文本写入本地状态，控制按钮启用/禁用
+   * - 根据当前是否有可收藏文本来决定是否自动隐藏
+   */
+  function processSelectionText(rawText: string): void {
+    const trimmed = rawText.trim();
+
+    if (!trimmed) {
+      logger.debug('Empty selection received, hiding toolbar');
+      void hideToolbar();
+      return;
+    }
+
+    refreshSelectionStates(rawText);
+    isProcessing = false;
+
+    if (!canCollect) {
+      void hideToolbar();
+      return;
+    }
+
+    restartAutoHideTimer();
+    logger.debug('Selection toolbar received text', { textLength: trimmedText.length });
   }
 
   async function handleTranslate(): Promise<void> {
@@ -146,27 +179,20 @@
     try {
       unlistenSelection = await listen<string>('toolbar-text-selected', (event) => {
         const payload = event.payload ?? '';
-        const trimmed = payload.trim();
-        
-        if (!trimmed || trimmed.length === 0) {
-          logger.debug('Empty selection received, hiding toolbar');
-          void hideToolbar();
-          return;
-        }
-
-        refreshSelectionStates(payload);
-        isProcessing = false;
-
-        if (!canCollect) {
-          void hideToolbar();
-          return;
-        }
-
-        restartAutoHideTimer();
-  logger.debug('Selection toolbar received text', { textLength: trimmedText.length });
+        processSelectionText(payload);
       });
     } catch (error) {
       logger.error('Failed to listen for toolbar text', error);
+    }
+
+    try {
+      const snapshot = await invoke<ToolbarSnapshot>('get_selection_toolbar_state');
+      if (snapshot?.last_text) {
+        // 首次挂载时同步 Rust 侧缓存的选区，避免第一次展示全灰
+        processSelectionText(snapshot.last_text);
+      }
+    } catch (error) {
+      logger.error('Failed to get selection toolbar state', error);
     }
 
     window.addEventListener('keydown', handleKeydown);

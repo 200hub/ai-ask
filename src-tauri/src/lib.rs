@@ -25,8 +25,8 @@ use tauri::{
 use global_selection::{check_accessibility_permission, request_accessibility_permission};
 use proxy::test_proxy_connection;
 use selection_toolbar::{
-    get_cursor_position, hide_selection_toolbar, set_selection_toolbar_enabled,
-    show_selection_toolbar, ToolbarManager,
+    get_cursor_position, get_selection_toolbar_state, hide_selection_toolbar,
+    set_selection_toolbar_enabled, show_selection_toolbar, ToolbarManager,
 };
 use update::{
     check_update, download_update, get_download_status, init as init_update, install_update_now,
@@ -304,6 +304,7 @@ pub fn run() {
             show_selection_toolbar,
             hide_selection_toolbar,
             set_selection_toolbar_enabled,
+            get_selection_toolbar_state,
             get_cursor_position,
             check_accessibility_permission,
             request_accessibility_permission
