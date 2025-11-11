@@ -46,6 +46,84 @@ function normalizeProxyConfig(
   return { type: "system" };
 }
 
+function normalizeIgnoredAppsConfig(value: unknown): string[] {
+  const candidates: string[] = [];
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (typeof entry === "string") {
+        candidates.push(entry);
+      } else if (entry != null) {
+        candidates.push(String(entry));
+      }
+    }
+  } else if (typeof value === "string") {
+    candidates.push(...value.split(/[\n,;]+/));
+  }
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const raw of candidates) {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    normalized.push(trimmed);
+  }
+
+  return normalized;
+}
+
+function normalizePositiveDuration(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return fallback;
+}
+
+function normalizeOptionalTimestamp(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function areStringArraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /**
  * Store实例
  */
@@ -75,10 +153,44 @@ export async function getConfig(): Promise<AppConfig> {
       return DEFAULT_CONFIG;
     }
 
-  // 合并默认配置（防止新增配置项时出现undefined）
+    // 合并默认配置（防止新增配置项时出现undefined）
   const merged: AppConfig = { ...DEFAULT_CONFIG, ...config };
-  merged.proxy = normalizeProxyConfig(config?.proxy ?? merged.proxy);
-  return merged;
+  const rawConfig = config as unknown as Record<string, unknown>;
+
+    merged.proxy = normalizeProxyConfig(config?.proxy ?? merged.proxy);
+
+    let needsSave = false;
+
+    const normalizedIgnored = normalizeIgnoredAppsConfig(
+      rawConfig["selectionToolbarIgnoredApps"] ?? merged.selectionToolbarIgnoredApps,
+    );
+    if (!areStringArraysEqual(normalizedIgnored, merged.selectionToolbarIgnoredApps)) {
+      merged.selectionToolbarIgnoredApps = normalizedIgnored;
+      needsSave = true;
+    }
+
+    const normalizedDuration = normalizePositiveDuration(
+      rawConfig["selectionToolbarTemporaryDisableDurationMs"],
+      DEFAULT_CONFIG.selectionToolbarTemporaryDisableDurationMs,
+    );
+    if (normalizedDuration !== merged.selectionToolbarTemporaryDisableDurationMs) {
+      merged.selectionToolbarTemporaryDisableDurationMs = normalizedDuration;
+      needsSave = true;
+    }
+
+    const normalizedUntil = normalizeOptionalTimestamp(
+      rawConfig["selectionToolbarTemporaryDisabledUntil"],
+    );
+    if (normalizedUntil !== merged.selectionToolbarTemporaryDisabledUntil) {
+      merged.selectionToolbarTemporaryDisabledUntil = normalizedUntil;
+      needsSave = true;
+    }
+
+    if (needsSave) {
+      await saveConfig(merged);
+    }
+
+    return merged;
   } catch (error) {
     logger.error("Failed to get config", error);
     return DEFAULT_CONFIG;

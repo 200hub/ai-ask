@@ -333,6 +333,8 @@ export const EVENTS = {
   CHILD_WEBVIEW_READY: 'child-webview:ready',
   /** 注入结果（通过特殊导航传回） */
   CHILD_WEBVIEW_INJECTION_RESULT: 'child-webview:injection-result',
+  /** 划词工具栏临时禁用状态更新事件 */
+  SELECTION_TOOLBAR_TEMP_DISABLE_CHANGED: 'selection-toolbar:temporary-disable-changed',
 } as const;
 
 /**
@@ -380,6 +382,10 @@ export const SELECTION_TOOLBAR = {
   SELECTION_DEBOUNCE_MS: 300,
   /** Debounce delay before hiding when selection clears (milliseconds) */
   SELECTION_CLEAR_DEBOUNCE_MS: 120,
+  /** 临时禁用默认时长（毫秒） */
+  TEMP_DISABLE_DURATION_MS: 15 * 60 * 1000,
+  /** 临时禁用预设时长列表（毫秒） */
+  TEMP_DISABLE_PRESETS_MS: [5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000, 60 * 60 * 1000] as const,
 } as const;
 
 /**

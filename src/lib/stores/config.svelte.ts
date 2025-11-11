@@ -30,7 +30,8 @@ class ConfigStore {
       // 应用主题
       this.applyTheme();
 
-      await this.syncSelectionToolbarEnabled();
+  await this.refreshSelectionToolbarTemporaryDisableIfExpired();
+  await this.syncSelectionToolbarPolicies();
 
       // 同步自启动状态
       await this.syncAutoLaunchStatus();
@@ -75,6 +76,80 @@ class ConfigStore {
       });
     } catch (error) {
       logger.error('Failed to sync selection toolbar state', error);
+    }
+  }
+
+  async syncSelectionToolbarPolicies() {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('set_selection_toolbar_enabled', {
+        enabled: this.config.selectionToolbarEnabled,
+      });
+      await invoke('set_selection_toolbar_ignored_apps', {
+        apps: this.buildIgnoredAppPayload(this.config.selectionToolbarIgnoredApps),
+      });
+      await invoke('set_selection_toolbar_temporary_disabled_until', {
+        until: this.config.selectionToolbarTemporaryDisabledUntil,
+      });
+    } catch (error) {
+      logger.error('Failed to sync selection toolbar policies', error);
+    }
+  }
+
+  private sanitizeIgnoredApps(apps: string[]): string[] {
+    return apps.map((item) => item.trim()).filter((item) => item.length > 0);
+  }
+
+  private buildIgnoredAppPayload(apps: string[]): string[] {
+    return this
+      .sanitizeIgnoredApps(apps)
+      .map((item) => item.toLowerCase());
+  }
+
+  async setSelectionToolbarIgnoredApps(apps: string[]) {
+    const sanitized = this.sanitizeIgnoredApps(apps);
+    const payload = this.buildIgnoredAppPayload(sanitized);
+
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('set_selection_toolbar_ignored_apps', { apps: payload });
+    } catch (error) {
+      logger.error('Failed to update selection toolbar ignored apps in backend', error);
+      throw error;
+    }
+
+    await this.update({ selectionToolbarIgnoredApps: sanitized });
+  }
+
+  async setSelectionToolbarTemporaryDisabledUntil(until: number | null) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('set_selection_toolbar_temporary_disabled_until', { until });
+    } catch (error) {
+      logger.error('Failed to update selection toolbar temporary disable state', error);
+      throw error;
+    }
+
+    await this.update({ selectionToolbarTemporaryDisabledUntil: until });
+  }
+
+  async setSelectionToolbarTemporaryDisableDuration(duration: number) {
+    await this.update({ selectionToolbarTemporaryDisableDurationMs: duration });
+  }
+
+  async applySelectionToolbarTemporaryDisableSnapshot(until: number | null) {
+    this.config = await updateConfig({ selectionToolbarTemporaryDisabledUntil: until });
+  }
+
+  async refreshSelectionToolbarTemporaryDisableIfExpired() {
+    const until = this.config.selectionToolbarTemporaryDisabledUntil;
+    if (!until) {
+      return;
+    }
+
+    if (until <= Date.now()) {
+      logger.info('Selection toolbar temporary disable expired, restoring');
+      await this.setSelectionToolbarTemporaryDisabledUntil(null);
     }
   }
 
@@ -261,7 +336,7 @@ class ConfigStore {
       await saveConfig(DEFAULT_CONFIG);
       this.config = DEFAULT_CONFIG;
       this.applyTheme();
-      await this.syncSelectionToolbarEnabled();
+  await this.syncSelectionToolbarPolicies();
     } catch (error) {
       logger.error('Failed to reset config', error);
       throw error;

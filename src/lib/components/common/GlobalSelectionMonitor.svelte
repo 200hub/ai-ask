@@ -6,10 +6,11 @@
    */
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { configStore } from '$lib/stores/config.svelte';
   import { logger } from '$lib/utils/logger';
-  import { SELECTION_TOOLBAR } from '$lib/utils/constants';
+  import { EVENTS, SELECTION_TOOLBAR } from '$lib/utils/constants';
 
   // 性能优化：缓存主窗体句柄，避免每次选择时重复获取
   const mainWindow = getCurrentWindow();
@@ -17,7 +18,8 @@
   let selectionTimeout: number | null = null;
   let selectionChangeTimeout: number | null = null;
   let toolbarVisible = false;
-  
+  let unlistenTempDisable: UnlistenFn | null = null;
+
   /**
    * 选区签名（文本+位置），用于跳过重复的展示请求
    * 格式: "selectedText:centerX:topY"
@@ -25,8 +27,29 @@
    */
   let lastSelectionSignature: string | null = null;
 
+  /**
+   * 清除文档选区
+   * 
+   * 安全守卫：检查当前焦点元素，如果是表单控件（input/textarea/select），
+   * 则跳过清除操作，避免干扰用户正在进行的输入操作。
+   * 
+   * 此修复解决了全局选区监听器在设置页面中干扰表单交互的问题，
+   * 特别是下拉框和文本输入框的焦点管理。
+   */
   function clearDocumentSelection(): void {
     const selection = window.getSelection();
+    const active = document.activeElement;
+    
+    // 修复：如果当前焦点在表单控件上，不清除选区
+    // 这防止了全局选区监听器干扰设置页面中的输入框和下拉框操作
+    if (
+      active instanceof globalThis.HTMLInputElement ||
+      active instanceof globalThis.HTMLTextAreaElement ||
+      active instanceof globalThis.HTMLSelectElement
+    ) {
+      return;
+    }
+
     if (!selection) {
       return;
     }
@@ -51,7 +74,8 @@
       reason,
       toolbarVisible,
     });
-    const shouldInvoke = toolbarVisible;
+  const wasVisible = toolbarVisible;
+  const shouldInvoke = wasVisible;
     try {
       // 性能优化：仅在工具栏已显示时才发起原生调用
       if (shouldInvoke) {
@@ -95,7 +119,7 @@
     logger.debug('Selection monitor mouseup', mouseupPayload);
 
     if (!isPlainSelection || !selectedText || selectedText.length < SELECTION_TOOLBAR.MIN_SELECTION_LENGTH) {
-      await hideToolbar(true, 'selection-too-short-on-mouseup');
+      await hideToolbar(false, 'selection-too-short-on-mouseup');
       return;
     }
 
@@ -270,13 +294,31 @@
     document.addEventListener('selectionchange', handleSelectionChange);
     window.addEventListener('blur', handleWindowBlur);
 
+    (async () => {
+      try {
+        unlistenTempDisable = await listen<{ until: number | null }>(
+          EVENTS.SELECTION_TOOLBAR_TEMP_DISABLE_CHANGED,
+          async (event) => {
+            const payload = event.payload;
+            const until = payload && typeof payload.until === 'number' ? payload.until : null;
+            await configStore.applySelectionToolbarTemporaryDisableSnapshot(until);
+            await configStore.refreshSelectionToolbarTemporaryDisableIfExpired();
+          }
+        );
+      } catch (error) {
+        logger.error('Failed to listen temporary disable updates', error);
+      }
+    })();
+
     logger.info('Global selection monitor initialized');
   });
 
   onDestroy(() => {
-    document.removeEventListener('mouseup', handleSelection);
+  document.removeEventListener('mouseup', handleSelection);
     document.removeEventListener('selectionchange', handleSelectionChange);
     window.removeEventListener('blur', handleWindowBlur);
+
+  unlistenTempDisable?.();
     
     if (selectionTimeout !== null) {
       window.clearTimeout(selectionTimeout);

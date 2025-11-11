@@ -2,6 +2,7 @@
     /**
      * 通用设置标签页
      */
+    import { onMount, onDestroy } from "svelte";
     import { configStore } from "$lib/stores/config.svelte";
     import { platformsStore } from "$lib/stores/platforms.svelte";
     import {
@@ -16,6 +17,23 @@
 
     let isSaving = $state(false);
     let currentLocale = $state<Locale>(i18n.locale.get());
+    
+    // 划词工具栏忽略应用输入框的值
+    let ignoreInput = $state("");
+    
+    // 临时禁用倒计时显示文本（格式：剩余 X 分 Y 秒）
+    let disableCountdown = $state("");
+    
+    // 倒计时定时器句柄，用于每秒更新剩余时间
+    let countdownTimer: number | null = null;
+    
+    // 临时禁用功能的恢复时间戳（Unix 毫秒）
+    const temporaryDisableUntil = $derived(configStore.config.selectionToolbarTemporaryDisabledUntil);
+    
+    // 当前是否处于临时禁用状态（恢复时间戳大于当前时间）
+    const isTemporaryDisabled = $derived(
+        typeof temporaryDisableUntil === "number" && temporaryDisableUntil > Date.now()
+    );
 
     /**
      * 主题选项
@@ -25,6 +43,97 @@
         { value: "light", labelKey: "general.themeLight", icon: "☀️" },
         { value: "dark", labelKey: "general.themeDark", icon: "🌙" },
     ] as const;
+
+    /**
+     * 格式化翻译字符串
+     * 
+     * 将翻译文本中的占位符（如 {minutes}、{seconds}）替换为实际值
+     * 
+     * @param key - i18n 翻译键
+     * @param params - 占位符参数对象，键为占位符名称，值为替换内容
+     * @returns 格式化后的字符串
+     */
+    function formatTranslation(
+        key: string,
+        params: Record<string, string | number>,
+    ): string {
+        let output = t(key);
+        for (const [paramKey, paramValue] of Object.entries(params)) {
+            output = output.replace(`{${paramKey}}`, String(paramValue));
+        }
+        return output;
+    }
+
+    /**
+     * 格式化禁用恢复时间戳为本地化日期时间字符串
+     * 
+     * @param until - Unix 毫秒时间戳
+     * @returns 本地化日期时间字符串，如 "2025/11/12 16:30:00"
+     */
+    function formatDisableUntil(until: number | null): string {
+        if (!until) {
+            return "";
+        }
+        return new Date(until).toLocaleString();
+    }
+
+    /**
+     * 更新临时禁用倒计时显示
+     * 
+     * 每秒调用一次，计算并更新剩余时间的显示文本。
+     * 当倒计时结束时，自动触发配置刷新以恢复划词工具栏。
+     */
+    function updateDisableCountdown(): void {
+        const until = configStore.config.selectionToolbarTemporaryDisabledUntil;
+        if (!until) {
+            disableCountdown = "";
+            return;
+        }
+
+        const remaining = until - Date.now();
+        if (remaining <= 0) {
+            disableCountdown = "";
+            void configStore.refreshSelectionToolbarTemporaryDisableIfExpired();
+            return;
+        }
+
+        const minutes = Math.floor(remaining / 60000).toString();
+        const seconds = Math.floor((remaining % 60000) / 1000)
+            .toString()
+            .padStart(2, "0");
+        disableCountdown = formatTranslation(
+            "general.selectionToolbarTemporaryDisabledCountdown",
+            {
+                minutes,
+                seconds,
+            },
+        );
+    }
+
+    onMount(() => {
+        // 启动倒计时定时器，每秒更新一次剩余时间显示
+        updateDisableCountdown();
+        countdownTimer = window.setInterval(updateDisableCountdown, 1000);
+    });
+
+    onDestroy(() => {
+        // 清理倒计时定时器，避免内存泄漏
+        if (countdownTimer !== null) {
+            window.clearInterval(countdownTimer);
+        }
+    });
+
+    // 监听临时禁用配置变化，实时更新倒计时显示
+    $effect(() => {
+        configStore.config.selectionToolbarTemporaryDisabledUntil;
+        updateDisableCountdown();
+    });
+
+    // 监听语言切换，重新格式化倒计时文本
+    $effect(() => {
+        currentLocale;
+        updateDisableCountdown();
+    });
 
     /**
      * 切换主题
@@ -125,6 +234,61 @@
             await configStore.setSelectionToolbarEnabled(enabled);
         } catch (error) {
             logger.error("Failed to change selection toolbar", error);
+        }
+    }
+
+    /**
+     * 添加忽略应用到划词工具栏黑名单
+     * 
+     * 将输入的应用名称（进程名或窗口类名）添加到忽略列表中。
+     * 在这些应用中，划词工具栏不会显示。
+     */
+    async function handleAddIgnoredApp() {
+        const value = ignoreInput.trim();
+        if (!value) {
+            return;
+        }
+
+        const existing = configStore.config.selectionToolbarIgnoredApps;
+        if (existing.some((item) => item.toLowerCase() === value.toLowerCase())) {
+            ignoreInput = "";
+            return;
+        }
+
+        try {
+            await configStore.setSelectionToolbarIgnoredApps([...existing, value]);
+            ignoreInput = "";
+        } catch (error) {
+            logger.error("Failed to add ignored application", error);
+        }
+    }
+
+    /**
+     * 从忽略列表中移除指定应用
+     * 
+     * @param app - 要移除的应用名称
+     */
+    async function handleRemoveIgnoredApp(app: string) {
+        const filtered = configStore.config.selectionToolbarIgnoredApps.filter((item) => item !== app);
+
+        try {
+            await configStore.setSelectionToolbarIgnoredApps(filtered);
+        } catch (error) {
+            logger.error("Failed to remove ignored application", error);
+        }
+    }
+
+    /**
+     * 立即恢复划词工具栏（取消临时禁用）
+     * 
+     * 清除临时禁用的恢复时间戳，使划词工具栏立即恢复正常工作。
+     * 注意：临时禁用只能由划词工具栏自身触发，此功能仅用于提前恢复。
+     */
+    async function handleResumeTemporaryDisable() {
+        try {
+            await configStore.setSelectionToolbarTemporaryDisabledUntil(null);
+        } catch (error) {
+            logger.error("Failed to resume selection toolbar", error);
         }
     }
 
@@ -303,6 +467,76 @@
                     {/each}
                 </select>
             </div>
+
+            <div class="setting-item stacked">
+                <div class="setting-label">
+                    <span class="label-text">{t("general.selectionToolbarIgnoreTitle")}</span>
+                    <span class="label-description">
+                        {t("general.selectionToolbarIgnoreDescription")}
+                    </span>
+                </div>
+
+                <div class="ignore-editor">
+                    <input
+                        class="setting-input"
+                        type="text"
+                        bind:value={ignoreInput}
+                        placeholder={t("general.selectionToolbarIgnorePlaceholder")}
+                        onkeydown={(event) => {
+                            if (event.key === "Enter") {
+                                event.preventDefault();
+                                void handleAddIgnoredApp();
+                            }
+                        }}
+                    />
+                    <button class="btn-secondary" type="button" onclick={handleAddIgnoredApp}>
+                        {t("general.selectionToolbarIgnoreAdd")}
+                    </button>
+                </div>
+
+                {#if configStore.config.selectionToolbarIgnoredApps.length > 0}
+                    <div class="ignored-list">
+                        {#each configStore.config.selectionToolbarIgnoredApps as app}
+                            <span class="ignored-entry">
+                                <span class="ignored-name">{app}</span>
+                                <button
+                                    type="button"
+                                    class="ignored-remove"
+                                    onclick={() => handleRemoveIgnoredApp(app)}
+                                    aria-label={formatTranslation(
+                                        "general.selectionToolbarIgnoreRemove",
+                                        { app },
+                                    )}
+                                >
+                                    ×
+                                </button>
+                            </span>
+                        {/each}
+                    </div>
+                {:else}
+                    <div class="ignored-empty">{t("general.selectionToolbarIgnoreEmpty")}</div>
+                {/if}
+            </div>
+
+            <!-- 临时禁用状态显示（仅在被划词工具栏触发禁用后显示） -->
+            {#if isTemporaryDisabled}
+                <div class="setting-item stacked">
+                    <div class="temporary-disable-status">
+                        <div>
+                            {formatTranslation("general.selectionToolbarTemporaryDisabledStatus", {
+                                time: formatDisableUntil(temporaryDisableUntil),
+                            })}
+                        </div>
+                        {#if disableCountdown}
+                            <div class="temporary-disable-countdown">{disableCountdown}</div>
+                        {/if}
+                    </div>
+                    <!-- 立即恢复按钮：允许用户提前结束临时禁用 -->
+                    <button class="btn-secondary outline" type="button" onclick={handleResumeTemporaryDisable}>
+                        {t("general.selectionToolbarTemporaryDisableResumeNow")}
+                    </button>
+                </div>
+            {/if}
         {/if}
     </div>
 
@@ -505,6 +739,11 @@
         margin-bottom: 0.625rem;
         gap: 1rem;
     }
+    
+    .setting-item.stacked {
+        flex-direction: column;
+        align-items: stretch;
+    }
 
     .setting-label {
         flex: 1;
@@ -585,6 +824,23 @@
     }
 
     .setting-select:focus {
+        outline: none;
+        border-color: var(--accent-color);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    
+    .setting-input {
+        flex: 1;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        color: var(--text-primary);
+        background-color: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 0.375rem;
+        transition: border-color 0.2s ease;
+    }
+    
+    .setting-input:focus {
         outline: none;
         border-color: var(--accent-color);
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
@@ -708,6 +964,104 @@
 
     .btn-clear-cache:active {
         transform: scale(0.98);
+    }
+    
+    .btn-secondary {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-primary);
+        background-color: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+    }
+    
+    .btn-secondary:hover {
+        background-color: var(--bg-tertiary);
+        border-color: var(--accent-color);
+    }
+    
+    .btn-secondary:active {
+        transform: scale(0.98);
+    }
+    
+    .ignore-editor {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        width: 100%;
+    }
+    
+    .ignored-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    
+    .ignored-entry {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        background-color: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+    
+    .ignored-name {
+        max-width: 14rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .ignored-remove {
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 1rem;
+        line-height: 1;
+        padding: 0;
+    }
+    
+    .ignored-remove:hover {
+        color: var(--text-primary);
+    }
+    
+    .ignored-empty {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+    
+    .temporary-disable-status {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+    .temporary-disable-countdown {
+        font-weight: 500;
+        color: var(--accent-color);
+    }
+
+    .btn-secondary.outline {
+        background-color: transparent;
+        color: var(--accent-color);
+        border-color: var(--accent-color);
+    }
+
+    .btn-secondary.outline:hover {
+        background-color: rgba(59, 130, 246, 0.1);
+    }
+
+    :global(.dark) .btn-secondary.outline:hover {
+        background-color: rgba(59, 130, 246, 0.2);
     }
 
     .permission-warning {

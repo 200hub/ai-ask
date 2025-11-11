@@ -27,6 +27,9 @@ export interface AppConfig {
 
   // 划词工具栏设置
   selectionToolbarEnabled: boolean;
+  selectionToolbarIgnoredApps: string[];
+  selectionToolbarTemporaryDisabledUntil: number | null;
+  selectionToolbarTemporaryDisableDurationMs: number;
   defaultExplainPlatformId: string | null;
 
   // 性能优化设置
@@ -83,6 +86,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   lastUsedPlatform: null,
   currentTranslator: "google",
   selectionToolbarEnabled: true,
+  selectionToolbarIgnoredApps: [],
+  selectionToolbarTemporaryDisabledUntil: null,
+  selectionToolbarTemporaryDisableDurationMs: 15 * 60 * 1000,
   defaultExplainPlatformId: null,
   preloadDefaultPlatforms: true, // 默认启用预加载
   proxy: { type: "system" },

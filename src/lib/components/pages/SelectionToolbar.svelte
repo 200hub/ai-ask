@@ -7,6 +7,7 @@
   import '$lib/styles/base.css';
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { emit } from '@tauri-apps/api/event';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { i18n } from '$lib/i18n';
   import { logger } from '$lib/utils/logger';
@@ -15,7 +16,7 @@
     requestExplanation,
     requestCollect,
   } from '$lib/utils/selection-bridge';
-  import { SELECTION_TOOLBAR } from '$lib/utils/constants';
+  import { EVENTS, SELECTION_TOOLBAR } from '$lib/utils/constants';
 
   type Props = {
     isDarkMode?: boolean;
@@ -165,6 +166,26 @@
     }
   }
 
+  async function handleTemporaryDisable(): Promise<void> {
+    if (isProcessing) {
+      return;
+    }
+
+    const until = Date.now() + SELECTION_TOOLBAR.TEMP_DISABLE_DURATION_MS;
+    logger.info('Selection toolbar: temporary disable requested', { until });
+
+    isProcessing = true;
+    try {
+      await invoke('set_selection_toolbar_temporary_disabled_until', { until });
+      await emit(EVENTS.SELECTION_TOOLBAR_TEMP_DISABLE_CHANGED, { until });
+    } catch (error) {
+      logger.error('Failed to schedule temporary disable', error);
+    } finally {
+      isProcessing = false;
+      await hideToolbar();
+    }
+  }
+
   function handleKeydown(event: KeyboardHandlerEvent): void {
     if (event.key === 'Escape') {
       void hideToolbar();
@@ -265,6 +286,23 @@
       />
     </svg>
     <span class="sr-only">{t('errors.selectionToolbar.collect')}</span>
+  </button>
+
+  <button
+    class="toolbar-button"
+    type="button"
+    onclick={handleTemporaryDisable}
+    title={t('errors.selectionToolbar.tooltipDisable')}
+    aria-label={t('errors.selectionToolbar.disable')}
+    disabled={isProcessing}
+  >
+    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5A8.5 8.5 0 0 0 12 3.5Zm0 15a6.5 6.5 0 1 1 6.5-6.5A6.5 6.5 0 0 1 12 18.5Zm-.75-9v3.17l2.48 1.43.76-1.32-1.74-1V9.5Z"
+        fill={iconFill}
+      />
+    </svg>
+    <span class="sr-only">{t('errors.selectionToolbar.disable')}</span>
   </button>
 </div>
 

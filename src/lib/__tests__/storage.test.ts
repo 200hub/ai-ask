@@ -106,6 +106,37 @@ describe("storage utilities", () => {
     expect(saveSpy).toHaveBeenCalled();
   });
 
+  it("normalizes legacy ignored apps values", async () => {
+    storeData[STORAGE_KEYS.CONFIG] = {
+      ...DEFAULT_CONFIG,
+      selectionToolbarIgnoredApps: "notepad.exe, chrome.exe\n Edge.exe;;",
+    };
+
+    saveSpy.mockClear();
+
+    const config = await getConfig();
+
+    expect(config.selectionToolbarIgnoredApps).toEqual([
+      "notepad.exe",
+      "chrome.exe",
+      "Edge.exe",
+    ]);
+    expect(saveSpy).toHaveBeenCalled();
+  });
+
+  it("normalizes temporary disable numeric fields", async () => {
+    storeData[STORAGE_KEYS.CONFIG] = {
+      ...DEFAULT_CONFIG,
+      selectionToolbarTemporaryDisableDurationMs: "300000",
+      selectionToolbarTemporaryDisabledUntil: "1700000000000",
+    };
+
+    const config = await getConfig();
+
+    expect(config.selectionToolbarTemporaryDisableDurationMs).toBe(300_000);
+    expect(config.selectionToolbarTemporaryDisabledUntil).toBe(1_700_000_000_000);
+  });
+
   it("updates config while normalizing proxy settings", async () => {
     await saveConfig(DEFAULT_CONFIG);
 

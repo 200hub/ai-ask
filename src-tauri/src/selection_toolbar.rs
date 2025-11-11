@@ -3,8 +3,9 @@
 //! 提供系统级文本选择监听和浮动工具栏窗口管理功能
 
 use serde::{Deserialize, Serialize};
+use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, Position, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
@@ -23,6 +24,8 @@ pub struct ToolbarState {
     last_shown_at: Option<Instant>,
     last_text: Option<String>,
     enabled: bool,
+    temporary_disabled_until: Option<SystemTime>,
+    ignored_apps: Vec<String>,
 }
 
 impl Default for ToolbarState {
@@ -31,6 +34,8 @@ impl Default for ToolbarState {
             last_shown_at: None,
             last_text: None,
             enabled: true,
+            temporary_disabled_until: None,
+            ignored_apps: Vec::new(),
         }
     }
 }
@@ -38,6 +43,59 @@ impl Default for ToolbarState {
 impl ToolbarState {
     pub fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    pub fn set_temporary_disabled_until(&mut self, until: Option<SystemTime>) {
+        self.temporary_disabled_until = until;
+    }
+
+    pub fn temporary_disabled_until(&self) -> Option<SystemTime> {
+        self.temporary_disabled_until
+    }
+
+    pub fn is_temporarily_disabled(&mut self) -> bool {
+        match self.temporary_disabled_until {
+            Some(until) => {
+                if SystemTime::now() >= until {
+                    self.temporary_disabled_until = None;
+                    false
+                } else {
+                    true
+                }
+            }
+            None => false,
+        }
+    }
+
+    pub fn set_ignored_apps(&mut self, apps: Vec<String>) {
+        self.ignored_apps = apps
+            .into_iter()
+            .map(|app| app.trim().to_lowercase())
+            .filter(|app| !app.is_empty())
+            .collect();
+    }
+
+    pub fn ignored_apps(&self) -> &[String] {
+        &self.ignored_apps
+    }
+
+    pub fn should_ignore_app(&self, identifier: &str) -> bool {
+        if self.ignored_apps.is_empty() {
+            return false;
+        }
+
+        let candidate = identifier.trim().to_lowercase();
+        if candidate.is_empty() {
+            return false;
+        }
+
+        self.ignored_apps.iter().any(|pattern| {
+            candidate == *pattern || candidate.ends_with(pattern) || candidate.contains(pattern)
+        })
     }
 }
 
@@ -52,6 +110,18 @@ pub type ToolbarManager = Arc<Mutex<ToolbarState>>;
 pub struct SelectionToolbarSnapshot {
     pub last_text: Option<String>,
     pub enabled: bool,
+    pub temporary_disabled_until_ms: Option<u64>,
+    pub ignored_apps: Vec<String>,
+}
+
+fn system_time_to_millis(time: SystemTime) -> Option<u64> {
+    time.duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| duration.as_millis().try_into().ok())
+}
+
+fn millis_to_system_time(ms: u64) -> Option<SystemTime> {
+    UNIX_EPOCH.checked_add(Duration::from_millis(ms))
 }
 
 /// 光标位置信息
@@ -116,8 +186,8 @@ pub async fn set_selection_toolbar_enabled(
         let mut state = toolbar_state
             .lock()
             .map_err(|e| format!("Failed to lock toolbar state: {}", e))?;
-        let previous = state.enabled;
-        state.enabled = enabled;
+        let previous = state.is_enabled();
+        state.set_enabled(enabled);
         previous
     };
 
@@ -140,6 +210,56 @@ pub async fn set_selection_toolbar_enabled(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn set_selection_toolbar_ignored_apps(
+    apps: Vec<String>,
+    toolbar_state: tauri::State<'_, ToolbarManager>,
+) -> Result<(), String> {
+    let count = {
+        let mut state = toolbar_state
+            .lock()
+            .map_err(|e| format!("Failed to lock toolbar state: {}", e))?;
+        state.set_ignored_apps(apps);
+        state.ignored_apps().len()
+    };
+
+    log::info!("Selection toolbar ignored apps updated (count={})", count);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_selection_toolbar_temporary_disabled_until(
+    app: AppHandle,
+    until: Option<u64>,
+    toolbar_state: tauri::State<'_, ToolbarManager>,
+) -> Result<(), String> {
+    let resolved = until.and_then(millis_to_system_time);
+
+    {
+        let mut state = toolbar_state
+            .lock()
+            .map_err(|e| format!("Failed to lock toolbar state: {}", e))?;
+        state.set_temporary_disabled_until(resolved);
+    }
+
+    if let Some(target) = resolved {
+        if let Some(ms) = system_time_to_millis(target) {
+            log::info!(
+                "Selection toolbar temporarily disabled (restore at {} ms since epoch)",
+                ms
+            );
+        } else {
+            log::info!("Selection toolbar temporarily disabled");
+        }
+        hide_toolbar_internal(&app, toolbar_state.inner()).await?;
+    } else {
+        log::info!("Selection toolbar temporary disable cleared");
+    }
+
+    Ok(())
+}
+
 /// 获取当前划词工具栏的状态快照
 ///
 /// 主要用于前端在 Webview 首次挂载时同步 Rust 端已经缓存的文本与启用状态，
@@ -148,13 +268,23 @@ pub async fn set_selection_toolbar_enabled(
 pub async fn get_selection_toolbar_state(
     toolbar_state: tauri::State<'_, ToolbarManager>,
 ) -> Result<SelectionToolbarSnapshot, String> {
-    let state = toolbar_state
+    let mut state = toolbar_state
         .lock()
         .map_err(|e| format!("Failed to lock toolbar state: {}", e))?;
 
+    let temporary_disabled_until_ms = if state.is_temporarily_disabled() {
+        state
+            .temporary_disabled_until()
+            .and_then(system_time_to_millis)
+    } else {
+        None
+    };
+
     Ok(SelectionToolbarSnapshot {
         last_text: state.last_text.clone(),
-        enabled: state.enabled,
+        enabled: state.is_enabled(),
+        temporary_disabled_until_ms,
+        ignored_apps: state.ignored_apps().to_vec(),
     })
 }
 
@@ -226,6 +356,23 @@ async fn show_toolbar_internal(
 
     if !state.enabled {
         log::debug!("Selection toolbar suppressed because feature is disabled");
+        return Ok(());
+    }
+
+    if state.is_temporarily_disabled() {
+        log::debug!("Selection toolbar suppressed because feature is temporarily disabled");
+        return Ok(());
+    }
+
+    let active_identifiers = resolve_active_app_identifiers();
+    if let Some(identifier) = active_identifiers
+        .iter()
+        .find(|identifier| state.should_ignore_app(identifier))
+    {
+        log::debug!(
+            "Selection toolbar suppressed due to ignored application identifier: {}",
+            identifier
+        );
         return Ok(());
     }
 
@@ -311,6 +458,90 @@ fn ensure_toolbar_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .focused(false)
         .build()
         .map_err(|e| format!("Failed to create toolbar window: {}", e))
+}
+
+fn resolve_active_app_identifiers() -> Vec<String> {
+    #[cfg(target_os = "windows")]
+    {
+        resolve_active_app_identifiers_windows()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Vec::new()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_active_app_identifiers_windows() -> Vec<String> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::path::Path;
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::{CloseHandle, HWND};
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId, RealGetWindowClassW,
+    };
+
+    let mut identifiers = Vec::new();
+
+    unsafe {
+        let hwnd: HWND = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return identifiers;
+        }
+
+        let mut class_buffer = [0u16; 256];
+        let class_len = RealGetWindowClassW(hwnd, &mut class_buffer) as usize;
+        if class_len > 0 {
+            let trimmed = class_len.min(class_buffer.len());
+            let class_name = OsString::from_wide(&class_buffer[..trimmed])
+                .to_string_lossy()
+                .to_lowercase();
+            if !class_name.is_empty() {
+                identifiers.push(class_name);
+            }
+        }
+
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid != 0 {
+            if let Ok(process_handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                let mut path_buffer = [0u16; 512];
+                let mut size = path_buffer.len() as u32;
+                if QueryFullProcessImageNameW(
+                    process_handle,
+                    PROCESS_NAME_FORMAT(0),
+                    PWSTR(path_buffer.as_mut_ptr()),
+                    &mut size,
+                )
+                .is_ok()
+                    && size > 0
+                {
+                    let os_path = OsString::from_wide(&path_buffer[..size as usize]);
+                    if let Some(name) = Path::new(&os_path)
+                        .file_name()
+                        .and_then(|segment| segment.to_str())
+                    {
+                        let normalized = name.to_lowercase();
+                        if !normalized.is_empty() {
+                            identifiers.push(normalized);
+                        }
+                    }
+                }
+
+                let _ = CloseHandle(process_handle);
+            }
+        }
+    }
+
+    identifiers.sort();
+    identifiers.dedup();
+    identifiers
 }
 
 pub(crate) fn platform_cursor_position() -> Result<(f64, f64), String> {
