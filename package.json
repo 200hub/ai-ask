@@ -1,6 +1,6 @@
 {
   "name": "ai-ask",
-  "version": "0.0.1-alpha.10",
+  "version": "0.0.1-alpha.11",
   "description": "AI Ask - 一个简洁高效的AI问答助手",
   "type": "module",
   "scripts": {
