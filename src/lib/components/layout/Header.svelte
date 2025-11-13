@@ -47,6 +47,9 @@
     let bannerStatus = $state<'hidden' | 'available' | 'downloading' | 'ready' | 'failed'>('hidden');
     let latestVersion = $state<string>('');
     let latestAssets = $state<ReleaseAsset[]>([]);
+    let latestReleaseNotes = $state<string>('');
+    let latestReleaseUrl = $state<string>('');
+    let latestPublishedAt = $state<string>('');
     let lastTaskId = $state<string>('');
     // 防止重复触发自动下载
     let autoDownloadTriggered = $state<boolean>(false);
@@ -58,6 +61,37 @@
             clearInterval(pollTimer);
             pollTimer = null;
         }
+    }
+
+    function syncUpdateInfoToAppState(version: string) {
+        if (!version) {
+            appState.clearUpdateInfo();
+            return;
+        }
+
+        appState.setUpdateInfo({
+            version,
+            releaseNotes: latestReleaseNotes || null,
+            releaseUrl: latestReleaseUrl || null,
+            publishedAt: latestPublishedAt || null,
+        });
+    }
+
+    function applyUpdateMetadata(params: {
+        version: string;
+        assets?: ReleaseAsset[];
+        releaseNotes?: string | null;
+        releaseUrl?: string | null;
+        publishedAt?: string | null;
+    }) {
+        latestVersion = params.version;
+        if (params.assets) {
+            latestAssets = params.assets;
+        }
+        latestReleaseNotes = params.releaseNotes ?? '';
+        latestReleaseUrl = params.releaseUrl ?? '';
+        latestPublishedAt = params.publishedAt ?? '';
+        syncUpdateInfoToAppState(params.version);
     }
 
     async function refreshDownloadStatus(taskId: string) {
@@ -186,13 +220,18 @@
     if (typeof window !== 'undefined') {
         void (async () => {
             try {
-                await onUpdateAvailable(({ version, assets }) => {
+                await onUpdateAvailable(({ version, assets, releaseNotes, releaseUrl, publishedAt }) => {
                     logger.info("update available event received", {
                         version,
                         assetCount: assets?.length ?? 0,
                     });
-                    latestVersion = version as string;
-                    latestAssets = assets as unknown as ReleaseAsset[];
+                    applyUpdateMetadata({
+                        version: version as string,
+                        assets: assets as unknown as ReleaseAsset[],
+                        releaseNotes: releaseNotes ?? null,
+                        releaseUrl: releaseUrl ?? null,
+                        publishedAt: publishedAt ?? null,
+                    });
                     if (configStore.config.autoUpdateEnabled && !autoDownloadTriggered) {
                         autoDownloadTriggered = true;
                         const asset = selectAssetForUserAgent(latestAssets);
@@ -212,16 +251,23 @@
                     lastTaskId = taskId as string;
                     bannerStatus = 'ready';
                     autoDownloadTriggered = false;
+                    syncUpdateInfoToAppState(latestVersion);
                 });
                 const info = await checkUpdate();
                 if (info?.hasUpdate) {
-                    latestVersion = (info.latestVersion as string) ?? '';
-                    latestAssets = (info.assets ?? []) as ReleaseAsset[];
+                    const resolvedVersion = (info.latestVersion as string) ?? '';
+                    applyUpdateMetadata({
+                        version: resolvedVersion,
+                        assets: (info.assets ?? []) as ReleaseAsset[],
+                        releaseNotes: info.releaseNotes ?? null,
+                        releaseUrl: info.releaseUrl ?? null,
+                        publishedAt: info.publishedAt ?? null,
+                    });
                     if (!latestAssets.length) {
                         logger.warn("update detected but assets list is empty", info);
                     } else {
                         logger.info("update check found release", {
-                            version: latestVersion,
+                            version: resolvedVersion,
                             assetCount: latestAssets.length,
                         });
                     }
@@ -231,7 +277,7 @@
                         logger.info(
                             "auto update enabled after manual check - triggering download",
                             {
-                                version: latestVersion,
+                                version: resolvedVersion,
                                 assetName: asset?.name ?? "unknown",
                             },
                         );
@@ -242,6 +288,12 @@
                 } else {
                     logger.info("update check completed with no newer version");
                     bannerStatus = 'hidden';
+                    latestVersion = '';
+                    latestAssets = [];
+                    latestReleaseNotes = '';
+                    latestReleaseUrl = '';
+                    latestPublishedAt = '';
+                    appState.clearUpdateInfo();
                 }
             } catch (error) {
                 logger.warn("register update listeners failed", error);
@@ -278,6 +330,8 @@
             <UpdateBanner
                 status={bannerStatus === 'available' ? 'available' : bannerStatus === 'downloading' ? 'downloading' : bannerStatus === 'ready' ? 'ready' : 'failed'}
                 version={latestVersion}
+                releaseNotes={latestReleaseNotes}
+                releaseUrl={latestReleaseUrl}
                 onDownload={bannerStatus === 'available' || bannerStatus === 'failed' ? handleDownload : null}
                 onRestart={bannerStatus === 'ready' ? handleRestart : null}
             />

@@ -91,6 +91,10 @@ pub struct CheckUpdateResponse {
     pub is_prerelease: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub published_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_url: Option<String>,
     pub assets: Vec<ReleaseAsset>,
 }
 
@@ -102,6 +106,10 @@ struct UpdateAvailablePayload {
     assets: Vec<ReleaseAsset>,
     #[serde(skip_serializing_if = "Option::is_none")]
     published_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release_notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release_url: Option<String>,
 }
 
 /// Payload for update:downloaded event
@@ -127,6 +135,8 @@ struct CachedRelease {
     version: String,
     is_prerelease: bool,
     published_at: Option<String>,
+    release_notes: Option<String>,
+    release_url: Option<String>,
     assets: Vec<CachedAsset>,
 }
 
@@ -245,6 +255,8 @@ pub async fn check_update(app: AppHandle) -> Result<CheckUpdateResponse, String>
                 latest_version: Some(release.version.clone()),
                 is_prerelease: Some(release.is_prerelease),
                 published_at: release.published_at.clone(),
+                release_notes: release.release_notes.clone(),
+                release_url: release.release_url.clone(),
                 assets: release
                     .assets
                     .iter()
@@ -258,6 +270,8 @@ pub async fn check_update(app: AppHandle) -> Result<CheckUpdateResponse, String>
             latest_version: None,
             is_prerelease: None,
             published_at: None,
+            release_notes: None,
+            release_url: None,
             assets: vec![],
         }),
         Err(err) => Err(err.to_string()),
@@ -480,6 +494,8 @@ async fn perform_startup_check(app: &AppHandle) -> Result<(), String> {
         version: release.version.clone(),
         assets: release.assets.iter().map(|a| a.meta.clone()).collect(),
         published_at: release.published_at.clone(),
+        release_notes: release.release_notes.clone(),
+        release_url: release.release_url.clone(),
     };
 
     if let Err(err) = app.emit(EVENT_UPDATE_AVAILABLE, &payload) {
@@ -865,6 +881,15 @@ fn build_cached_release(
     let mut assets = Vec::new();
     let mut skipped_assets = Vec::new();
 
+    let release_notes = release
+        .body
+        .clone()
+        .map(|notes| notes.trim().to_string())
+        .filter(|notes| !notes.is_empty());
+    let release_url = release.html_url.clone();
+    let is_prerelease = release.prerelease;
+    let published_at = release.published_at.clone();
+
     for asset in release.assets.into_iter() {
         match classify_asset(&asset.name) {
             Some((platform, arch)) => {
@@ -904,8 +929,10 @@ fn build_cached_release(
 
     Ok(CachedRelease {
         version,
-        is_prerelease: release.prerelease,
-        published_at: release.published_at,
+        is_prerelease,
+        published_at,
+        release_notes,
+        release_url,
         assets,
     })
 }
@@ -1210,6 +1237,10 @@ struct GithubRelease {
     draft: bool,
     prerelease: bool,
     published_at: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    html_url: Option<String>,
     assets: Vec<GithubAsset>,
 }
 
@@ -1231,6 +1262,8 @@ mod tests {
             draft: false,
             prerelease,
             published_at: Some("2025-01-01T00:00:00Z".into()),
+            body: Some("- Fix issue #1\n- Add new feature".into()),
+            html_url: Some("https://example.com/releases".into()),
             assets: vec![],
         }
     }

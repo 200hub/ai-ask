@@ -29,6 +29,12 @@ class AppState {
   // WebView加载状态
   webviewLoading = $state<boolean>(false);
 
+  // 更新提示信息
+  updateVersion = $state<string | null>(null);
+  updateReleaseNotes = $state<string | null>(null);
+  updateReleaseUrl = $state<string | null>(null);
+  updatePublishedAt = $state<string | null>(null);
+
   /**
    * 切换到AI对话视图
    */
@@ -124,6 +130,25 @@ class AppState {
     this.webviewLoading = loading;
   }
 
+  setUpdateInfo(info: {
+    version: string;
+    releaseNotes?: string | null;
+    releaseUrl?: string | null;
+    publishedAt?: string | null;
+  }) {
+    this.updateVersion = info.version;
+    this.updateReleaseNotes = info.releaseNotes ?? null;
+    this.updateReleaseUrl = info.releaseUrl ?? null;
+    this.updatePublishedAt = info.publishedAt ?? null;
+  }
+
+  clearUpdateInfo() {
+    this.updateVersion = null;
+    this.updateReleaseNotes = null;
+    this.updateReleaseUrl = null;
+    this.updatePublishedAt = null;
+  }
+
   /**
    * 设置错误信息
    */
@@ -166,11 +191,20 @@ export const appState = new AppState();
 if (typeof window !== 'undefined') {
   void (async () => {
     try {
-      await onUpdateAvailable(({ version }) => {
+      await onUpdateAvailable(({ version, releaseNotes, releaseUrl, publishedAt }) => {
         logger.info('Update available', version);
+        appState.setUpdateInfo({
+          version,
+          releaseNotes,
+          releaseUrl,
+          publishedAt,
+        });
       });
       await onUpdateDownloaded(({ version, taskId }) => {
         logger.info('Update downloaded', version, taskId);
+        if (version) {
+          appState.updateVersion = version;
+        }
       });
     } catch (err) {
       logger.warn('Failed to register update listeners', err as unknown as string);

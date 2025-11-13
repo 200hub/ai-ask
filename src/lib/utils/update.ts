@@ -14,6 +14,8 @@ export interface CheckUpdateResponse {
   latestVersion?: string;
   isPrerelease?: boolean;
   publishedAt?: string;
+  releaseNotes?: string;
+  releaseUrl?: string;
   assets: ReleaseAsset[];
 }
 
@@ -21,6 +23,8 @@ export interface UpdateAvailableEvent {
   version: string;
   assets: ReleaseAsset[];
   publishedAt?: string;
+  releaseNotes?: string;
+  releaseUrl?: string;
 }
 
 export interface UpdateDownloadedEvent {
@@ -97,6 +101,42 @@ export async function installUpdateNow(taskId: string): Promise<boolean> {
     logger.error("install update now failed", error);
     return false;
   }
+}
+
+/**
+ * 将 GitHub Release Notes 转换为简洁摘要，便于在 tooltip 或卡片中展示。
+ *
+ * @param notes - 原始更新内容（Markdown 文本）
+ * @param maxLines - 摘要最大行数
+ * @param maxLength - 摘要最大字符数
+ */
+export function summarizeReleaseNotes(
+  notes: string | null | undefined,
+  maxLines = 4,
+  maxLength = 220,
+): string | null {
+  if (!notes) {
+    return null;
+  }
+
+  const normalized = notes.replace(/\r\n/g, "\n");
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (!lines.length) {
+    return null;
+  }
+
+  const bulletified = lines.map((line) => line.replace(/^[-*+]\s+/, "- "));
+  let summary = bulletified.slice(0, maxLines).join("\n");
+
+  if (summary.length > maxLength) {
+    summary = `${summary.slice(0, maxLength - 1).trimEnd()}…`;
+  }
+
+  return summary;
 }
 
 /**
