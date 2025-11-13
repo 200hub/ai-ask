@@ -28,8 +28,13 @@ use core_foundation::dictionary::CFDictionary;
 #[cfg(target_os = "macos")]
 use core_foundation::string::CFString;
 
+/// Minimum number of non-whitespace characters required for valid selection
 const MIN_TEXT_LENGTH: usize = 2;
+
+/// Debounce time in milliseconds to prevent rapid-fire triggers
 const TRIGGER_DEBOUNCE_MS: u64 = 200;
+
+/// macOS listener retry delay when accessibility permissions fail
 #[cfg(target_os = "macos")]
 const LISTENER_RETRY_DELAY_MS: u64 = 2_000;
 
@@ -108,20 +113,28 @@ pub async fn request_accessibility_permission() -> Result<bool, String> {
     }
 }
 
+/// Platform-agnostic trait for capturing selected text from the system
 trait GlobalSelectionProvider: Send + Sync {
+    /// Returns the provider's name for logging purposes
     fn name(&self) -> &'static str;
+
+    /// Attempts to capture selected text from the active window
+    /// Returns None if no selection is available or capture fails
     fn capture(&self, app: &AppHandle) -> Option<String>;
 }
 
 type ProviderList = Vec<Box<dyn GlobalSelectionProvider>>;
 
+/// Constructs the list of available selection providers for the current platform
+/// Providers are ordered by priority (first match wins)
 fn build_providers() -> ProviderList {
     let mut list: ProviderList = Vec::new();
 
     #[cfg(target_os = "windows")]
     {
-        // Windows UI Automation provider has highest priority
+        // Windows UI Automation provider has highest priority (works with most modern apps)
         list.push(Box::new(WindowsUIAutomationProvider::new()));
+        // Win32 Edit control fallback for legacy applications
         list.push(Box::new(WindowsWin32EditProvider::new()));
     }
 
@@ -133,6 +146,8 @@ fn build_providers() -> ProviderList {
     list
 }
 
+/// Normalizes and validates captured text
+/// Returns None if text is too short or contains only whitespace
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn normalize_selection(text: &str) -> Option<String> {
     let trimmed = text.trim();
@@ -168,17 +183,21 @@ mod windows_uia {
     };
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
+    /// Attempts to obtain a TextPattern from an element or its descendants
+    /// First tries the element directly, then searches subtree for text-capable descendants
     fn obtain_text_pattern(
         ui: &IUIAutomation,
         element: &IUIAutomationElement,
     ) -> Option<IUIAutomationTextPattern> {
         unsafe {
+            // Try to get TextPattern directly from the element
             if let Ok(pattern) =
                 element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
             {
                 return Some(pattern);
             }
 
+            // Search for descendants that support TextPattern
             let value = VARIANT::from(true);
             if let Ok(condition) =
                 ui.CreatePropertyCondition(UIA_IsTextPatternAvailablePropertyId, &value)
@@ -205,7 +224,8 @@ mod windows_uia {
 
         fn capture_impl(&self) -> Option<String> {
             unsafe {
-                // Initialize COM for the current thread (if already initialized, returns S_FALSE)
+                // Initialize COM for the current thread
+                // CoInitializeEx returns S_OK if initialized, S_FALSE if already initialized
                 let init_hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
                 if init_hr.is_err() {
                     log::debug!("Windows UIA provider COM init error: {:?}", init_hr);
@@ -231,8 +251,10 @@ mod windows_uia {
                         return Ok(None);
                     }
 
+                    // Collect candidate elements: focused element and window root
                     let mut candidates: Vec<(&'static str, IUIAutomationElement)> = Vec::new();
 
+                    // Try to get the currently focused UI element
                     match ui.GetFocusedElement() {
                         Ok(focus) => {
                             candidates.push(("focus", focus));
@@ -245,6 +267,7 @@ mod windows_uia {
                         }
                     }
 
+                    // Get the root element of the foreground window as fallback
                     match ui.ElementFromHandle(hwnd) {
                         Ok(root) => {
                             candidates.push(("window", root));
@@ -264,6 +287,7 @@ mod windows_uia {
                         return Ok(None);
                     }
 
+                    // Search for TextPattern in candidate elements (focus first, then window)
                     let mut pattern: Option<IUIAutomationTextPattern> = None;
                     for (label, element) in &candidates {
                         if let Some(found) = obtain_text_pattern(&ui, element) {
@@ -442,11 +466,13 @@ mod windows_win32 {
         Some(String::from_utf16_lossy(&buffer[..trimmed_length]))
     }
 
+    /// Extracts selected text from a Win32 Edit control
+    /// Returns None if no selection or extraction fails
     unsafe fn extract_selection_from_edit(hwnd: HWND) -> Option<String> {
         let mut start: u32 = 0;
         let mut end: u32 = 0;
 
-        // EM_GETSEL writes into the provided pointers (start/end positions in UTF-16 code units)
+        // EM_GETSEL returns selection start/end positions in UTF-16 code units
         let _ = SendMessageW(
             hwnd,
             EM_GETSEL,
@@ -599,11 +625,17 @@ mod macos_accessibility {
 #[cfg(target_os = "macos")]
 use macos_accessibility::MacosAccessibilityProvider;
 
+/// Shared state for the global selection monitor
 #[derive(Default)]
 struct MonitorState {
+    /// Timestamp of last trigger for debouncing
     last_trigger_at: Option<Instant>,
+    /// Last captured text to detect duplicates
     last_text: Option<String>,
+    /// Last recorded mouse position (x, y)
     last_mouse_position: (f64, f64),
+    /// Flag to prevent concurrent capture operations
+    capture_in_progress: bool,
 }
 
 pub fn start_global_selection_monitor(app: AppHandle) {
@@ -742,15 +774,31 @@ fn log_listener_error(error: &ListenError) {
     }
 }
 
+/// RAII guard to reset capture_in_progress flag when async task completes
+/// This ensures the flag is always reset, even if the task exits early
+struct CaptureResetGuard {
+    state: Arc<Mutex<MonitorState>>,
+}
+
+impl Drop for CaptureResetGuard {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.capture_in_progress = false;
+        }
+    }
+}
+
+/// Core event handler for mouse events
+/// Triggers selection capture when left mouse button is released
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn handle_event(
     event: Event,
     app: &AppHandle,
     toolbar_manager: &ToolbarManager,
     monitor_state: &Arc<Mutex<MonitorState>>,
-    providers: &ProviderList,
+    providers: &Arc<ProviderList>,
 ) {
-    // Track mouse position from MouseMove events
+    // Continuously track mouse position for toolbar positioning
     if let EventType::MouseMove { x, y } = event.event_type {
         if let Ok(mut state) = monitor_state.lock() {
             state.last_mouse_position = (x, y);
@@ -758,10 +806,12 @@ fn handle_event(
         return;
     }
 
+    // Only process left mouse button release events
     if !matches!(event.event_type, EventType::ButtonRelease(Button::Left)) {
         return;
     }
 
+    // Check if the feature is enabled
     let feature_enabled = match toolbar_manager.lock() {
         Ok(state) => state.is_enabled(),
         Err(err) => {
@@ -775,80 +825,133 @@ fn handle_event(
         return;
     }
 
-    let mut state = match monitor_state.lock() {
-        Ok(guard) => guard,
-        Err(err) => {
-            log::error!("Failed to lock global selection state: {}", err);
-            return;
-        }
-    };
+    // Apply debounce to prevent rapid-fire triggers
+    {
+        let mut state = match monitor_state.lock() {
+            Ok(guard) => guard,
+            Err(err) => {
+                log::error!("Failed to lock global selection state: {}", err);
+                return;
+            }
+        };
 
-    let now = Instant::now();
-    if let Some(last) = state.last_trigger_at {
-        if now.duration_since(last) < Duration::from_millis(TRIGGER_DEBOUNCE_MS) {
-            return;
+        let now = Instant::now();
+        if let Some(last) = state.last_trigger_at {
+            if now.duration_since(last) < Duration::from_millis(TRIGGER_DEBOUNCE_MS) {
+                return;
+            }
         }
+        state.last_trigger_at = Some(now);
     }
-    state.last_trigger_at = Some(now);
-    drop(state);
 
+    // Ignore selections in the main window itself
     if let Some(window) = resolve_main_window(app) {
         if window.is_focused().unwrap_or(false) {
             return;
         }
     }
 
-    let Some(selected_text) = capture_with_providers(app, providers) else {
-        schedule_hide_toolbar(app, Arc::clone(toolbar_manager));
-        return;
-    };
+    // Check and set capture_in_progress flag to prevent concurrent captures
+    // This avoids blocking the input hook with slow UIA/Win32 operations
+    {
+        let mut state = match monitor_state.lock() {
+            Ok(guard) => guard,
+            Err(err) => {
+                log::error!("Failed to lock global selection state: {}", err);
+                return;
+            }
+        };
 
-    log::debug!(
-        "Global selection detected: {} characters (preview: \"{}\")",
-        selected_text.len(),
-        selected_text
-            .chars()
-            .take(50)
-            .collect::<String>()
-            .replace('\n', " ")
-            .replace('\r', "")
-    );
-
-    let mut state = match monitor_state.lock() {
-        Ok(guard) => guard,
-        Err(err) => {
-            log::error!("Failed to lock global selection state: {}", err);
+        if state.capture_in_progress {
+            log::debug!("Global selection capture skipped: previous capture still running");
             return;
         }
-    };
 
-    if state
-        .last_text
-        .as_ref()
-        .map(|previous| previous == &selected_text)
-        .unwrap_or(false)
-    {
-        return;
+        state.capture_in_progress = true;
     }
 
-    state.last_text = Some(selected_text.clone());
-    // Get the last known mouse position from the state
-    let position = CursorPosition {
-        x: state.last_mouse_position.0,
-        y: state.last_mouse_position.1,
-    };
-    drop(state);
+    // Clone handles for async task
+    let app_task = app.clone();
+    let toolbar_task = toolbar_manager.clone();
+    let state_task = Arc::clone(monitor_state);
+    let providers_task = Arc::clone(providers);
 
-    let app_clone = app.clone();
-    let toolbar_manager_clone = toolbar_manager.clone();
+    // Spawn async task to avoid blocking the input hook
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = show_selection_toolbar_with_manager(
-            app_clone,
-            selected_text,
-            position,
-            toolbar_manager_clone,
-        )
-        .await
+        // Guard ensures capture_in_progress is reset when task completes
+        let _reset_guard = CaptureResetGuard {
+            state: Arc::clone(&state_task),
+        };
+
+        // Run capture in blocking thread pool to avoid blocking async runtime
+        let capture_app = app_task.clone();
+        let capture_providers = Arc::clone(&providers_task);
+        let capture_result = tauri::async_runtime::spawn_blocking(move || {
+            capture_with_providers(&capture_app, &capture_providers)
+        })
+        .await;
+
+        // Handle capture result
+        let selected_text = match capture_result {
+            Ok(text) => text,
+            Err(error) => {
+                log::error!("Global selection capture task failed: {}", error);
+                None
+            }
+        };
+
+        // If no text captured, hide toolbar and exit
+        let Some(selected_text) = selected_text else {
+            schedule_hide_toolbar(&app_task, toolbar_task.clone());
+            return;
+        };
+
+        log::debug!(
+            "Global selection detected: {} characters (preview: \"{}\")",
+            selected_text.len(),
+            selected_text
+                .chars()
+                .take(50)
+                .collect::<String>()
+                .replace('\n', " ")
+                .replace('\r', "")
+        );
+
+        // Check for duplicate text and get cursor position
+        // Scope ensures mutex is not held across async await
+        let maybe_position = {
+            let mut state = match state_task.lock() {
+                Ok(guard) => guard,
+                Err(err) => {
+                    log::error!("Failed to lock global selection state: {}", err);
+                    return;
+                }
+            };
+
+            let is_duplicate = state
+                .last_text
+                .as_ref()
+                .map(|previous| previous == &selected_text)
+                .unwrap_or(false);
+
+            if is_duplicate {
+                None
+            } else {
+                state.last_text = Some(selected_text.clone());
+                Some(CursorPosition {
+                    x: state.last_mouse_position.0,
+                    y: state.last_mouse_position.1,
+                })
+            }
+        };
+
+        let Some(position) = maybe_position else {
+            return;
+        };
+
+        if let Err(error) =
+            show_selection_toolbar_with_manager(app_task, selected_text, position, toolbar_task)
+                .await
         {
             log::error!(
                 "Failed to show selection toolbar from global monitor: {}",
@@ -858,6 +961,8 @@ fn handle_event(
     });
 }
 
+/// Attempts to capture text using available providers in priority order
+/// Returns the first successful capture or None if all providers fail
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn capture_with_providers(app: &AppHandle, providers: &ProviderList) -> Option<String> {
     for provider in providers.iter() {
@@ -877,6 +982,7 @@ fn capture_with_providers(_app: &AppHandle, _providers: &ProviderList) -> Option
     None
 }
 
+/// Schedules toolbar hide operation in async task
 fn schedule_hide_toolbar(app: &AppHandle, toolbar_manager: ToolbarManager) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -886,6 +992,8 @@ fn schedule_hide_toolbar(app: &AppHandle, toolbar_manager: ToolbarManager) {
     });
 }
 
+/// Manually triggers the selection toolbar via hotkey
+/// Captures current selection and shows toolbar at cursor position
 pub fn trigger_toolbar_from_hotkey(app: AppHandle, toolbar_manager: ToolbarManager) {
     let feature_enabled = match toolbar_manager.lock() {
         Ok(state) => state.is_enabled(),
