@@ -3,6 +3,7 @@
 //! Listens to system-wide selection gestures and triggers the selection toolbar
 //! when the user finishes selecting text outside the main webview.
 
+use arboard::Clipboard;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -14,8 +15,9 @@ use rdev::{listen, Button, Event, EventType};
 use tauri::{AppHandle, Manager};
 
 use crate::selection_toolbar::{
-    hide_selection_toolbar_with_manager, platform_cursor_position,
-    show_selection_toolbar_with_manager, CursorPosition, ToolbarManager,
+    hide_selection_toolbar_with_manager, platform_cursor_position, resolve_active_app_identifiers,
+    show_selection_toolbar_force_with_manager, show_selection_toolbar_with_manager, CursorPosition,
+    ToolbarManager,
 };
 use crate::window_control::resolve_main_window;
 
@@ -982,6 +984,92 @@ fn capture_with_providers(_app: &AppHandle, _providers: &ProviderList) -> Option
     None
 }
 
+/// 为热键触发场景捕获文本（支持剪贴板回退）
+///
+/// 此函数专门为快捷键触发提供文本获取能力，与自动划词监听不同的是：
+/// 当系统原生 provider（UIA/Accessibility）无法捕获选中文本时，会自动尝试
+/// 从剪贴板读取文本作为回退方案。
+///
+/// # 使用场景
+///
+/// - 在不支持系统划词的应用中（如某些专有软件、游戏窗口等）
+/// - 用户先手动复制文本（Ctrl+C）
+/// - 再按划词快捷键（Ctrl/Cmd+Shift+S）
+/// - 工具栏会使用剪贴板内容进行后续操作（翻译、解释等）
+///
+/// # 工作流程
+///
+/// 1. **优先尝试系统捕获**：调用平台 provider 尝试直接获取选中文本
+/// 2. **剪贴板回退**：如果系统捕获失败，则读取剪贴板内容
+/// 3. **验证有效性**：确保文本长度满足最小要求
+///
+/// # 返回值
+///
+/// - `Some(String)`: 成功捕获的有效文本（来自系统或剪贴板）
+/// - `None`: 无法获取任何有效文本
+fn capture_text_for_hotkey(app: &AppHandle) -> Option<String> {
+    // 步骤 1: 优先使用系统原生 provider 捕获选中文本
+    let providers = build_providers();
+    if let Some(text) = capture_with_providers(app, &providers) {
+        return Some(text);
+    }
+
+    // 步骤 2: 系统捕获失败，尝试从剪贴板读取作为回退方案
+    let clipboard_text = read_clipboard_text();
+    if clipboard_text.is_some() {
+        log::debug!("Hotkey fallback captured text from clipboard");
+    }
+
+    clipboard_text
+}
+
+/// 从剪贴板读取文本并进行验证
+///
+/// 读取当前剪贴板中的文本内容，并验证其是否满足最小长度要求。
+/// 此函数主要用于热键触发的回退场景。
+///
+/// # 验证规则
+///
+/// - 文本不能为空（去除首尾空白后）
+/// - 非空白字符数量必须 >= MIN_TEXT_LENGTH (2)
+///
+/// # 返回值
+///
+/// - `Some(String)`: 有效的剪贴板文本
+/// - `None`: 剪贴板为空、访问失败或文本不满足要求
+fn read_clipboard_text() -> Option<String> {
+    match Clipboard::new() {
+        Ok(mut clipboard) => match clipboard.get_text() {
+            Ok(text) => {
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+
+                // 验证非空白字符数量是否满足最小要求
+                if trimmed
+                    .chars()
+                    .filter(|character| !character.is_whitespace())
+                    .count()
+                    < MIN_TEXT_LENGTH
+                {
+                    return None;
+                }
+
+                Some(trimmed.to_string())
+            }
+            Err(error) => {
+                log::debug!("Clipboard text read failed: {}", error);
+                None
+            }
+        },
+        Err(error) => {
+            log::debug!("Clipboard access failed: {}", error);
+            None
+        }
+    }
+}
+
 /// Schedules toolbar hide operation in async task
 fn schedule_hide_toolbar(app: &AppHandle, toolbar_manager: ToolbarManager) {
     let app_handle = app.clone();
@@ -992,50 +1080,138 @@ fn schedule_hide_toolbar(app: &AppHandle, toolbar_manager: ToolbarManager) {
     });
 }
 
-/// Manually triggers the selection toolbar via hotkey
-/// Captures current selection and shows toolbar at cursor position
+/// 通过快捷键手动触发划词工具栏
+///
+/// 当用户按下划词快捷键（Ctrl/Cmd+Shift+S）时调用此函数，与自动划词监听不同：
+/// - **可绕过临时禁用**：即使工具栏处于临时禁用期，快捷键仍可唤起
+/// - **支持剪贴板回退**：在不支持系统划词的应用中，可使用剪贴板内容
+/// - **保留应用忽略名单**：仍然尊重用户配置的忽略应用列表
+///
+/// # 状态检查优先级
+///
+/// 1. **功能完全禁用**：如果用户在设置中关闭了划词功能，则直接返回
+/// 2. **应用在忽略名单**：如果当前活动窗口在忽略列表中，则不响应
+/// 3. **临时禁用（允许绕过）**：仅记录日志，继续执行捕获和展示流程
+///
+/// # 工作流程
+///
+/// 1. 检查各种状态标志（功能开关、忽略名单等）
+/// 2. 在阻塞线程中执行文本捕获（系统 provider + 剪贴板回退）
+/// 3. 获取当前光标位置
+/// 4. 调用强制展示函数，绕过临时禁用限制
+///
+/// # 参数
+///
+/// - `app`: Tauri 应用句柄
+/// - `toolbar_manager`: 工具栏状态管理器
 pub fn trigger_toolbar_from_hotkey(app: AppHandle, toolbar_manager: ToolbarManager) {
-    let feature_enabled = match toolbar_manager.lock() {
-        Ok(state) => state.is_enabled(),
+    // 步骤 1: 读取并检查各种状态标志
+    let (feature_enabled, temporarily_disabled, ignore_active_app) = match toolbar_manager.lock() {
+        Ok(mut state) => {
+            // 检查功能是否完全禁用
+            let enabled = state.is_enabled();
+
+            // 检查是否处于临时禁用期（热键场景下仅记录，不阻止）
+            let temporarily_disabled = if enabled {
+                state.is_temporarily_disabled()
+            } else {
+                false
+            };
+
+            // 检查当前活动应用是否在忽略名单中
+            // 注意：只有在功能开启时才检查，避免无意义的系统调用
+            let ignore_active_app = if enabled && !temporarily_disabled {
+                let identifiers = resolve_active_app_identifiers();
+                identifiers
+                    .iter()
+                    .any(|identifier| state.should_ignore_app(identifier))
+            } else {
+                false
+            };
+
+            (enabled, temporarily_disabled, ignore_active_app)
+        }
         Err(err) => {
             log::error!("Failed to lock toolbar state for hotkey: {}", err);
             return;
         }
     };
 
+    // 步骤 2: 如果功能完全禁用，则隐藏可能残留的工具栏并返回
     if !feature_enabled {
         log::debug!("Selection toolbar hotkey ignored because feature is disabled");
+        schedule_hide_toolbar(&app, toolbar_manager.clone());
         return;
     }
 
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    let providers = build_providers();
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    let candidate_text = capture_with_providers(&app, &providers);
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let candidate_text: Option<String> = None;
-
-    let Some(text) = candidate_text else {
-        log::debug!("Hotkey trigger skipped: no provider produced text");
+    // 步骤 3: 如果当前应用在忽略名单中，则不响应快捷键
+    // 这确保了用户配置的忽略规则在快捷键场景下仍然生效
+    if ignore_active_app {
+        log::debug!("Selection toolbar hotkey suppressed due to ignored application identifier");
         schedule_hide_toolbar(&app, toolbar_manager.clone());
         return;
-    };
+    }
 
-    let position = match platform_cursor_position() {
-        Ok((x, y)) => CursorPosition { x, y },
-        Err(err) => {
-            log::warn!("Failed to read cursor position for hotkey trigger: {}", err);
-            return;
-        }
-    };
+    // 步骤 4: 临时禁用状态下仍允许快捷键触发（关键设计决策）
+    // 原因：用户主动按下快捷键表示明确意图，应优先于自动禁用规则
+    if temporarily_disabled {
+        log::debug!("Selection toolbar hotkey bypassing temporary disable state");
+    }
 
     let app_clone = app.clone();
     let toolbar_manager_clone = toolbar_manager.clone();
+
+    // 步骤 5: 在异步任务中执行文本捕获和工具栏展示
+    // 使用异步任务避免阻塞主线程和快捷键响应
     tauri::async_runtime::spawn(async move {
-        if let Err(error) =
-            show_selection_toolbar_with_manager(app_clone, text, position, toolbar_manager_clone)
-                .await
+        let capture_app = app_clone.clone();
+        let toolbar_for_hide = toolbar_manager_clone.clone();
+
+        // 步骤 5.1: 在阻塞线程池中执行文本捕获
+        // 原因：Windows UIA / macOS Accessibility API 可能耗时较长
+        // 使用 spawn_blocking 避免阻塞异步运行时
+        let capture_result =
+            tauri::async_runtime::spawn_blocking(move || capture_text_for_hotkey(&capture_app))
+                .await;
+
+        // 步骤 5.2: 处理捕获结果
+        let selected_text = match capture_result {
+            Ok(Some(text)) => text,
+            Ok(None) => {
+                // 系统 provider 和剪贴板都没有可用文本，隐藏工具栏
+                log::debug!("Hotkey trigger skipped: no provider or clipboard text available");
+                schedule_hide_toolbar(&app_clone, toolbar_for_hide);
+                return;
+            }
+            Err(error) => {
+                // 捕获任务本身失败（极少见），记录错误并隐藏工具栏
+                log::error!("Selection toolbar hotkey capture task failed: {}", error);
+                schedule_hide_toolbar(&app_clone, toolbar_manager_clone.clone());
+                return;
+            }
+        };
+
+        // 步骤 5.3: 获取当前光标位置，用于定位工具栏
+        let position = match platform_cursor_position() {
+            Ok((x, y)) => CursorPosition { x, y },
+            Err(err) => {
+                // 无法获取光标位置时，隐藏工具栏避免显示在错误位置
+                log::warn!("Failed to read cursor position for hotkey trigger: {}", err);
+                schedule_hide_toolbar(&app_clone, toolbar_manager_clone.clone());
+                return;
+            }
+        };
+
+        // 步骤 5.4: 调用强制展示函数，绕过临时禁用状态
+        // 使用 show_selection_toolbar_force_with_manager 而非普通展示函数
+        // 确保即使在临时禁用期间，快捷键仍能唤起工具栏
+        if let Err(error) = show_selection_toolbar_force_with_manager(
+            app_clone.clone(),
+            selected_text,
+            position,
+            toolbar_manager_clone.clone(),
+        )
+        .await
         {
             log::error!("Failed to show selection toolbar from hotkey: {}", error);
         }

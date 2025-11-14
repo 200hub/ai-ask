@@ -160,6 +160,68 @@ pub async fn show_selection_toolbar_with_manager(
     show_toolbar_internal(&app, text, position, toolbar_manager).await
 }
 
+/// 强制展示划词工具栏（绕过临时禁用状态）
+///
+/// 此函数专门用于快捷键触发场景，允许用户在临时禁用期间通过快捷键主动唤起工具栏。
+///
+/// # 工作原理
+///
+/// 1. **保存原始状态**：在展示前，先记录当前的临时禁用截止时间
+/// 2. **临时清除禁用**：将临时禁用标记清空，以便 `show_toolbar_internal` 能够通过检查
+/// 3. **执行展示逻辑**：调用内部展示函数，此时不会被临时禁用阻挡
+/// 4. **恢复原始状态**：展示完成后，如果用户没有在工具栏内手动清除禁用，则恢复原来的截止时间
+///
+/// # 为什么需要这个函数
+///
+/// `show_toolbar_internal` 内部会检查 `is_temporarily_disabled()` 状态，即使热键处理逻辑
+/// 决定"允许绕过"，依然会在最终展示时被拦截。因此需要在调用前临时清空该标记，
+/// 待展示完成后再恢复，确保：
+/// - 热键触发时能突破临时禁用限制
+/// - 自动划词监听仍然受到临时禁用约束
+/// - 用户在工具栏中的操作不会被意外覆盖
+///
+/// # 使用场景
+///
+/// - 用户按下划词快捷键（Ctrl/Cmd+Shift+S）
+/// - 即使工具栏处于临时禁用倒计时中，也应响应快捷键
+pub async fn show_selection_toolbar_force_with_manager(
+    app: AppHandle,
+    text: String,
+    position: CursorPosition,
+    toolbar_manager: ToolbarManager,
+) -> Result<(), String> {
+    // 步骤 1: 获取并保存当前的临时禁用截止时间
+    let original_disable_until = {
+        let mut state = toolbar_manager
+            .lock()
+            .map_err(|e| format!("Failed to lock toolbar state: {}", e))?;
+        let original = state.temporary_disabled_until();
+
+        // 步骤 2: 临时清空禁用标记，允许工具栏展示
+        if original.is_some() {
+            state.set_temporary_disabled_until(None);
+        }
+        original
+    };
+
+    // 步骤 3: 执行实际的展示逻辑（此时临时禁用标记已清空）
+    let result = show_toolbar_internal(&app, text, position, toolbar_manager.clone()).await;
+
+    // 步骤 4: 恢复原始的临时禁用状态（如果用户未在工具栏内清除）
+    if let Some(until) = original_disable_until {
+        if let Ok(mut state) = toolbar_manager.lock() {
+            // 只在当前状态仍为空时恢复，避免覆盖用户的新操作
+            if state.temporary_disabled_until().is_none() {
+                state.set_temporary_disabled_until(Some(until));
+            }
+        } else {
+            log::warn!("Failed to restore temporary disable state after forced show");
+        }
+    }
+
+    result
+}
+
 /// 隐藏划词工具栏窗口
 #[tauri::command]
 pub async fn hide_selection_toolbar(
@@ -460,7 +522,7 @@ fn ensure_toolbar_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .map_err(|e| format!("Failed to create toolbar window: {}", e))
 }
 
-fn resolve_active_app_identifiers() -> Vec<String> {
+pub(crate) fn resolve_active_app_identifiers() -> Vec<String> {
     #[cfg(target_os = "windows")]
     {
         resolve_active_app_identifiers_windows()
