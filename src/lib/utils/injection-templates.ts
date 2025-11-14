@@ -220,8 +220,16 @@ export const DEEPSEEK_TEMPLATES: InjectionTemplate[] = [
 				timeout: 30000,
 				pollInterval: 1000,
 				extractScript: `() => {
-					// TODO
-					return '_';
+					const tools_items = document.querySelectorAll('._0a3d93b');
+					if (tools_items.length === 0) {
+						return ''; // not found, generation may still be in progress
+					}
+					const last_tool = tools_items[tools_items.length - 1];
+					// Extract text directly from the message container
+					// Find the parent message container 
+					let messageContainer = last_tool.parentNode.querySelector('.ds-message');
+					const text = messageContainer.textContent?.trim();
+					return text || '';
 				}`
 			}
 		],
