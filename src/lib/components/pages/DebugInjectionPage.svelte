@@ -6,6 +6,7 @@
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { ChildWebviewProxy, calculateChildWebviewBounds } from '$lib/utils/childWebview';
 	import { injectionManager } from '$lib/utils/injection';
+	import { formatExtractedContent, getExtractedDisplayText } from '$lib/utils/injection-format';
 	import { ALL_TEMPLATES } from '$lib/utils/injection-templates';
 	import { BUILT_IN_AI_PLATFORMS, EVENTS, DEBUG_FLOATING_CONTROLS_OFFSET } from '$lib/utils/constants';
 	import { logger } from '$lib/utils/logger';
@@ -110,9 +111,16 @@
 				// Extract content from results if available
 				if ((parsed as any).results) {
 					const extract = (parsed as any).results.find((r: any) => r.type === 'extract');
-					if (extract?.result?.content) {
-						extractedContent = extract.result.content;
-						addLog('success', `Content extracted: ${extractedContent.slice(0, 80)}...`);
+					if (extract?.result) {
+						const formatted = formatExtractedContent(extract.result);
+						const displayText = getExtractedDisplayText(extract.result);
+						if (formatted && displayText) {
+							extractedContent = displayText;
+							addLog(
+								'success',
+								`Content extracted (${formatted.format}): ${displayText.slice(0, 80)}...`
+							);
+						}
 					}
 				}
 				
@@ -637,8 +645,13 @@
 			`;
 			const result = await webviewProxy.evaluateScript<{ success: boolean; content: string }>(extractScript);
 			if (result.success) {
-				extractedContent = result.content;
-				addLog('success', '✅ 提取成功：' + extractedContent);
+				const normalized = {
+					success: true,
+					content: result.content,
+					format: 'text' as const
+				};
+				extractedContent = getExtractedDisplayText(normalized) || result.content;
+				addLog('success', `✅ 提取成功（text）：${extractedContent}`);
 			} else {
 				throw new Error('提取脚本返回失败');
 			}

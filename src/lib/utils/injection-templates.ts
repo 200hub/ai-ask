@@ -1,5 +1,11 @@
 /**
- * Pre-configured injection templates for different AI platforms and translation services
+ * 预配置的多平台注入模板集合
+ * 说明：
+ * - 每个平台使用 InjectionTemplate 数组定义一组可用操作序列（fill / click / extract）
+ * - extract 动作可指定 outputFormat（若为 'markdown' 则会返回 { text, html } 供后续格式化）
+ * - urlPattern 使用正则字符串匹配当前 WebView 页面 URL，决定模板是否适用
+ * - actions 执行顺序：前置输入 → 触发发送 → 轮询提取结果
+ * - 提取脚本中尽量检测“生成完成”的 UI 标记（如 copy / good response 按钮），避免抓取到流式未完成内容
  */
 
 import type { InjectionTemplate } from '$lib/types/injection';
@@ -31,8 +37,10 @@ export const CHATGPT_TEMPLATES: InjectionTemplate[] = [
 				type: 'extract',
 				timeout: 30000,
 				pollInterval: 1000,
+				outputFormat: 'markdown',
 				extractScript: `() => {
 					// Wait for the good response button to appear (indicates generation is complete)
+					// 等待“好评”按钮出现，标记回答已经完毕（避免截取到未结束的流式内容）
 					// The good response button appears only after the assistant finishes streaming
 					const respButtonSelectors = [
 						'button[data-testid="good-response-turn-action-button"]',
@@ -52,7 +60,7 @@ export const CHATGPT_TEMPLATES: InjectionTemplate[] = [
 						return ''; // Good response not found, generation may still be in progress
 					}
 					
-					// Extract text directly from the message container
+					// 从消息容器直接提取文本或 HTML（用于后续 HTML -> Markdown 转换）
 					// Find the parent message container of the good response button
 					let messageContainer = respButton.closest('[data-message-author-role="assistant"]');
 					if (!messageContainer) {
@@ -81,7 +89,10 @@ export const CHATGPT_TEMPLATES: InjectionTemplate[] = [
 						const contentDiv = messageContainer.querySelector(sel);
 						if (contentDiv) {
 							const text = contentDiv.textContent?.trim();
-							if (text) return text;
+							const html = contentDiv.innerHTML;
+							if (text || html) {
+								return { text: text || '', html };
+							}
 						}
 					}
 					return '';
@@ -118,8 +129,9 @@ export const CLAUDE_TEMPLATES: InjectionTemplate[] = [
 				type: 'extract',
 				timeout: 30000,
 				pollInterval: 1000,
+				outputFormat: 'markdown',
 				extractScript: `() => {
-					// Wait for the copy button to appear (indicates generation is complete)
+					// 等待“复制”按钮出现，表示回答生成完成（流式传输结束）
 					// The copy button appears only after the assistant finishes streaming
 					const copyButtonSelectors = [
 						'button[data-testid="action-bar-copy"]',
@@ -165,7 +177,10 @@ export const CLAUDE_TEMPLATES: InjectionTemplate[] = [
 						const contentDiv = messageContainer.querySelector(sel);
 						if (contentDiv) {
 							const text = contentDiv.textContent?.trim();
-							if (text) return text;
+							const html = contentDiv.innerHTML;
+							if (text || html) {
+								return { text: text || '', html };
+							}
 						}
 					}
 					return '';
@@ -202,8 +217,9 @@ export const GEMINI_TEMPLATES: InjectionTemplate[] = [
 				type: 'extract',
 				timeout: 30000,
 				pollInterval: 1000,
+				outputFormat: 'markdown',
 				extractScript: `() => {
-					// Wait for stop button to disappear (generation complete)
+					// 通过“停止”按钮消失判断生成结束（若仍显示则继续等待）
 					const stopButton = document.querySelector('button[aria-label*="Stop"], button[aria-label*="停止"]');
 					if (stopButton && stopButton.offsetParent !== null) {
 						return ''; // Still generating
@@ -217,7 +233,10 @@ export const GEMINI_TEMPLATES: InjectionTemplate[] = [
 						if (containers.length > 0) {
 							const lastContainer = containers[containers.length - 1];
 							const text = lastContainer.textContent?.trim();
-							if (text) return text;
+							const html = lastContainer.innerHTML;
+							if (text || html) {
+								return { text: text || '', html };
+							}
 						}
 					}
 					return '';
@@ -254,7 +273,9 @@ export const DEEPSEEK_TEMPLATES: InjectionTemplate[] = [
 				type: 'extract',
 				timeout: 30000,
 				pollInterval: 1000,
+				outputFormat: 'markdown',
 				extractScript: `() => {
+					// 根据工具栏条目出现判断最新消息已渲染
 					const tools_items = document.querySelectorAll('._0a3d93b');
 					if (tools_items.length === 0) {
 						return ''; // not found, generation may still be in progress
@@ -263,8 +284,12 @@ export const DEEPSEEK_TEMPLATES: InjectionTemplate[] = [
 					// Extract text directly from the message container
 					// Find the parent message container 
 					let messageContainer = last_tool.parentNode.querySelector('.ds-message');
-					const text = messageContainer.textContent?.trim();
-					return text || '';
+					const text = messageContainer?.textContent?.trim();
+					const html = messageContainer?.innerHTML;
+					if (text || html) {
+						return { text: text || '', html };
+					}
+					return '';
 				}`
 			}
 		],
@@ -299,7 +324,7 @@ export const KIMI_TEMPLATES: InjectionTemplate[] = [
 				timeout: 30000,
 				pollInterval: 1000,
 				extractScript: `() => {
-					// TODO
+					// TODO: 等待官方页面结构稳定后补充提取逻辑
 					return '_';
 				}`
 			}
@@ -335,7 +360,7 @@ export const COPILOT_TEMPLATES: InjectionTemplate[] = [
 				timeout: 30000,
 				pollInterval: 1000,
 				extractScript: `() => {
-					// TODO
+					// TODO: 需识别最新结果节点（Copilot DOM 结构较频繁变化）
 					return '_';
 				}`
 			}
@@ -371,7 +396,7 @@ export const TONGYI_TEMPLATES: InjectionTemplate[] = [
 				timeout: 30000,
 				pollInterval: 1000,
 				extractScript: `() => {
-					// TODO
+					// TODO: 后续补充生成完成标记的检测与内容提取
 					return '_';
 				}`
 			}
@@ -407,7 +432,7 @@ export const WENXIN_TEMPLATES: InjectionTemplate[] = [
 				timeout: 30000,
 				pollInterval: 1000,
 				extractScript: `() => {
-					// TODO
+					// TODO: 补充提取逻辑（需分析最新页面 DOM）
 					return '_';
 				}`
 			}
@@ -443,7 +468,7 @@ export const DOUBAO_TEMPLATES: InjectionTemplate[] = [
 				timeout: 30000,
 				pollInterval: 1000,
 				extractScript: `() => {
-					// TODO
+					// TODO: 等待生成完成标志元素，添加精确定位
 					return '_';
 				}`
 			}
@@ -480,7 +505,7 @@ export const YUANBAO_TEMPLATES: InjectionTemplate[] = [
 				timeout: 30000,
 				pollInterval: 1000,
 				extractScript: `() => {
-					// TODO
+					// TODO: 增补生成完成后的内容容器提取
 					return '_';
 				}`
 			}
@@ -516,7 +541,7 @@ export const GROK_TEMPLATES: InjectionTemplate[] = [
 				timeout: 30000,
 				pollInterval: 1000,
 				extractScript: `() => {
-					// TODO
+					// TODO: 后续识别最新回复的选择器并提取
 					return '_';
 				}`
 			}
@@ -547,7 +572,7 @@ export const GOOGLE_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
 				timeout: 15000,
 				pollInterval: 800,
 				extractScript: `() => {
-					// Google Translate auto-translates, wait for result to appear
+					// Google Translate 自动翻译：轮询等待最终结果节点出现
 					const resultSelectors = [
 						'span[data-language-for-alternatives]',
 						'span.ryNqvb',
@@ -608,7 +633,7 @@ export const DEEPL_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
 				timeout: 15000,
 				pollInterval: 800,
 				extractScript: `() => {
-					// DeepL auto-translates, wait for result
+					// DeepL 自动翻译：等待目标区域填充完成
 					const resultSelectors = [
 						'textarea[data-testid="translator-target-input"]',
 						'd-textarea[data-testid="translator-target-input"] textarea',
@@ -657,7 +682,7 @@ export const YOUDAO_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
 				timeout: 15000,
 				pollInterval: 800,
 				extractScript: `() => {
-					// Youdao auto-translates
+					// 有道自动翻译：尝试多种结果容器，确保取到最新文本
 					const resultSelectors = [
 						'#transTarget',
 						'#js_fanyi_output_resultOutput',
@@ -714,7 +739,7 @@ export const BAIDU_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
 				timeout: 15000,
 				pollInterval: 800,
 				extractScript: `() => {
-					// Baidu auto-translates
+					// 百度自动翻译：聚合多个段落的翻译结果，保持换行
 					const resultSelectors = [
 						'p.target-output',
 						'.target-output',
@@ -774,7 +799,7 @@ export const BING_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
 				timeout: 15000,
 				pollInterval: 800,
 				extractScript: `() => {
-					// Bing auto-translates
+					// Bing 自动翻译：优先 textarea 的 value，其次 textContent
 					const resultSelectors = [
 						'textarea#tta_output_ta',
 						'textarea[id*="output"]',
@@ -811,6 +836,7 @@ export const BING_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
 /**
  * All built-in templates
  */
+// 汇总所有内置模板（便于统一过滤 / 查找）
 export const ALL_TEMPLATES: InjectionTemplate[] = [
 	...CHATGPT_TEMPLATES,
 	...CLAUDE_TEMPLATES,
@@ -830,6 +856,7 @@ export const ALL_TEMPLATES: InjectionTemplate[] = [
 	...BING_TRANSLATE_TEMPLATES
 ];
 
+// 聊天类平台模板注册表：用于获取默认模板（数组第一个）
 const CHAT_TEMPLATE_REGISTRY = new Map<string, InjectionTemplate[]>([
 	['chatgpt', CHATGPT_TEMPLATES],
 	['claude', CLAUDE_TEMPLATES],
@@ -844,6 +871,7 @@ const CHAT_TEMPLATE_REGISTRY = new Map<string, InjectionTemplate[]>([
 	['grok', GROK_TEMPLATES],
 ]);
 
+// 翻译类平台模板注册表：同上，提供默认模板检索
 const TRANSLATION_TEMPLATE_REGISTRY = new Map<string, InjectionTemplate[]>([
 	['google', GOOGLE_TRANSLATE_TEMPLATES],
 	['deepl', DEEPL_TRANSLATE_TEMPLATES],
@@ -855,6 +883,7 @@ const TRANSLATION_TEMPLATE_REGISTRY = new Map<string, InjectionTemplate[]>([
 /**
  * Get templates by platform ID
  */
+// 根据平台 ID 获取所有匹配模板
 export function getTemplatesByPlatform(platformId: string): InjectionTemplate[] {
 	return ALL_TEMPLATES.filter((t) => t.platformId === platformId);
 }
@@ -862,6 +891,7 @@ export function getTemplatesByPlatform(platformId: string): InjectionTemplate[] 
 /**
  * Find template by name and platform
  */
+// 根据平台与名称精确查找单个模板
 export function findTemplate(platformId: string, name: string): InjectionTemplate | undefined {
 	return ALL_TEMPLATES.find((t) => t.platformId === platformId && t.name === name);
 }
@@ -869,6 +899,7 @@ export function findTemplate(platformId: string, name: string): InjectionTemplat
 /**
  * Get default chat template (first registered template) by platform ID
  */
+// 获取聊天平台默认模板（数组首元素）
 export function getDefaultChatTemplate(platformId: string): InjectionTemplate | undefined {
 	const templates = CHAT_TEMPLATE_REGISTRY.get(platformId);
 	return templates?.[0];
@@ -877,6 +908,7 @@ export function getDefaultChatTemplate(platformId: string): InjectionTemplate | 
 /**
  * Get default translation template (first registered template) by platform ID
  */
+// 获取翻译平台默认模板
 export function getDefaultTranslationTemplate(platformId: string): InjectionTemplate | undefined {
 	const templates = TRANSLATION_TEMPLATE_REGISTRY.get(platformId);
 	return templates?.[0];

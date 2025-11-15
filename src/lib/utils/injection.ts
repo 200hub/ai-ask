@@ -1,14 +1,15 @@
 /**
- * JavaScript injection utilities for child webviews
+ * 子 WebView 注入脚本生成工具
+ * 架构概览：
+ * 1. Fill  —— 向输入组件填充文本（支持 input / textarea / contenteditable）
+ * 2. Click —— 以全事件序列模拟真实点击（pointer & mouse）
+ * 3. Extract —— 轮询提取最新响应内容（由模板的 extractScript 控制 DOM 提取策略）
  * 
- * Core Architecture:
- * 1. Fill: Insert content into input elements
- * 2. Click: Trigger click events on buttons/elements
- * 3. Extract: Get content from response elements
- * 
- * Each operation accepts either:
- * - Selector (string or SelectorConfig): for standard DOM queries
- * - Custom JS code: for complex logic (must be complete function)
+ * 特性：
+ * - 每个动作生成独立 Promise 脚本，被包裹在统一的注入 IIFE 中顺序执行
+ * - 提取脚本返回 { text, html } 结构，后续由 injection-format.ts 做 Markdown 转换
+ * - 结果通过分片 Base64URL 编码导航拦截回传（防止 URL 长度限制）
+ * - 日志打印使用英文（跨团队调试一致性），代码注释中文便于维护
  */
 
 import { logger } from './logger';
@@ -16,13 +17,15 @@ import type {
 	FillTextAction,
 	ClickAction,
 	ExtractAction,
-	InjectionAction
+	InjectionAction,
+	ExtractOutputFormat
 } from '$lib/types/injection';
-import { DEFAULT_INJECTION_TIMEOUT } from './constants';
+import { DEFAULT_EXTRACT_OUTPUT_FORMAT, DEFAULT_INJECTION_TIMEOUT } from './constants';
 
 /**
  * Escape string for safe embedding in JavaScript template literals
  */
+// 安全转义文本以嵌入模板字符串，避免引号 / 换行 / 特殊 Unicode 破坏脚本文法
 function escapeJs(value: string): string {
 	return value
 		.replace(/\\/g, '\\\\')
@@ -38,6 +41,7 @@ function escapeJs(value: string): string {
  * Generate element finder script
  * Returns a Promise that resolves to the found element
  */
+// 生成元素查找脚本：轮询 querySelector，直到找到或超时（用于后续动作引用）
 function generateFinderScript(selector: string, timeout?: number): string {
 	const timeoutMs = timeout || DEFAULT_INJECTION_TIMEOUT;
 	const escapedSelector = escapeJs(selector);
@@ -83,6 +87,7 @@ function generateFinderScript(selector: string, timeout?: number): string {
  * Generate fill script
  * Supports: <input>, <textarea>, contenteditable elements
  */
+// 生成填充脚本：尝试属性 setter，兼容触发 input/change 事件（可选）
 export function generateFillScript(action: FillTextAction): string {
 	const content = escapeJs(action.content);
 	const triggerEvents = action.triggerEvents ?? true;
@@ -136,6 +141,7 @@ ${finderScript}.then(element => {
  * Generate click script
  * Simulates full click sequence: pointerdown → mousedown → pointerup → mouseup → click
  */
+// 生成点击脚本：派发 pointer 与 mouse 事件，确保框架/库能捕获到完整序列
 export function generateClickScript(action: ClickAction): string {
 	const finderScript = generateFinderScript(action.selector, action.timeout);
 
@@ -186,28 +192,45 @@ ${finderScript}.then(element => {
  * Generate extract script with polling until content is available
  * Continuously polls for content until non-empty or timeout
  */
+// 生成提取脚本：轮询执行用户提供的 extractScript，直到有内容或超时
 export function generateExtractScript(action: ExtractAction): string {
 	const timeout = action.timeout || 10000; // 默认 10 秒
 	const pollInterval = action.pollInterval || 500; // 默认 500ms 轮询
 	const extractScript = action.extractScript || '';
+	const outputFormat: ExtractOutputFormat = action.outputFormat ?? DEFAULT_EXTRACT_OUTPUT_FORMAT;
 
 	return `
 (new Promise((resolve, reject) => {
 	const startTime = Date.now();
 	const timeout = ${timeout};
 	const pollInterval = ${pollInterval};
-	
+
+	function normalizeExtractResult(raw) {
+		if (typeof raw === 'string') {
+			return { text: raw, html: '' };
+		}
+		if (raw && typeof raw === 'object') {
+			const text = typeof raw.text === 'string' ? raw.text : '';
+			const html = typeof raw.html === 'string' ? raw.html : '';
+			return { text, html };
+		}
+		return { text: '', html: '' };
+	}
+
 	function tryExtract() {
 		try {
 			console.log('[EXTRACT] Attempting extraction...');
 			
 			// Execute custom extraction script
 			const extractFn = ${extractScript};
-			const content = extractFn();
+			const raw = extractFn();
+			const normalized = normalizeExtractResult(raw);
+			const textContent = (normalized.text || '').trim();
+			const htmlContent = (normalized.html || '').trim();
 			
-			if (content && content.trim().length > 0) {
-				console.log('[EXTRACT] Content found:', content.length, 'chars');
-				resolve({ success: true, content: content.trim() });
+			if (textContent.length > 0 || htmlContent.length > 0) {
+				console.log('[EXTRACT] Content found:', textContent.length || htmlContent.length, 'chars');
+				resolve({ success: true, content: textContent, html: htmlContent, format: '${outputFormat}' });
 				return;
 			}
 			
@@ -242,6 +265,7 @@ export function generateExtractScript(action: ExtractAction): string {
 /**
  * Generate complete injection script with multiple actions
  */
+// 聚合多个动作生成最终注入脚本：顺序执行并分片回传结果
 export function generateInjectionScript(actions: InjectionAction[]): string {
 	const scriptParts: string[] = [];
 
@@ -376,12 +400,14 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
  * Injection Manager
  * Manages injection templates and provides unified API
  */
+// 注入管理器：负责模板注册与脚本生成的统一入口
 export class InjectionManager {
 	private templates: Map<string, import('$lib/types/injection').InjectionTemplate> = new Map();
 
 	/**
 	 * Register an injection template
 	 */
+	// 注册模板：按 platformId + name 组合键存储
 	registerTemplate(template: import('$lib/types/injection').InjectionTemplate): void {
 		const key = `${template.platformId}-${template.name}`;
 		this.templates.set(key, template);
@@ -391,6 +417,7 @@ export class InjectionManager {
 	/**
 	 * Get template by platform and name
 	 */
+	// 获取单个模板
 	getTemplate(platformId: string, name: string): import('$lib/types/injection').InjectionTemplate | undefined {
 		const key = `${platformId}-${name}`;
 		return this.templates.get(key);
@@ -399,6 +426,7 @@ export class InjectionManager {
 	/**
 	 * Get all templates for a platform
 	 */
+	// 获取某平台所有模板
 	getTemplatesForPlatform(platformId: string): import('$lib/types/injection').InjectionTemplate[] {
 		return Array.from(this.templates.values()).filter(t => t.platformId === platformId);
 	}
@@ -406,6 +434,7 @@ export class InjectionManager {
 	/**
 	 * Generate script from template, injecting content
 	 */
+	// 根据模板生成注入脚本：自动把传入的 content 注入所有 fill 动作
 	generateFromTemplate(
 		platformId: string,
 		templateName: string,
@@ -437,6 +466,7 @@ export class InjectionManager {
 	/**
 	 * Generate standalone fill script
 	 */
+	// 生成单次填充脚本（无需模板体系）
 	generateFill(selector: string, content: string, triggerEvents = true, timeout?: number): string {
 		const action: FillTextAction = {
 			type: 'fill',
@@ -451,6 +481,7 @@ export class InjectionManager {
 	/**
 	 * Generate standalone click script
 	 */
+	// 生成单次点击脚本
 	generateClick(selector: string, timeout?: number): string {
 		const action: ClickAction = {
 			type: 'click',
@@ -463,12 +494,19 @@ export class InjectionManager {
 	/**
 	 * Generate standalone extract script
 	 */
-	generateExtract(extractScript: string, timeout = 10000, pollInterval = 500): string {
+	// 生成单次提取脚本：可指定轮询参数与输出格式
+	generateExtract(
+		extractScript: string,
+		timeout = 10000,
+		pollInterval = 500,
+		outputFormat?: ExtractOutputFormat
+	): string {
 		const action: ExtractAction = {
 			type: 'extract',
 			extractScript,
 			timeout,
-			pollInterval
+			pollInterval,
+			outputFormat
 		};
 		return `(async function() { return await (${generateExtractScript(action)}); })();`;
 	}

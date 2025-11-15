@@ -367,12 +367,90 @@ export const INJECTION = {
   CHAT_EXTRACT_TIMEOUT_MS: 30000,
   /** AI 聊天轮询间隔（毫秒） */
   CHAT_POLL_INTERVAL_MS: 1000,
+  /** 默认提取输出格式 */
+  DEFAULT_EXTRACT_OUTPUT_FORMAT: 'text' as const,
 } as const;
 
 // Export individual constants for convenience
 export const DEFAULT_INJECTION_TIMEOUT = INJECTION.DEFAULT_TIMEOUT_MS;
 export const DEFAULT_MAX_RETRIES = INJECTION.DEFAULT_MAX_RETRIES;
 export const INJECTION_RETRY_DELAY = INJECTION.RETRY_DELAY_MS;
+export const DEFAULT_EXTRACT_OUTPUT_FORMAT = INJECTION.DEFAULT_EXTRACT_OUTPUT_FORMAT;
+
+/**
+ * 代码语言识别相关常量
+ */
+export const KNOWN_CODE_LANGUAGES = [
+  // 以下列表为统一支持的代码语言关键字，用于：
+  // 1. 语言识别归一化校验（见 injection-format.ts）
+  // 2. 生成 fenced code block 的语言前缀
+  // 3. 后续扩展时可直接在此追加，避免散落硬编码
+  'assembly',
+  'bash',
+  'c',
+  'csharp',
+  'cpp',
+  'css',
+  'dart',
+  'elixir',
+  'erlang',
+  'go',
+  'graphql',
+  'html',
+  'java',
+  'javascript',
+  'json',
+  'kotlin',
+  'lua',
+  'markdown',
+  'objective-c',
+  'perl',
+  'php',
+  'plaintext',
+  'powershell',
+  'python',
+  'r',
+  'ruby',
+  'rust',
+  'scala',
+  'sql',
+  'swift',
+  'typescript',
+  'xml',
+  'yaml'
+] as const;
+
+export const CODE_LANGUAGE_ALIASES: Record<string, string> = {
+  // 常用别名映射：兼容平台 DOM 中常出现的缩写/变体，统一到 KNOWN_CODE_LANGUAGES
+  js: 'javascript',
+  jsx: 'javascript',
+  node: 'javascript',
+  ts: 'typescript',
+  tsx: 'typescript',
+  py: 'python',
+  sh: 'bash',
+  shell: 'bash',
+  shellscript: 'bash',
+  zsh: 'bash',
+  bash: 'bash',
+  ps: 'powershell',
+  ps1: 'powershell',
+  powershell: 'powershell',
+  cplusplus: 'cpp',
+  'c++': 'cpp',
+  'c#': 'csharp',
+  cs: 'csharp',
+  golang: 'go',
+  objc: 'objective-c',
+  objectivec: 'objective-c',
+  yml: 'yaml',
+  plain: 'plaintext',
+  plaintext: 'plaintext',
+  text: 'plaintext'
+};
+
+export const CODE_LANGUAGE_LABEL_MAX_LENGTH = 32;
+// 语言标签最大长度：防止把整段描述性文字误识别为语言（仅接受短 token）
 
 /**
  * Clipboard related constants

@@ -1,5 +1,9 @@
 /**
- * JavaScript injection configuration and types for child webviews
+ * 子 WebView 注入相关 TypeScript 类型定义
+ * 说明：
+ * - 将一系列交互动作（填写 / 点击 / 提取）以结构化模板配置
+ * - 提取动作支持返回原始文本或 { text, html } 供后续格式化为 Markdown
+ * - outputFormat 字段用于标记期望格式（text / markdown），实际转换在 utils/injection-format.ts 中完成
  */
 
 /**
@@ -51,6 +55,10 @@ export interface ClickAction {
 /**
  * Extract content action configuration
  */
+// 提取结果期望的输出格式：
+// text -> 直接使用纯文本； markdown -> 若 extractScript 返回 HTML，则进行 Turndown 转换
+export type ExtractOutputFormat = 'text' | 'markdown';
+
 export interface ExtractAction {
 	type: 'extract';
 	/**
@@ -63,14 +71,35 @@ export interface ExtractAction {
 	pollInterval?: number;
 	/**
 	 * Custom JavaScript code to extract content
-	 * Function receives no parameters: () => string
+	 * Function receives no parameters: () => string | { text?: string; html?: string }
 	 */
 	extractScript: string;
+	/**
+	 * Desired output format for the extracted content
+	 */
+	outputFormat?: ExtractOutputFormat;
+}
+
+// 浏览器端执行 extractScript 后返回的初步结果（尚未格式化）
+export interface ExtractScriptResult {
+	success: boolean;
+	content: string;
+	html?: string;
+	format: ExtractOutputFormat;
+}
+
+// formatExtractedContent 规范化后的结果结构
+export interface FormattedExtractResult {
+	format: ExtractOutputFormat;
+	text: string;
+	markdown?: string;
+	html?: string;
 }
 
 /**
  * Union type of all action types
  */
+// 统一动作联合类型，便于模板中使用 actions: InjectionAction[]
 export type InjectionAction = FillTextAction | ClickAction | ExtractAction;
 
 /**
