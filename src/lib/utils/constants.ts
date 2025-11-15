@@ -212,6 +212,8 @@ export const APP_INFO = {
   description: "一个简洁高效的AI问答助手",
   author: "AI Ask Team",
   repository: "https://github.com/200hub/ai-ask",
+  /** 缺陷反馈（Issues）页面地址 */
+  issues: "https://github.com/200hub/ai-ask/issues",
 };
 
 /**
@@ -293,6 +295,8 @@ export const TIMING = {
   ERROR_AUTO_CLEAR_MS: 5000,
   /** WebView 最小显示加载动画的时长（毫秒） */
   MIN_WEBVIEW_LOADING_MS: 800,
+  /** WebView 复用场景下的最小时长（毫秒） */
+  MIN_WEBVIEW_LOADING_WARM_MS: 120,
   /** WebView 聚焦后额外的就绪等待时间（毫秒） */
   WEBVIEW_READY_EXTRA_DELAY_MS: 200,
   /** 等待子 WebView 加载完成的最长时间（毫秒） - 用于新创建的 WebView */

@@ -56,7 +56,12 @@
         <!-- 标题栏 -->
         <div class="modal-header">
             <h2 class="modal-title">{t("settings.title")}</h2>
-            <Button variant="icon" onclick={handleClose}>
+            <Button
+                variant="icon"
+                onclick={handleClose}
+                ariaLabel={t("common.close")}
+                title={t("common.close")}
+            >
                 <X size={20} />
             </Button>
         </div>
