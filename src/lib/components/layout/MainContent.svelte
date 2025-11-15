@@ -72,20 +72,66 @@
     });
 
     onMount(() => {
-        const timer = window.setTimeout(() => {
-            if (!SettingsModalComp) {
-                void import("../settings/SettingsModal.svelte")
-                    .then((mod) => {
-                        SettingsModalComp = mod.default;
-                    })
-                    .catch((error) => {
-                        logger.error("Failed to preload settings modal:", error);
-                    });
-            }
-        }, 300);
+        const timers: number[] = [];
 
+        // 工具函数：在指定延迟后执行预加载逻辑，并记录定时器方便卸载时清理
+        const schedulePrefetch = (delay: number, loader: () => void) => {
+            const id = window.setTimeout(loader, delay);
+            timers.push(id);
+        };
+
+        // 1）优先预加载 AI 聊天页面：
+        // 应用启动后稍等 200ms，在后台静默 import AIChat，
+        // 这样划词触发“解释”或从侧边栏直接进入聊天视图时，不会被首次动态 import 卡住。
+        schedulePrefetch(200, () => {
+            if (AIChatComp) {
+                return;
+            }
+
+            void import("../pages/AIChat.svelte")
+                .then((mod) => {
+                    AIChatComp = mod.default;
+                })
+                .catch((error) => {
+                    logger.error("Failed to preload AI chat page:", error);
+                });
+        });
+
+        // 2）随后预加载翻译页面：
+        // 再等 320ms 预取 TranslationPage，用于划词翻译场景的首次切换优化。
+        schedulePrefetch(320, () => {
+            if (TranslationComp) {
+                return;
+            }
+
+            void import("../pages/TranslationPage.svelte")
+                .then((mod) => {
+                    TranslationComp = mod.default;
+                })
+                .catch((error) => {
+                    logger.error("Failed to preload translation page:", error);
+                });
+        });
+
+        // 3）最后预加载设置面板：
+        // 设置打开频率相对较低，放在最后，避免抢占启动阶段的资源。
+        schedulePrefetch(450, () => {
+            if (SettingsModalComp) {
+                return;
+            }
+
+            void import("../settings/SettingsModal.svelte")
+                .then((mod) => {
+                    SettingsModalComp = mod.default;
+                })
+                .catch((error) => {
+                    logger.error("Failed to preload settings modal:", error);
+                });
+        });
+
+        // 组件卸载时统一清理所有预加载定时器，防止潜在的内存泄漏。
         return () => {
-            window.clearTimeout(timer);
+            timers.forEach((id) => window.clearTimeout(id));
         };
     });
 </script>

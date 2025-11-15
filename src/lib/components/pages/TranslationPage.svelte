@@ -141,6 +141,10 @@
             await hideOtherWebviews(platform.id);
 
             let webview = webviewWindows.get(platform.id);
+                // 标记当前是否复用已存在的翻译 WebView：
+                // - true：之前已经创建过，只是再次切换回来（暖启动）
+                // - false：第一次打开该翻译平台（冷启动）
+                const wasExistingWebview = Boolean(webview);
             const bounds = await calculateChildWebviewBounds(mainWindow);
 
             if (!webview) {
@@ -165,7 +169,10 @@
             // 保证加载动画的最小显示时长
             {
                 const elapsed = Date.now() - start;
-                const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_MS - elapsed, 0);
+                const minLoadingMs = wasExistingWebview
+                    ? TIMING.MIN_WEBVIEW_LOADING_WARM_MS
+                    : TIMING.MIN_WEBVIEW_LOADING_MS;
+                const waitMs = Math.max(minLoadingMs - elapsed, 0);
                 if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
             }
             isLoading = false;

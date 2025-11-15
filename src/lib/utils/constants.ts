@@ -295,6 +295,7 @@ export const TIMING = {
   ERROR_AUTO_CLEAR_MS: 5000,
   /** WebView 最小显示加载动画的时长（毫秒） */
   MIN_WEBVIEW_LOADING_MS: 800,
+  /** WebView 复用场景下的最小加载动画时长（毫秒），用于加速已存在窗口的切换体验 */
   /** WebView 复用场景下的最小时长（毫秒） */
   MIN_WEBVIEW_LOADING_WARM_MS: 120,
   /** WebView 聚焦后额外的就绪等待时间（毫秒） */

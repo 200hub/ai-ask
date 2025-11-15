@@ -174,6 +174,10 @@
 
             // 2. 获取或创建目标WebView
             let webview = webviewWindows.get(platform.id);
+            // 记录当前是否已经存在该平台对应的 WebView：
+            // - true：之前已经创建过子窗口，本次只是切换回该平台（暖启动）
+            // - false：首次创建该平台 WebView（冷启动）
+            const hadExistingWebview = Boolean(webview);
             
             if (!webview) {
                 webview = await createWebviewForPlatform(platform);
@@ -198,10 +202,12 @@
             } else if (webview.isVisible() && !shouldRestoreWebviews) {
                 await webview.setFocus();
                 scheduleWebviewReflow({ shouldEnsureActiveFront: true });
-                // 保证加载动画的最小显示时长
+                // WebView 本身已经在前台且不需要恢复流程：
+                // 这种情况相当于直接把现有窗口“拉前台”，只需要很短的暖启动等待，
+                // 避免用户看到加载动画长时间停留。
                 {
                     const elapsed = Date.now() - start;
-                    const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_MS - elapsed, 0);
+                    const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_WARM_MS - elapsed, 0);
                     if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
                 }
                 
@@ -237,10 +243,16 @@
             await new Promise((r) => setTimeout(r, TIMING.WEBVIEW_READY_EXTRA_DELAY_MS));
             shouldRestoreWebviews = false;
 
-            // 保证加载动画的最小显示时长
+            // 根据冷/暖启动动态调整最小加载时长：
+            // - 冷启动：第一次创建 WebView，使用较长的 MIN_WEBVIEW_LOADING_MS，保证有清晰的加载过渡；
+            // - 暖启动：复用已经打开过的 WebView，只需很短的 MIN_WEBVIEW_LOADING_WARM_MS，提升切换速度。
+            // elapsed 是从开始切换到现在的耗时，如果已经等得够久，就不再额外等待。
             {
                 const elapsed = Date.now() - start;
-                const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_MS - elapsed, 0);
+                const minLoadingMs = hadExistingWebview
+                    ? TIMING.MIN_WEBVIEW_LOADING_WARM_MS
+                    : TIMING.MIN_WEBVIEW_LOADING_MS;
+                const waitMs = Math.max(minLoadingMs - elapsed, 0);
                 if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
             }
             
