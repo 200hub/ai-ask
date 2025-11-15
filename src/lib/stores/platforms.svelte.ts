@@ -34,6 +34,13 @@ class PlatformsStore {
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }
 
+  // 可用于划词工具栏的平台列表（需启用且允许）
+  get selectionToolbarPlatforms(): AIPlatform[] {
+    return this.enabledPlatforms.filter(
+      (platform) => platform.selectionToolbarAvailable ?? true,
+    );
+  }
+
   // 自定义平台列表
   get customPlatforms(): AIPlatform[] {
     return this.platforms.filter(p => p.isCustom);

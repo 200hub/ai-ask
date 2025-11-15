@@ -290,10 +290,10 @@ class ConfigStore {
   }
 
   /**
-   * 设置默认解释平台
+   * 设置划词默认平台
    */
-  async setDefaultExplainPlatformId(platformId: string | null) {
-    await this.update({ defaultExplainPlatformId: platformId });
+  async setSelectionToolbarDefaultPlatformId(platformId: string | null) {
+    await this.update({ selectionToolbarDefaultPlatformId: platformId });
   }
 
   /**

@@ -293,16 +293,16 @@
     }
 
     /**
-     * 更新默认解释平台
+     * 更新划词默认平台
      */
-    async function handleDefaultExplainPlatformChange(event: Event) {
+    async function handleSelectionToolbarDefaultPlatformChange(event: Event) {
         const target = event.target as HTMLSelectElement;
         const platformId = target.value || null;
 
         try {
-            await configStore.setDefaultExplainPlatformId(platformId);
+            await configStore.setSelectionToolbarDefaultPlatformId(platformId);
         } catch (error) {
-            logger.error("Failed to change default explain platform", error);
+            logger.error("Failed to change selection toolbar default platform", error);
         }
     }
 
@@ -451,18 +451,18 @@
         {#if configStore.config.selectionToolbarEnabled}
             <div class="setting-item">
                 <div class="setting-label">
-                    <span class="label-text">{t("general.defaultExplainPlatform")}</span>
+                    <span class="label-text">{t("general.selectionToolbarDefaultPlatform")}</span>
                     <span class="label-description">
-                        {t("general.defaultExplainPlatformDescription")}
+                        {t("general.selectionToolbarDefaultPlatformDescription")}
                     </span>
                 </div>
                 <select
                     class="setting-select"
-                    value={configStore.config.defaultExplainPlatformId || ""}
-                    onchange={handleDefaultExplainPlatformChange}
+                    value={configStore.config.selectionToolbarDefaultPlatformId || ""}
+                    onchange={handleSelectionToolbarDefaultPlatformChange}
                 >
                     <option value="">{t("general.selectPlatform")}</option>
-                    {#each platformsStore.enabledPlatforms as platform}
+                    {#each platformsStore.selectionToolbarPlatforms as platform}
                         <option value={platform.id}>{platform.name}</option>
                     {/each}
                 </select>

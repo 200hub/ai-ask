@@ -78,11 +78,13 @@ const aiPlatform: AIPlatform = {
   enabled: true,
   isCustom: false,
   sortOrder: 1,
+  selectionToolbarAvailable: true,
 };
 
 const platformsStoreMock = {
   getPlatformById: vi.fn<[string], AIPlatform | null>(),
   enabledPlatforms: [aiPlatform],
+  selectionToolbarPlatforms: [aiPlatform],
 };
 
 vi.mock("$lib/stores/platforms.svelte", () => ({
@@ -125,11 +127,12 @@ beforeEach(async () => {
     id === aiPlatform.id ? aiPlatform : null,
   );
   platformsStoreMock.enabledPlatforms = [aiPlatform];
+  platformsStoreMock.selectionToolbarPlatforms = [aiPlatform];
 
   configStoreMock.config = { ...DEFAULT_CONFIG };
   configStoreMock.config.currentTranslator = translationPlatform.id;
   configStoreMock.config.locale = "zh-CN";
-  configStoreMock.config.defaultExplainPlatformId = null;
+  configStoreMock.config.selectionToolbarDefaultPlatformId = null;
   configStoreMock.config.lastUsedPlatform = null;
   configStoreMock.config.defaultPlatform = null;
 
@@ -265,7 +268,8 @@ describe("selection-actions", () => {
   it("当没有可用的 AI 平台时提示用户启用平台", async () => {
     platformsStoreMock.getPlatformById.mockReturnValue(null);
     platformsStoreMock.enabledPlatforms = [];
-    configStoreMock.config.defaultExplainPlatformId = null;
+    platformsStoreMock.selectionToolbarPlatforms = [];
+    configStoreMock.config.selectionToolbarDefaultPlatformId = null;
     configStoreMock.config.lastUsedPlatform = null;
     configStoreMock.config.defaultPlatform = null;
 
@@ -276,6 +280,45 @@ describe("selection-actions", () => {
     expect(appStateMock.setError).toHaveBeenCalledWith(
       "errors.selectionToolbar.noAiPlatform",
     );
+  });
+
+  it("忽略不支持划词的 AI 平台并回退到可用平台", async () => {
+    const toolbarDisabledPlatform: AIPlatform = {
+      ...aiPlatform,
+      id: "claude",
+      name: "Claude",
+      selectionToolbarAvailable: false,
+      sortOrder: 1,
+    };
+
+    const fallbackPlatform: AIPlatform = {
+      ...aiPlatform,
+      id: "copilot",
+      name: "Copilot",
+      selectionToolbarAvailable: true,
+      sortOrder: 2,
+    };
+
+    configStoreMock.config.selectionToolbarDefaultPlatformId = toolbarDisabledPlatform.id;
+    configStoreMock.config.lastUsedPlatform = null;
+    configStoreMock.config.defaultPlatform = fallbackPlatform.id;
+
+    platformsStoreMock.getPlatformById.mockImplementation((id: string) => {
+      if (id === toolbarDisabledPlatform.id) {
+        return toolbarDisabledPlatform;
+      }
+      if (id === fallbackPlatform.id) {
+        return fallbackPlatform;
+      }
+      return null;
+    });
+
+    platformsStoreMock.enabledPlatforms = [toolbarDisabledPlatform, fallbackPlatform];
+    platformsStoreMock.selectionToolbarPlatforms = [fallbackPlatform];
+
+    await selectionActions.executeExplanation("Test toolbar filtering");
+
+    expect(appStateMock.switchToChatView).toHaveBeenCalledWith(fallbackPlatform);
   });
 
   it("AI 注入失败时会反馈错误", async () => {

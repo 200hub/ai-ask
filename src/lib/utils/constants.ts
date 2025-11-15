@@ -29,6 +29,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 1,
+    selectionToolbarAvailable: true,
   },
   {
     id: 'claude',
@@ -38,6 +39,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 2,
+    selectionToolbarAvailable: true,
   },
   {
     id: 'gemini',
@@ -47,6 +49,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 3,
+    selectionToolbarAvailable: true,
   },
   {
     id: 'copilot',
@@ -56,6 +59,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 4,
+    selectionToolbarAvailable: false,
   },
   {
     id: 'grok',
@@ -65,6 +69,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 5,
+    selectionToolbarAvailable: false,
   },
   // 国内平台
   {
@@ -75,6 +80,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 7,
+    selectionToolbarAvailable: true,
   },
   {
     id: 'kimi',
@@ -84,6 +90,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 8,
+    selectionToolbarAvailable: false,
   },
   {
     id: 'tongyi',
@@ -93,6 +100,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 9,
+    selectionToolbarAvailable: false,
   },
   {
     id: 'wenxin',
@@ -102,6 +110,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 10,
+    selectionToolbarAvailable: false,
   },
   {
     id: 'doubao',
@@ -111,6 +120,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 11,
+    selectionToolbarAvailable: false,
   },
   {
     id: 'yuanbao',
@@ -120,6 +130,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 12,
+    selectionToolbarAvailable: false,
   },
 ];
 

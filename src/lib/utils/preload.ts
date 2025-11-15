@@ -92,7 +92,7 @@ async function preloadTranslationPlatform(): Promise<void> {
 async function preloadAIPlatform(): Promise<void> {
   // 按优先级获取要预加载的平台
   const candidateIds = [
-    configStore.config.defaultExplainPlatformId ?? undefined,
+    configStore.config.selectionToolbarDefaultPlatformId ?? undefined,
     configStore.config.lastUsedPlatform ?? undefined,
     configStore.config.defaultPlatform ?? undefined,
   ].filter((id): id is string => Boolean(id));

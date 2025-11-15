@@ -30,7 +30,7 @@ export interface AppConfig {
   selectionToolbarIgnoredApps: string[];
   selectionToolbarTemporaryDisabledUntil: number | null;
   selectionToolbarTemporaryDisableDurationMs: number;
-  defaultExplainPlatformId: string | null;
+  selectionToolbarDefaultPlatformId: string | null;
 
   // 性能优化设置
   preloadDefaultPlatforms: boolean; // 启动时预加载默认平台
@@ -89,7 +89,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   selectionToolbarIgnoredApps: [],
   selectionToolbarTemporaryDisabledUntil: null,
   selectionToolbarTemporaryDisableDurationMs: 15 * 60 * 1000,
-  defaultExplainPlatformId: null,
+  selectionToolbarDefaultPlatformId: null,
   preloadDefaultPlatforms: true, // 默认启用预加载
   proxy: { type: "system" },
   windowSize: {

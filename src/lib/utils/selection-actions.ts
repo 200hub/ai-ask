@@ -445,19 +445,19 @@ function buildExplanationPrompt(text: string): string {
 
 function resolveExplainPlatform(): AIPlatform | null {
   const candidateIds = [
-    configStore.config.defaultExplainPlatformId ?? undefined,
+    configStore.config.selectionToolbarDefaultPlatformId ?? undefined,
     configStore.config.lastUsedPlatform ?? undefined,
     configStore.config.defaultPlatform ?? undefined,
   ].filter((id): id is string => Boolean(id));
 
   for (const id of candidateIds) {
     const platform = platformsStore.getPlatformById(id);
-    if (platform && platform.enabled) {
+    if (platform && platform.enabled && (platform.selectionToolbarAvailable ?? true)) {
       return platform;
     }
   }
 
-  const fallback = platformsStore.enabledPlatforms[0];
+  const fallback = platformsStore.selectionToolbarPlatforms[0];
   if (fallback) {
     return fallback;
   }

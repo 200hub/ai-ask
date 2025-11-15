@@ -19,6 +19,7 @@ const builtInAI: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 1,
+    selectionToolbarAvailable: true,
   },
   {
     id: "claude",
@@ -28,6 +29,7 @@ const builtInAI: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 2,
+    selectionToolbarAvailable: false,
   },
 ];
 
@@ -155,6 +157,19 @@ describe("storage utilities", () => {
 
     expect(platforms).toEqual(builtInAI);
     expect(storeData[STORAGE_KEYS.AI_PLATFORMS]).toEqual(builtInAI);
+  });
+
+  it("forces built-in selection toolbar availability to defaults", async () => {
+    storeData[STORAGE_KEYS.AI_PLATFORMS] = builtInAI.map((platform) => ({
+      ...platform,
+      selectionToolbarAvailable: true,
+    }));
+
+    const platforms = await getAIPlatforms();
+    const claude = platforms.find((platform) => platform.id === "claude");
+
+    expect(claude?.selectionToolbarAvailable).toBe(false);
+    expect((storeData[STORAGE_KEYS.AI_PLATFORMS] as AIPlatform[])[1].selectionToolbarAvailable).toBe(false);
   });
 
   it("adds and deletes custom AI platforms", async () => {

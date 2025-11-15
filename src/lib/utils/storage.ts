@@ -279,16 +279,22 @@ export async function getAIPlatforms(): Promise<AIPlatform[]> {
         continue;
       }
 
+      const selectionToolbarAvailable = defaults.selectionToolbarAvailable ?? true;
+
       const merged: AIPlatform = {
         ...defaults,
         enabled: platform.enabled,
         sortOrder: platform.sortOrder ?? defaults.sortOrder,
+        selectionToolbarAvailable,
       };
 
       if (platform.icon !== defaults.icon) {
         hasUpdates = true;
       }
       if (platform.name !== defaults.name || platform.url !== defaults.url) {
+        hasUpdates = true;
+      }
+      if (platform.selectionToolbarAvailable !== selectionToolbarAvailable) {
         hasUpdates = true;
       }
 

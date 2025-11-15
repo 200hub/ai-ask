@@ -10,6 +10,7 @@ export interface AIPlatform {
   isCustom: boolean;       // 是否自定义平台
   sortOrder: number;       // 排序权重
   userAgent?: string;      // 自定义User Agent（可选）
+  selectionToolbarAvailable?: boolean; // 是否可用于划词工具栏
 }
 
 /**
