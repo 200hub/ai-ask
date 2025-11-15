@@ -364,6 +364,18 @@ export const DEFAULT_MAX_RETRIES = INJECTION.DEFAULT_MAX_RETRIES;
 export const INJECTION_RETRY_DELAY = INJECTION.RETRY_DELAY_MS;
 
 /**
+ * Clipboard related constants
+ */
+export const CLIPBOARD = {
+  /** Max time to wait for clipboard change after copy (ms) */
+  WAIT_TIMEOUT_MS: 5000,
+  /** Polling interval when waiting clipboard change (ms) */
+  POLL_INTERVAL_MS: 120,
+  /** Minimum non-whitespace characters to treat as valid clipboard */
+  MIN_NON_WHITESPACE: 1,
+} as const;
+
+/**
  * Debug/Injection UI constants
  */
 export const DEBUG_FLOATING_CONTROLS_OFFSET = 120; // logical px reserved at top for floating controls

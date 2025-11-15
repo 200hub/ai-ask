@@ -129,7 +129,6 @@
 
     async function showTranslatorWebview(platform: TranslationPlatform) {
         if (isShowingWebview) {
-            isLoading = false;
             return;
         }
 
