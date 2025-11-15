@@ -6,7 +6,7 @@
    */
   import { onMount } from 'svelte';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-  import SelectionToolbar from '$lib/components/pages/SelectionToolbar.svelte';
+  import SelectionToolbarPage from '$lib/components/pages/SelectionToolbarPage.svelte';
   import { getConfig } from '$lib/utils/storage';
   import { logger } from '$lib/utils/logger';
   import '$lib/styles/base.css';
@@ -78,7 +78,7 @@
 </svelte:head>
 
 <div class="toolbar-page" class:dark={isDarkMode}>
-  <SelectionToolbar {isDarkMode} />
+  <SelectionToolbarPage {isDarkMode} />
 </div>
 
 <style>

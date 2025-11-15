@@ -10,16 +10,16 @@
     import { logger } from "$lib/utils/logger";
 
     // 懒加载 AIChat，避免未进入聊天视图时的任何潜在副作用
-    type AIChatComponent = typeof import("../pages/AIChat.svelte").default;
+    type AIChatComponent = typeof import("../pages/AIChatPage.svelte").default;
     let AIChatComp = $state<AIChatComponent | null>(null);
 
     // 懒加载翻译页，降低初始包体积
     type TranslationComponent = typeof import("../pages/TranslationPage.svelte").default;
     let TranslationComp = $state<TranslationComponent | null>(null);
 
-    // 懒加载设置模态框，按需加载设置相关依赖
-    type SettingsModalComponent = typeof import("../settings/SettingsModal.svelte").default;
-    let SettingsModalComp = $state<SettingsModalComponent | null>(null);
+    // 懒加载设置视图，按需加载设置相关依赖
+    type SettingsViewComponent = typeof import("../settings/SettingsPage.svelte").default;
+    let SettingsViewComp = $state<SettingsViewComponent | null>(null);
 
     // 懒加载调试页面
     type DebugInjectionPageComponent = typeof import("../pages/DebugInjectionPage.svelte").default;
@@ -30,7 +30,7 @@
     $effect(() => {
         if (appState.currentView === "chat" && !AIChatComp) {
             (async () => {
-                const mod = await import("../pages/AIChat.svelte");
+                const mod = await import("../pages/AIChatPage.svelte");
                 AIChatComp = mod.default;
             })();
         }
@@ -46,13 +46,13 @@
     });
 
     $effect(() => {
-        if (appState.showSettings && !SettingsModalComp) {
+        if (appState.currentView === "settings" && !SettingsViewComp) {
             (async () => {
                 try {
-                    const mod = await import("../settings/SettingsModal.svelte");
-                    SettingsModalComp = mod.default;
+                    const mod = await import("../settings/SettingsPage.svelte");
+                    SettingsViewComp = mod.default;
                 } catch (error) {
-                    logger.error("Failed to load settings modal on demand:", error);
+                    logger.error("Failed to load settings view on demand:", error);
                 }
             })();
         }
@@ -88,7 +88,7 @@
                 return;
             }
 
-            void import("../pages/AIChat.svelte")
+            void import("../pages/AIChatPage.svelte")
                 .then((mod) => {
                     AIChatComp = mod.default;
                 })
@@ -116,16 +116,16 @@
         // 3）最后预加载设置面板：
         // 设置打开频率相对较低，放在最后，避免抢占启动阶段的资源。
         schedulePrefetch(450, () => {
-            if (SettingsModalComp) {
+            if (SettingsViewComp) {
                 return;
             }
 
-            void import("../settings/SettingsModal.svelte")
+            void import("../settings/SettingsPage.svelte")
                 .then((mod) => {
-                    SettingsModalComp = mod.default;
+                    SettingsViewComp = mod.default;
                 })
                 .catch((error) => {
-                    logger.error("Failed to preload settings modal:", error);
+                    logger.error("Failed to preload settings view:", error);
                 });
         });
 
@@ -161,6 +161,16 @@
         {/if}
     </div>
 
+    <div class="view settings" class:active={appState.currentView === "settings"}>
+        {#if SettingsViewComp}
+            <SettingsViewComp />
+        {:else}
+            <div class="loading-container">
+                <LoadingSpinner size="large" message={t("common.loading")} />
+            </div>
+        {/if}
+    </div>
+
     <div class="view debug" class:active={appState.currentView === "debug"}>
         {#if DebugInjectionPageComp}
             <DebugInjectionPageComp />
@@ -170,16 +180,6 @@
             </div>
         {/if}
     </div>
-
-    {#if appState.showSettings}
-        {#if SettingsModalComp}
-            <SettingsModalComp />
-        {:else}
-            <div class="settings-loading-backdrop">
-                <LoadingSpinner size="large" message={t("common.loading")} />
-            </div>
-        {/if}
-    {/if}
 
     {#if appState.error}
         <div class="error-toast">
@@ -305,13 +305,4 @@
         justify-content: center;
     }
 
-    .settings-loading-backdrop {
-        position: fixed;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background-color: rgba(0, 0, 0, 0.45);
-        z-index: 9998;
-    }
 </style>

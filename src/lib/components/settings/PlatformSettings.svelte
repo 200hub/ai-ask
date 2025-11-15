@@ -369,15 +369,18 @@
                 <p class="form-hint">{t("platforms.iconOptionalHint")}</p>
             </div>
 
-            <label class="toggle-switch enable-toggle">
-                <input
-                    type="checkbox"
-                    checked={newPlatformEnabled}
-                    onchange={() => (newPlatformEnabled = !newPlatformEnabled)}
-                />
-                <span class="toggle-slider"></span>
-                <span class="toggle-label">{t("platforms.enableAfterAdding")}</span>
-            </label>
+            <div class="toggle-field">
+                <span class="toggle-text">{t("platforms.enableAfterAdding")}</span>
+                <label class="toggle-switch">
+                    <input
+                        type="checkbox"
+                        aria-label={t("platforms.enableAfterAdding")}
+                        checked={newPlatformEnabled}
+                        onchange={() => (newPlatformEnabled = !newPlatformEnabled)}
+                    />
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
 
             {#if formError}
                 <p class="form-error">{formError}</p>
@@ -723,16 +726,25 @@
         color: var(--text-tertiary);
     }
 
-    .enable-toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.75rem;
+    .toggle-field {
         margin-top: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1.25rem;
+        padding: 0.75rem 1rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.75rem;
+        background-color: var(--bg-secondary);
+        flex-wrap: wrap;
     }
 
-    .toggle-label {
-        font-size: 0.875rem;
-        color: var(--text-secondary);
+    .toggle-text {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        flex: 1;
+        min-width: 200px;
     }
 
     .form-error {
