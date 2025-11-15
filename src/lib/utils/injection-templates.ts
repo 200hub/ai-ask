@@ -32,31 +32,29 @@ export const CHATGPT_TEMPLATES: InjectionTemplate[] = [
 				timeout: 30000,
 				pollInterval: 1000,
 				extractScript: `() => {
-					// Wait for the copy button to appear (indicates generation is complete)
-					// The copy button appears only after the assistant finishes streaming
-					const copyButtonSelectors = [
-						'button[data-testid="copy-turn-action-button"]',
-						'button[aria-label*="复制"]',
-						'button[aria-label*="Copy"]'
+					// Wait for the good response button to appear (indicates generation is complete)
+					// The good response button appears only after the assistant finishes streaming
+					const respButtonSelectors = [
+						'button[data-testid="good-response-turn-action-button"]',
 					];
 					
-					let copyButton = null;
-					for (const sel of copyButtonSelectors) {
-						// Get the last copy button (latest assistant message)
+					let respButton = null;
+					for (const sel of respButtonSelectors) {
+						// Get the last good response button (latest assistant message)
 						const buttons = document.querySelectorAll(sel);
 						if (buttons.length > 0) {
-							copyButton = buttons[buttons.length - 1];
+							respButton = buttons[buttons.length - 1];
 							break;
 						}
 					}
 					
-					if (!copyButton) {
-						return ''; // Copy button not found, generation may still be in progress
+					if (!respButton) {
+						return ''; // Good response not found, generation may still be in progress
 					}
 					
 					// Extract text directly from the message container
-					// Find the parent message container of the copy button
-					let messageContainer = copyButton.closest('[data-message-author-role="assistant"]');
+					// Find the parent message container of the good response button
+					let messageContainer = respButton.closest('[data-message-author-role="assistant"]');
 					if (!messageContainer) {
 						// Try alternative selectors
 						const allMessages = document.querySelectorAll('[data-message-author-role="assistant"]');
@@ -86,15 +84,7 @@ export const CHATGPT_TEMPLATES: InjectionTemplate[] = [
 							if (text) return text;
 						}
 					}
-					
-					// Fallback: get all text from message container
-					// Filter out button texts and metadata
-					const clone = messageContainer.cloneNode(true);
-					// Remove buttons, icons, and other UI elements
-					const elementsToRemove = clone.querySelectorAll('button, svg, [role="button"], .sr-only');
-					elementsToRemove.forEach(el => el.remove());
-					
-					return clone.textContent?.trim() || '';
+					return '';
 				}`
 			}
 		],
@@ -129,8 +119,56 @@ export const CLAUDE_TEMPLATES: InjectionTemplate[] = [
 				timeout: 30000,
 				pollInterval: 1000,
 				extractScript: `() => {
-					// TODO
-					return '_';
+					// Wait for the copy button to appear (indicates generation is complete)
+					// The copy button appears only after the assistant finishes streaming
+					const copyButtonSelectors = [
+						'button[data-testid="action-bar-copy"]',
+						'button[aria-label*="Copy"]'
+					];
+					
+					let copyButton = null;
+					for (const sel of copyButtonSelectors) {
+						// Get the last copy button (latest assistant message)
+						const buttons = document.querySelectorAll(sel);
+						if (buttons.length > 0) {
+							copyButton = buttons[buttons.length - 1];
+							break;
+						}
+					}
+					
+					if (!copyButton) {
+						return ''; // Copy button not found, generation may still be in progress
+					}
+					
+					// Extract text directly from the message container
+					// Find the parent message container of the copy button
+					let messageContainer = copyButton.closest('div[data-is-streaming="false"]');
+					if (!messageContainer) {
+						// Try alternative selectors
+						const allMessages = document.querySelectorAll('div[data-is-streaming="false"]');
+						if (allMessages.length > 0) {
+							messageContainer = allMessages[allMessages.length - 1];
+						}
+					}
+					
+					if (!messageContainer) {
+						return '';
+					}
+					
+					// Try to get the markdown/prose content area
+					// This contains the formatted response
+					const contentSelectors = [
+						'.font-claude-response',
+					];
+					
+					for (const sel of contentSelectors) {
+						const contentDiv = messageContainer.querySelector(sel);
+						if (contentDiv) {
+							const text = contentDiv.textContent?.trim();
+							if (text) return text;
+						}
+					}
+					return '';
 				}`
 			}
 		],
@@ -172,10 +210,7 @@ export const GEMINI_TEMPLATES: InjectionTemplate[] = [
 					}
 					
 					const candidates = [
-						'message-content model-response-text',
-						'.model-response',
-						'[data-test-id="model-response"]',
-						'.response-container'
+						'message-content'
 					];
 					for (const sel of candidates) {
 						const containers = document.querySelectorAll(sel);
