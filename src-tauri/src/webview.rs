@@ -26,9 +26,10 @@ use std::sync::Mutex;
 
 use serde::Deserialize;
 use tauri::{
-    webview::{Webview, WebviewBuilder},
-    Emitter, LogicalPosition, LogicalSize, Position, Size, State, WebviewUrl, Window,
+    webview::{NewWindowResponse, Webview, WebviewBuilder},
+    Emitter, LogicalPosition, LogicalSize, Position, Size, State, Url, WebviewUrl, Window,
 };
+use tauri_plugin_opener::open_url;
 
 use crate::proxy::{parse_external_url, parse_proxy_url, resolve_proxy_data_directory};
 use crate::utils::decode_base64url_to_json;
@@ -100,6 +101,41 @@ pub(crate) struct ChildWebviewBoundsUpdatePayload {
 #[derive(Debug, Deserialize)]
 pub(crate) struct ChildWebviewIdPayload {
     id: String,
+}
+
+/// 支持通过系统默认程序打开的新窗口 URL Scheme
+const SUPPORTED_EXTERNAL_URL_SCHEMES: [&str; 4] = ["http", "https", "mailto", "tel"];
+
+fn should_open_in_default_browser(url: &Url) -> bool {
+    SUPPORTED_EXTERNAL_URL_SCHEMES.contains(&url.scheme())
+}
+
+fn open_new_window_in_browser(webview_id: &str, url: &Url) {
+    if should_open_in_default_browser(url) {
+        match open_url(url.as_str(), None::<&str>) {
+            Ok(()) => {
+                log::info!(
+                    "Opened external link from child webview {} in system browser: {}",
+                    webview_id,
+                    url
+                );
+            }
+            Err(error) => {
+                log::error!(
+                    "Failed to open external link from child webview {}: {} ({})",
+                    webview_id,
+                    url,
+                    error
+                );
+            }
+        }
+    } else {
+        log::warn!(
+            "Blocked unsupported new-window scheme from child webview {}: {}",
+            webview_id,
+            url
+        );
+    }
 }
 
 /// 将边界参数转换为 Tauri 逻辑位置
@@ -329,6 +365,14 @@ pub(crate) async fn ensure_child_webview(
                     }
                 }
                 true
+            });
+        }
+
+        {
+            let webview_id_new_window = payload.id.clone();
+            builder = builder.on_new_window(move |url, _features| {
+                open_new_window_in_browser(&webview_id_new_window, &url);
+                NewWindowResponse::Deny
             });
         }
 
@@ -567,5 +611,38 @@ pub(crate) async fn evaluate_child_webview_script(
         }))
     } else {
         Err(format!("child webview not found: {}", payload.id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_open_in_default_browser;
+    use tauri::Url;
+
+    #[test]
+    fn allows_well_known_schemes() {
+        let http = Url::parse("http://example.com").unwrap();
+        assert!(should_open_in_default_browser(&http));
+
+        let https = Url::parse("https://example.com").unwrap();
+        assert!(should_open_in_default_browser(&https));
+
+        let mailto = Url::parse("mailto:user@example.com").unwrap();
+        assert!(should_open_in_default_browser(&mailto));
+
+        let tel = Url::parse("tel:123456").unwrap();
+        assert!(should_open_in_default_browser(&tel));
+    }
+
+    #[test]
+    fn blocks_unsupported_schemes() {
+        let ftp = Url::parse("ftp://example.com").unwrap();
+        assert!(!should_open_in_default_browser(&ftp));
+
+        let about = Url::parse("about:blank").unwrap();
+        assert!(!should_open_in_default_browser(&about));
+
+        let javascript = Url::parse("javascript:alert('x')").unwrap();
+        assert!(!should_open_in_default_browser(&javascript));
     }
 }

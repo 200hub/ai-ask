@@ -1,0 +1,19 @@
+{
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "child-webviews",
+    "description": "Capability for all child webviews (AI platforms)",
+    "local": true,
+    "remote": {
+        "urls": [
+            "https://**"
+        ]
+    },
+    "webviews": [
+        "ai-chat-*"
+    ],
+    "permissions": [
+        "core:default",
+        "shell:default",
+        "shell:allow-open"
+    ]
+}
