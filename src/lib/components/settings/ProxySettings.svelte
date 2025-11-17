@@ -101,7 +101,7 @@
             throw new Error(t("proxy.portRangeError"));
         }
 
-        return { host, port };
+        return { host, port }; 
     }
 
     async function handleSave() {

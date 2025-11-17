@@ -175,12 +175,13 @@ After completing each task:
 
    - `pnpm run check` -> 0 errors
    - `pnpm tauri dev` -> starts without errors
-   - `pnpm lint` -> passes (runs frontend ESLint and Rust fmt/clippy)
+   - `pnpm lint` -> passes
+   - `pnpm format` -> passes
    - `pnpm test` -> passes
    - Proper TypeScript types (minimize `any`)
    - Accessibility: semantic HTML, ARIA labels, keyboard nav
    - Drag regions correct (never on interactive elements)
-   - No outstanding lint/style warnings
+   - No outstanding lint/format warnings
 
 5. **Documentation**:
 

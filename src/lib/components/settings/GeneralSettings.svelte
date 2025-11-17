@@ -125,13 +125,13 @@
 
     // 监听临时禁用配置变化，实时更新倒计时显示
     $effect(() => {
-        configStore.config.selectionToolbarTemporaryDisabledUntil;
+        void configStore.config.selectionToolbarTemporaryDisabledUntil;
         updateDisableCountdown();
     });
 
     // 监听语言切换，重新格式化倒计时文本
     $effect(() => {
-        currentLocale;
+        void currentLocale;
         updateDisableCountdown();
     });
 
@@ -406,7 +406,7 @@
                 value={currentLocale}
                 onchange={handleLocaleChange}
             >
-                {#each SUPPORTED_LOCALES as locale}
+                {#each SUPPORTED_LOCALES as locale (locale.code)}
                     <option value={locale.code}>{locale.nativeName}</option>
                 {/each}
             </select>
@@ -462,7 +462,7 @@
                     onchange={handleSelectionToolbarDefaultPlatformChange}
                 >
                     <option value="">{t("general.selectPlatform")}</option>
-                    {#each platformsStore.selectionToolbarPlatforms as platform}
+                    {#each platformsStore.selectionToolbarPlatforms as platform (platform.id)}
                         <option value={platform.id}>{platform.name}</option>
                     {/each}
                 </select>
@@ -496,7 +496,7 @@
 
                 {#if configStore.config.selectionToolbarIgnoredApps.length > 0}
                     <div class="ignored-list">
-                        {#each configStore.config.selectionToolbarIgnoredApps as app}
+                        {#each configStore.config.selectionToolbarIgnoredApps as app (app)}
                             <span class="ignored-entry">
                                 <span class="ignored-name">{app}</span>
                                 <button
@@ -577,7 +577,7 @@
                 <span class="label-description">{t("general.themeDescription")}</span>
             </div>
             <div class="theme-options">
-                {#each themeOptions as option}
+                {#each themeOptions as option (option.value)}
                     <button
                         class="theme-option"
                         class:active={configStore.config.theme === option.value}
@@ -606,7 +606,7 @@
                 value={configStore.config.globalHotkey}
                 onchange={handleHotkeyChange}
             >
-                {#each AVAILABLE_SHORTCUTS as shortcut}
+                {#each AVAILABLE_SHORTCUTS as shortcut (shortcut)}
                     <option value={shortcut}>{formatHotkey(shortcut)}</option>
                 {/each}
             </select>
@@ -624,7 +624,7 @@
                 value={configStore.config.translationHotkey}
                 onchange={handleTranslationHotkeyChange}
             >
-                {#each TRANSLATION_SHORTCUTS as shortcut}
+                {#each TRANSLATION_SHORTCUTS as shortcut (shortcut)}
                     <option value={shortcut}>{formatHotkey(shortcut)}</option>
                 {/each}
             </select>
@@ -642,7 +642,7 @@
                 value={configStore.config.selectionToolbarHotkey}
                 onchange={handleSelectionToolbarHotkeyChange}
             >
-                {#each SELECTION_TOOLBAR_SHORTCUTS as shortcut}
+                {#each SELECTION_TOOLBAR_SHORTCUTS as shortcut (shortcut)}
                     <option value={shortcut}>{formatHotkey(shortcut)}</option>
                 {/each}
             </select>

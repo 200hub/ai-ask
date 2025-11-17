@@ -119,7 +119,8 @@
         }
 
         await Promise.all(closeTasks);
-        webviewWindows = new Map();
+        // eslint-disable-next-line svelte/prefer-svelte-reactivity
+        webviewWindows = new Map() as typeof webviewWindows;
         shouldRestoreWebviews = false;
 
         if (appState.currentView === "translation" && translationStore.currentPlatform) {
@@ -382,7 +383,7 @@
 
     onMount(() => {
         domEventHandlers.forEach(({ event, handler }) => {
-            window.addEventListener(event, handler as EventListener);
+            window.addEventListener(event, handler as (e: Event) => void);
         });
 
         let isComponentDisposed = false;
@@ -452,7 +453,7 @@
         return () => {
             isComponentDisposed = true;
             domEventHandlers.forEach(({ event, handler }) => {
-                window.removeEventListener(event, handler as EventListener);
+                window.removeEventListener(event, handler as (e: Event) => void);
             });
             cleanupAllWindowEvents();
         };

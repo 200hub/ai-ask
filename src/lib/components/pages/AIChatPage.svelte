@@ -125,7 +125,8 @@
         }
 
         await Promise.all(closeTasks);
-        webviewWindows = new Map();
+        // eslint-disable-next-line svelte/prefer-svelte-reactivity
+        webviewWindows = new Map() as typeof webviewWindows;
         shouldRestoreWebviews = false;
 
         // 递增序列号，触发重新显示当前平台
@@ -601,8 +602,8 @@
         // ========== DOM 事件监听器 ==========
         
         const domEventHandlers = [
-            { event: "refreshWebview", handler: handleRefreshEvent as EventListener },
-            { event: "hideAllWebviews", handler: handleHideAllWebviewsEvent },
+            { event: "refreshWebview", handler: handleRefreshEvent as (e: Event) => void },
+            { event: "hideAllWebviews", handler: handleHideAllWebviewsEvent as (e: Event) => void },
             { event: "resize", handler: () => handleMainWindowResize() },
         ];
 

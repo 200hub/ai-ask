@@ -7,13 +7,14 @@
     import { platformsStore } from "$lib/stores/platforms.svelte";
     import { configStore } from "$lib/stores/config.svelte";
     import { i18n } from "$lib/i18n";
+    import type { AIPlatform } from "$lib/types/platform";
 
     const t = i18n.t;
 
     /**
      * 选择AI平台
      */
-    function selectPlatform(platform: any) {
+    function selectPlatform(platform: AIPlatform) {
         const alreadySelected =
             appState.currentView === "chat" && appState.selectedPlatform?.id === platform.id;
 

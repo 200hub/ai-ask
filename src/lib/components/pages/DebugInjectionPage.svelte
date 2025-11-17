@@ -66,8 +66,8 @@
 		});
 		addLog('info', t('debug.initialized'));
 
-		window.addEventListener(EVENTS.HIDE_ALL_WEBVIEWS, handleHideAllWebviewsEvent as EventListener);
-		window.addEventListener(EVENTS.RESTORE_WEBVIEWS, handleRestoreWebviewsEvent as EventListener);
+		window.addEventListener(EVENTS.HIDE_ALL_WEBVIEWS, handleHideAllWebviewsEvent as (e: Event) => void);
+		window.addEventListener(EVENTS.RESTORE_WEBVIEWS, handleRestoreWebviewsEvent as (e: Event) => void);
 
 		// Listen for injection result events from Rust (navigation intercept + decode)
 		// Rust decodes base64url and sends parsed JSON directly
@@ -109,8 +109,8 @@
 				};
 				
 				// Extract content from results if available
-				if ((parsed as any).results) {
-					const extract = (parsed as any).results.find((r: any) => r.type === 'extract');
+				if ((parsed as unknown as { results?: Array<{ type: string; result?: unknown }> }).results) {
+					const extract = (parsed as unknown as { results: Array<{ type: string; result?: unknown }> }).results.find((r) => r.type === 'extract');
 					if (extract?.result) {
 						const formatted = formatExtractedContent(extract.result);
 						const displayText = getExtractedDisplayText(extract.result);
@@ -141,14 +141,14 @@
 		return () => {
 			window.removeEventListener(
 				EVENTS.HIDE_ALL_WEBVIEWS,
-				handleHideAllWebviewsEvent as EventListener
+				handleHideAllWebviewsEvent as (e: Event) => void
 			);
 			window.removeEventListener(
 				EVENTS.RESTORE_WEBVIEWS,
-				handleRestoreWebviewsEvent as EventListener
+				handleRestoreWebviewsEvent as (e: Event) => void
 			);
 			if (unlistenInjectionResult) {
-				try { unlistenInjectionResult(); } catch (_e) { /* ignore */ }
+				try { unlistenInjectionResult(); } catch { /* ignore */ }
 			}
 		};
 	});
@@ -757,8 +757,8 @@
 					bind:value={selectedPlatform}
 					disabled={loading || webviewProxy !== null}
 				>
-					<option value={null}>{t('debug.pleaseSelect')}</option>
-					{#each BUILT_IN_AI_PLATFORMS as platform}
+					<option value={null as unknown as AIPlatform | null}>{t('debug.pleaseSelect')}</option>
+					{#each BUILT_IN_AI_PLATFORMS as platform (platform.id)}
 						<option value={platform}>{platform.name}</option>
 					{/each}
 				</select>
@@ -852,7 +852,7 @@
 				<button class="btn-small" onclick={clearLogs}>{t('debug.clearLogs')}</button>
 			</div>
 			<div class="logs-content">
-				{#each logs as log}
+				{#each logs as log, index (index)}
 					<div class="log-entry log-{log.type}">
 						<span class="log-time">{log.time}</span>
 						<span class="log-type">[{log.type.toUpperCase()}]</span>

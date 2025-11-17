@@ -143,9 +143,11 @@ class Logger {
         console.warn(prefix, message, ...(data || []));
         break;
       case LogLevel.INFO:
+        // eslint-disable-next-line no-console
         console.info(prefix, message, ...(data || []));
         break;
       case LogLevel.DEBUG:
+        // eslint-disable-next-line no-console
         console.log(prefix, message, ...(data || []));
         break;
     }

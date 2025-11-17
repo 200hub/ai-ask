@@ -65,7 +65,7 @@
 
     <!-- 功能介绍 -->
     <div class="features-section">
-      {#each features as feature}
+      {#each features as feature (feature.titleKey)}
         {@const Icon = feature.icon}
         <div class="feature-card">
           <div class="feature-icon">

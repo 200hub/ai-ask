@@ -1,150 +1,78 @@
-import js from "@eslint/js";
-import tseslint from "@typescript-eslint/eslint-plugin";
-import tsParser from "@typescript-eslint/parser";
-import sveltePlugin from "eslint-plugin-svelte";
-import svelteParser from "svelte-eslint-parser";
-import prettierRecommended from "eslint-plugin-prettier/recommended";
-import prettierConfig from "eslint-config-prettier";
+import js from '@eslint/js';
+import svelte from 'eslint-plugin-svelte';
+import svelteParser from 'svelte-eslint-parser';
+import globals from 'globals';
+import ts from 'typescript-eslint';
+import svelteConfig from './svelte.config.js';
 
-export default [
-  js.configs.recommended,
-  prettierConfig,
-  {
-    files: ["**/*.ts", "**/*.js"],
-    languageOptions: {
-      parser: tsParser,
-      parserOptions: {
-        ecmaVersion: "latest",
-        sourceType: "module",
-        project: "./tsconfig.json",
-      },
-      globals: {
-        // Node.js globals
-        console: "readonly",
-        process: "readonly",
-        __dirname: "readonly",
-        __filename: "readonly",
-        // Browser globals
-        window: "readonly",
-        document: "readonly",
-        navigator: "readonly",
-        setTimeout: "readonly",
-        clearTimeout: "readonly",
-        setInterval: "readonly",
-        clearInterval: "readonly",
-        requestAnimationFrame: "readonly",
-        fetch: "readonly",
-        URL: "readonly",
-        Event: "readonly",
-        CustomEvent: "readonly",
-        MouseEvent: "readonly",
-        HTMLElement: "readonly",
-        HTMLImageElement: "readonly",
-        HTMLInputElement: "readonly",
-        HTMLSelectElement: "readonly",
-        EventListener: "readonly",
-        // Svelte 5 Runes
-        $state: "readonly",
-        $derived: "readonly",
-        $effect: "readonly",
-        $props: "readonly",
-        // Vitest globals
-        describe: "readonly",
-        it: "readonly",
-        expect: "readonly",
-        beforeEach: "readonly",
-        afterEach: "readonly",
-        vi: "readonly",
-      },
-    },
-    plugins: {
-      "@typescript-eslint": tseslint,
-    },
-    rules: {
-      ...tseslint.configs.recommended.rules,
-      // Use TS-aware rule and disable base rule for TS files
-      "no-unused-vars": "off",
-      "@typescript-eslint/no-unused-vars": [
-        "warn",
-        {
-          argsIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
-          caughtErrorsIgnorePattern: "^_",
-        },
-      ],
-      "@typescript-eslint/no-explicit-any": "warn",
-      "no-console": "off",
-    },
-  },
-  {
-    files: ["**/*.svelte"],
-    languageOptions: {
-      parser: svelteParser,
-      parserOptions: {
-        parser: tsParser,
-        extraFileExtensions: [".svelte"],
-      },
-      globals: {
-        console: "readonly",
-        window: "readonly",
-        document: "readonly",
-        navigator: "readonly",
-        setTimeout: "readonly",
-        clearTimeout: "readonly",
-        setInterval: "readonly",
-        clearInterval: "readonly",
-        requestAnimationFrame: "readonly",
-        fetch: "readonly",
-        URL: "readonly",
-        Event: "readonly",
-        CustomEvent: "readonly",
-        MouseEvent: "readonly",
-        HTMLElement: "readonly",
-        HTMLImageElement: "readonly",
-        HTMLInputElement: "readonly",
-        HTMLSelectElement: "readonly",
-        EventListener: "readonly",
-        // Svelte 5 Runes
-        $state: "readonly",
-        $derived: "readonly",
-        $effect: "readonly",
-        $props: "readonly",
-      },
-    },
-    plugins: {
-      svelte: sveltePlugin,
-      "@typescript-eslint": tseslint,
-    },
-    rules: {
-      "no-unused-vars": "off",
-      "@typescript-eslint/no-unused-vars": [
-        "warn",
-        {
-          argsIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
-          caughtErrorsIgnorePattern: "^_",
-        },
-      ],
-      "svelte/no-unused-svelte-ignore": "warn",
-      "svelte/no-at-html-tags": "warn",
-    },
-  },
-  prettierRecommended,
-  {
-    ignores: [
-      "build/",
-      ".svelte-kit/",
-      "dist/",
-      "coverage/",
-      "node_modules/",
-      "src-tauri/target/",
-      "src-tauri/gen/",
-      "**/*.config.js",
-      "**/*.config.ts",
-      ".github/scripts/**",  // Exclude CI scripts from type checking
-      "scripts/**",          // Exclude local helper scripts (plain JS)
-      "**/*.min.js",         // Ignore generated/minified files
-      "**/*.test.js",        // Ignore legacy JS test files (TS tests are used)
-    ],
-  },
-];
+export default ts.config(
+	js.configs.recommended,
+	...ts.configs.recommended,
+	...svelte.configs.recommended,
+	{
+		languageOptions: {
+			globals: {
+				...globals.browser,
+				...globals.node
+			}
+		}
+	},
+	{
+		files: ['**/*.svelte'],
+		languageOptions: {
+			parserOptions: {
+				parser: ts.parser,
+				svelteConfig
+			}
+		}
+	},
+	{
+		files: ['**/*.svelte.ts', '**/*.svelte.js'],
+		languageOptions: {
+			parser: svelteParser,
+			parserOptions: {
+				parser: ts.parser
+			}
+		}
+	},
+	{
+		files: ['**/*.test.ts', '**/*.test.svelte.ts'],
+		languageOptions: {
+			globals: {
+				...globals.node,
+				describe: 'readonly',
+				it: 'readonly',
+				expect: 'readonly',
+				beforeEach: 'readonly',
+				afterEach: 'readonly',
+				beforeAll: 'readonly',
+				afterAll: 'readonly',
+				vi: 'readonly',
+				test: 'readonly'
+			}
+		}
+	},
+	{
+		rules: {
+			'@typescript-eslint/no-unused-vars': [
+				'error',
+				{
+					argsIgnorePattern: '^_',
+					varsIgnorePattern: '^_'
+				}
+			],
+			'no-console': ['warn', { allow: ['warn', 'error'] }]
+		}
+	},
+	{
+		ignores: [
+			'build/',
+			'.svelte-kit/',
+			'dist/',
+			'node_modules/',
+			'src-tauri/target/',
+			'**/*.cjs',
+			'.github/'
+		]
+	}
+);
