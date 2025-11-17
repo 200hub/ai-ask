@@ -4,7 +4,7 @@ These instructions help AI coding agents work productively in this repo. Focus o
 
 ## Language Preference
 
-- 请尽量使用中文进行回复与说明；仅在用户明确要求或上下文确有需要时再改用其他语言。
+- Please reply in Chinese when possible; switch to other languages only when explicitly requested or contextually necessary.
 
 ## Big Picture
 
@@ -153,9 +153,11 @@ After completing each task:
 
    - Remove unused imports/code
    - Extract duplicate logic into reusable functions
-   - Use `logger` instead of `console.log`
+   - Use `logger` instead of `console.log`; ensure log messages are in English and follow the established format
    - Proper error handling with user-friendly messages
    - CSS uses custom properties (no hardcoded colors)
+   - Eliminate redundant code and refactor into reusable components/modules where appropriate
+   - Add sufficient Chinese comments to key files and functions for clarity
 
 2. **i18n**:
 
@@ -170,6 +172,7 @@ After completing each task:
    - All tests pass: `pnpm test`
 
 4. **Quality Gates**:
+
    - `pnpm run check` -> 0 errors
    - `pnpm tauri dev` -> starts without errors
    - `pnpm lint` -> passes (runs frontend ESLint and Rust fmt/clippy)
@@ -177,14 +180,11 @@ After completing each task:
    - Proper TypeScript types (minimize `any`)
    - Accessibility: semantic HTML, ARIA labels, keyboard nav
    - Drag regions correct (never on interactive elements)
+   - No outstanding lint/style warnings
 
-## Developer Commands
+5. **Documentation**:
 
-- **Typecheck**: `pnpm run check`
-- **Dev**: `pnpm tauri dev`
-- **Build**: `pnpm tauri build`
-- **Test**: `pnpm test`
-- **Icons**: `pnpm tauri icon src-tauri/icons/app-icon.svg`
+   - Update relevant README sections when the change is a feature update
 
 ## Adding New Features
 
