@@ -1,38 +1,38 @@
-<script lang="ts">
-    /**
-     * 加载动画组件
-     */
-    interface Props {
-        size?: 'small' | 'medium' | 'large';
-        message?: string;
-    }
-    
-    let { size = 'medium', message }: Props = $props();
-    
-    const sizeMap = {
-        small: '24px',
-        medium: '40px',
-        large: '56px'
-    };
+<script lang='ts'>
+  /**
+   * 加载动画组件
+   */
+  interface Props {
+    size?: 'small' | 'medium' | 'large'
+    message?: string
+  }
+
+  const { size = 'medium', message }: Props = $props()
+
+  const sizeMap = {
+    small: '24px',
+    medium: '40px',
+    large: '56px',
+  }
 </script>
 
-<div class="loading-spinner" class:has-message={message}>
-    <div class="spinner" style="width: {sizeMap[size]}; height: {sizeMap[size]};">
-        <svg class="circular" viewBox="25 25 50 50">
-            <circle
-                class="path"
-                cx="50"
-                cy="50"
-                r="20"
-                fill="none"
-                stroke-width="3"
-                stroke-miterlimit="10"
-            />
-        </svg>
-    </div>
-    {#if message}
-        <p class="loading-message">{message}</p>
-    {/if}
+<div class='loading-spinner' class:has-message={message}>
+  <div class='spinner' style='width: {sizeMap[size]}; height: {sizeMap[size]};'>
+    <svg class='circular' viewBox='25 25 50 50'>
+      <circle
+        class='path'
+        cx='50'
+        cy='50'
+        r='20'
+        fill='none'
+        stroke-width='3'
+        stroke-miterlimit='10'
+      />
+    </svg>
+  </div>
+  {#if message}
+    <p class='loading-message'>{message}</p>
+  {/if}
 </div>
 
 <style>

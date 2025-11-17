@@ -29,13 +29,13 @@ export enum LogLevel {
  */
 interface LogEntry {
   /** 日志时间戳 */
-  timestamp: Date;
+  timestamp: Date
   /** 日志级别 */
-  level: LogLevel;
+  level: LogLevel
   /** 日志消息 */
-  message: string;
+  message: string
   /** 额外的数据参数 */
-  data?: unknown[];
+  data?: unknown[]
 }
 
 /**
@@ -49,13 +49,13 @@ interface LogEntry {
  */
 class Logger {
   /** 单例实例 */
-  private static instance: Logger;
+  private static instance: Logger
 
   /** 日志历史记录 */
-  private logs: LogEntry[] = [];
+  private logs: LogEntry[] = []
 
   /** 最大日志条数（防止内存溢出） */
-  private readonly maxLogs = 1000;
+  private readonly maxLogs = 1000
 
   /**
    * 私有构造函数（单例模式）
@@ -69,9 +69,9 @@ class Logger {
    */
   public static getInstance(): Logger {
     if (!Logger.instance) {
-      Logger.instance = new Logger();
+      Logger.instance = new Logger()
     }
-    return Logger.instance;
+    return Logger.instance
   }
 
   /**
@@ -87,19 +87,19 @@ class Logger {
       level,
       message,
       data: data.length > 0 ? data : undefined,
-    };
+    }
 
     // 添加到日志历史
-    this.logs.push(entry);
+    this.logs.push(entry)
 
     // 清理老旧日志
     if (this.logs.length > this.maxLogs) {
-      this.logs = this.logs.slice(-this.maxLogs);
+      this.logs = this.logs.slice(-this.maxLogs)
     }
 
     // 根据环境和日志级别决定是否输出到控制台
     if (this.shouldConsoleLog(level)) {
-      this.consoleOutput(entry);
+      this.consoleOutput(entry)
     }
   }
 
@@ -116,11 +116,11 @@ class Logger {
   private shouldConsoleLog(level: LogLevel): boolean {
     // 开发环境：输出所有日志
     if (import.meta.env.DEV) {
-      return true;
+      return true
     }
 
     // 生产环境：只输出错误和警告
-    return level <= LogLevel.WARN;
+    return level <= LogLevel.WARN
   }
 
   /**
@@ -131,25 +131,25 @@ class Logger {
    * @param entry - 日志条目
    */
   private consoleOutput(entry: LogEntry): void {
-    const { timestamp, level, message, data } = entry;
-    const timeStr = timestamp.toLocaleTimeString();
-    const prefix = `[${timeStr}] ${this.getLevelName(level)}:`;
+    const { timestamp, level, message, data } = entry
+    const timeStr = timestamp.toLocaleTimeString()
+    const prefix = `[${timeStr}] ${this.getLevelName(level)}:`
 
     switch (level) {
       case LogLevel.ERROR:
-        console.error(prefix, message, ...(data || []));
-        break;
+        console.error(prefix, message, ...(data || []))
+        break
       case LogLevel.WARN:
-        console.warn(prefix, message, ...(data || []));
-        break;
+        console.warn(prefix, message, ...(data || []))
+        break
       case LogLevel.INFO:
         // eslint-disable-next-line no-console
-        console.info(prefix, message, ...(data || []));
-        break;
+        console.info(prefix, message, ...(data || []))
+        break
       case LogLevel.DEBUG:
         // eslint-disable-next-line no-console
-        console.log(prefix, message, ...(data || []));
-        break;
+        console.log(prefix, message, ...(data || []))
+        break
     }
   }
 
@@ -162,15 +162,15 @@ class Logger {
   private getLevelName(level: LogLevel): string {
     switch (level) {
       case LogLevel.ERROR:
-        return "ERROR";
+        return 'ERROR'
       case LogLevel.WARN:
-        return "WARN";
+        return 'WARN'
       case LogLevel.INFO:
-        return "INFO";
+        return 'INFO'
       case LogLevel.DEBUG:
-        return "DEBUG";
+        return 'DEBUG'
       default:
-        return "UNKNOWN";
+        return 'UNKNOWN'
     }
   }
 
@@ -185,7 +185,7 @@ class Logger {
    * @param data - 额外的数据参数
    */
   public error(message: string, ...data: unknown[]): void {
-    this.log(LogLevel.ERROR, message, ...data);
+    this.log(LogLevel.ERROR, message, ...data)
   }
 
   /**
@@ -197,7 +197,7 @@ class Logger {
    * @param data - 额外的数据参数
    */
   public warn(message: string, ...data: unknown[]): void {
-    this.log(LogLevel.WARN, message, ...data);
+    this.log(LogLevel.WARN, message, ...data)
   }
 
   /**
@@ -209,7 +209,7 @@ class Logger {
    * @param data - 额外的数据参数
    */
   public info(message: string, ...data: unknown[]): void {
-    this.log(LogLevel.INFO, message, ...data);
+    this.log(LogLevel.INFO, message, ...data)
   }
 
   /**
@@ -221,7 +221,7 @@ class Logger {
    * @param data - 额外的数据参数
    */
   public debug(message: string, ...data: unknown[]): void {
-    this.log(LogLevel.DEBUG, message, ...data);
+    this.log(LogLevel.DEBUG, message, ...data)
   }
 
   /**
@@ -231,14 +231,14 @@ class Logger {
    * @returns 日志条目数组的副本
    */
   public getLogs(maxCount?: number): LogEntry[] {
-    return maxCount ? this.logs.slice(-maxCount) : [...this.logs];
+    return maxCount ? this.logs.slice(-maxCount) : [...this.logs]
   }
 
   /**
    * 清空所有日志历史
    */
   public clearLogs(): void {
-    this.logs = [];
+    this.logs = []
   }
 
   /**
@@ -249,7 +249,7 @@ class Logger {
    * @returns 格式化的 JSON 字符串
    */
   public exportLogs(): string {
-    return JSON.stringify(this.logs, null, 2);
+    return JSON.stringify(this.logs, null, 2)
   }
 }
 
@@ -266,7 +266,7 @@ class Logger {
  * logger.info('Application started successfully');
  * ```
  */
-export const logger = Logger.getInstance();
+export const logger = Logger.getInstance()
 
 /**
  * 便捷的全局日志函数
@@ -288,4 +288,4 @@ export const log = {
   warn: (message: string, ...data: unknown[]): void => logger.warn(message, ...data),
   info: (message: string, ...data: unknown[]): void => logger.info(message, ...data),
   debug: (message: string, ...data: unknown[]): void => logger.debug(message, ...data),
-};
+}

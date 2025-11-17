@@ -1,406 +1,429 @@
-<script lang="ts">
-    /**
-     * Platform settings panel for managing AI providers.
-     */
-    import { onMount, tick } from "svelte";
-    import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-svelte";
-    import Button from "../common/Button.svelte";
-    import { platformsStore } from "$lib/stores/platforms.svelte";
-    import { i18n } from "$lib/i18n";
-    import { logger } from "$lib/utils/logger";
+<script lang='ts'>
+  import { i18n } from '$lib/i18n'
+  import { platformsStore } from '$lib/stores/platforms.svelte'
+  import { logger } from '$lib/utils/logger'
+  import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-svelte'
+  /**
+   * Platform settings panel for managing AI providers.
+   */
+  import { onMount, tick } from 'svelte'
+  import Button from '../common/Button.svelte'
 
-    const t = i18n.t;
+  const t = i18n.t
 
-    const FALLBACK_ICON =
-        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3C/svg%3E";
+  const FALLBACK_ICON
+    = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'40\' height=\'40\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Ccircle cx=\'12\' cy=\'12\' r=\'10\'/%3E%3C/svg%3E'
 
-    let showAddModal = $state(false);
-    let isSubmitting = $state(false);
-    let formError = $state<string | null>(null);
+  let showAddModal = $state(false)
+  let isSubmitting = $state(false)
+  let formError = $state<string | null>(null)
 
-    let newPlatformName = $state("");
-    let newPlatformUrl = $state("");
-    let newPlatformIcon = $state("");
-    let newPlatformEnabled = $state(true);
+  let newPlatformName = $state('')
+  let newPlatformUrl = $state('')
+  let newPlatformIcon = $state('')
+  let newPlatformEnabled = $state(true)
 
-    const orderedPlatforms = $derived(
-        [...platformsStore.platforms].sort((a, b) => a.sortOrder - b.sortOrder),
-    );
+  const orderedPlatforms = $derived(
+    [...platformsStore.platforms].sort((a, b) => a.sortOrder - b.sortOrder),
+  )
 
-    onMount(async () => {
-        if (platformsStore.platforms.length === 0) {
-            try {
-                await platformsStore.init();
-            } catch (error) {
-                logger.error("Failed to load AI platforms", error);
-            }
-        }
-    });
+  onMount(async () => {
+    if (platformsStore.platforms.length === 0) {
+      try {
+        await platformsStore.init()
+      }
+      catch (error) {
+        logger.error('Failed to load AI platforms', error)
+      }
+    }
+  })
 
-    function focusOnMount(node: HTMLElement) {
-        tick().then(() => node.focus());
-        return {
-            destroy() {},
-        };
+  function focusOnMount(node: HTMLElement) {
+    tick().then(() => node.focus())
+    return {
+      destroy() {},
+    }
+  }
+
+  function resetForm() {
+    newPlatformName = ''
+    newPlatformUrl = ''
+    newPlatformIcon = ''
+    newPlatformEnabled = true
+    formError = null
+  }
+
+  function handleIconError(event: Event) {
+    const target = event.currentTarget as HTMLImageElement | null
+    if (target && target.src !== FALLBACK_ICON) {
+      target.src = FALLBACK_ICON
+    }
+  }
+
+  async function togglePlatform(id: string) {
+    try {
+      await platformsStore.togglePlatform(id)
+    }
+    catch (error) {
+      logger.error('Failed to toggle platform', error)
+      // TODO
+      // eslint-disable-next-line no-alert
+      window.alert(t('platforms.errorToggle'))
+    }
+  }
+
+  async function deletePlatform(id: string) {
+    // TODO
+      // eslint-disable-next-line no-alert
+    if (!window.confirm(t('platforms.confirmRemove')))
+      return
+
+    try {
+      await platformsStore.removePlatform(id)
+    }
+    catch (error) {
+      logger.error('Failed to delete platform', error)
+      // TODO
+      // eslint-disable-next-line no-alert
+      window.alert(t('platforms.errorDelete'))
+    }
+  }
+
+  function openAddModal() {
+    resetForm()
+    showAddModal = true
+  }
+
+  function closeAddModal() {
+    showAddModal = false
+  }
+
+  async function movePlatform(id: string, direction: 'up' | 'down') {
+    logger.info('Moving platform', { id, direction })
+
+    try {
+      await platformsStore.movePlatform(id, direction)
+      logger.info('Platform moved successfully')
+    }
+    catch (error) {
+      logger.error('Failed to reorder platform', error)
+      // TODO
+      // eslint-disable-next-line no-alert
+      window.alert(t('platforms.errorOrder'))
+    }
+  }
+
+  function validateForm() {
+    if (!newPlatformName.trim()) {
+      throw new Error(t('platforms.required'))
     }
 
-    function resetForm() {
-        newPlatformName = "";
-        newPlatformUrl = "";
-        newPlatformIcon = "";
-        newPlatformEnabled = true;
-        formError = null;
+    if (!newPlatformUrl.trim()) {
+      throw new Error(t('platforms.required'))
     }
 
-    function handleIconError(event: Event) {
-        const target = event.currentTarget as HTMLImageElement | null;
-        if (target && target.src !== FALLBACK_ICON) {
-            target.src = FALLBACK_ICON;
-        }
+    try {
+      const parsed = new URL(newPlatformUrl.trim())
+      if (!parsed.protocol.startsWith('http')) {
+        // TODO
+        // eslint-disable-next-line unicorn/error-message
+        throw new Error()
+      }
+    }
+    catch {
+      throw new Error(t('platforms.invalidUrl'))
     }
 
-    async function togglePlatform(id: string) {
-        try {
-            await platformsStore.togglePlatform(id);
-        } catch (error) {
-            logger.error("Failed to toggle platform", error);
-            window.alert(t("platforms.errorToggle"));
+    if (newPlatformIcon.trim()) {
+      try {
+        const parsed = new URL(newPlatformIcon.trim())
+        if (!parsed.protocol.startsWith('http')) {
+          // TODO
+          // eslint-disable-next-line unicorn/error-message
+          throw new Error()
         }
+      }
+      catch {
+        throw new Error(t('platforms.invalidUrl'))
+      }
+    }
+  }
+
+  async function handleAddPlatform() {
+    formError = null
+
+    try {
+      validateForm()
+    }
+    catch (error) {
+      formError = error instanceof Error ? error.message : t('errors.unknownError')
+      return
     }
 
-    async function deletePlatform(id: string) {
-        if (!window.confirm(t("platforms.confirmRemove"))) return;
+    isSubmitting = true
 
-        try {
-            await platformsStore.removePlatform(id);
-        } catch (error) {
-            logger.error("Failed to delete platform", error);
-            window.alert(t("platforms.errorDelete"));
-        }
+    try {
+      await platformsStore.addPlatform({
+        name: newPlatformName.trim(),
+        url: newPlatformUrl.trim(),
+        icon: newPlatformIcon.trim() || FALLBACK_ICON,
+        enabled: newPlatformEnabled,
+      })
+      closeAddModal()
     }
-
-    function openAddModal() {
-        resetForm();
-        showAddModal = true;
+    catch (error) {
+      logger.error('Failed to add platform', error)
+      formError = t('platforms.errorAdd')
     }
-
-    function closeAddModal() {
-        showAddModal = false;
+    finally {
+      isSubmitting = false
     }
-
-    async function movePlatform(id: string, direction: "up" | "down") {
-        logger.info("Moving platform", { id, direction });
-        
-        try {
-            await platformsStore.movePlatform(id, direction);
-            logger.info("Platform moved successfully");
-        } catch (error) {
-            logger.error("Failed to reorder platform", error);
-            window.alert(t("platforms.errorOrder"));
-        }
-    }
-
-    function validateForm() {
-        if (!newPlatformName.trim()) {
-            throw new Error(t("platforms.required"));
-        }
-
-        if (!newPlatformUrl.trim()) {
-            throw new Error(t("platforms.required"));
-        }
-
-        try {
-            const parsed = new URL(newPlatformUrl.trim());
-            if (!parsed.protocol.startsWith("http")) {
-                throw new Error();
-            }
-        } catch {
-            throw new Error(t("platforms.invalidUrl"));
-        }
-
-        if (newPlatformIcon.trim()) {
-            try {
-                const parsed = new URL(newPlatformIcon.trim());
-                if (!parsed.protocol.startsWith("http")) {
-                    throw new Error();
-                }
-            } catch {
-                throw new Error(t("platforms.invalidUrl"));
-            }
-        }
-    }
-
-    async function handleAddPlatform() {
-        formError = null;
-
-        try {
-            validateForm();
-        } catch (error) {
-            formError = error instanceof Error ? error.message : t("errors.unknownError");
-            return;
-        }
-
-        isSubmitting = true;
-
-        try {
-            await platformsStore.addPlatform({
-                name: newPlatformName.trim(),
-                url: newPlatformUrl.trim(),
-                icon: newPlatformIcon.trim() || FALLBACK_ICON,
-                enabled: newPlatformEnabled,
-            });
-            closeAddModal();
-        } catch (error) {
-            logger.error("Failed to add platform", error);
-            formError = t("platforms.errorAdd");
-        } finally {
-            isSubmitting = false;
-        }
-    }
+  }
 </script>
 
-<div class="settings-section">
-    <div class="setting-group">
-        <div class="group-header">
-            <h3 class="group-title">{t("platforms.displayOrderTitle")}</h3>
-            <p class="group-description">
-                {t("platforms.displayOrderDescription")}
-            </p>
-        </div>
-
-        <div class="order-list">
-            {#if orderedPlatforms.length === 0}
-                <p class="empty-message">{t("platforms.noPlatforms")}</p>
-            {:else}
-                {#each orderedPlatforms as platform, index (platform.id)}
-                    <div class="order-item">
-                        <div class="order-info">
-                            <span class="order-number">{index + 1}</span>
-                            <img
-                                src={platform.icon || FALLBACK_ICON}
-                                alt={platform.name}
-                                class="order-icon"
-                                onerror={handleIconError}
-                            />
-                            <div class="order-details">
-                                <span class="order-name">{platform.name}</span>
-                                <span class="order-meta">
-                                    {platform.enabled ? t("common.enabled") : t("common.disabled")}
-                                    {platform.isCustom ? ` · ${t("platforms.customTag")}` : ""}
-                                </span>
-                            </div>
-                        </div>
-                        <div class="order-actions">
-                            <button
-                                type="button"
-                                class="order-btn"
-                                onclick={() => movePlatform(platform.id, "up")}
-                                disabled={index === 0}
-                                aria-label={`${t("platforms.moveUp")} ${platform.name}`}
-                            >
-                                <ArrowUp size={16} />
-                            </button>
-                            <button
-                                type="button"
-                                class="order-btn"
-                                onclick={() => movePlatform(platform.id, "down")}
-                                disabled={index === orderedPlatforms.length - 1}
-                                aria-label={`${t("platforms.moveDown")} ${platform.name}`}
-                            >
-                                <ArrowDown size={16} />
-                            </button>
-                        </div>
-                    </div>
-                {/each}
-            {/if}
-        </div>
+<div class='settings-section'>
+  <div class='setting-group'>
+    <div class='group-header'>
+      <h3 class='group-title'>{t('platforms.displayOrderTitle')}</h3>
+      <p class='group-description'>
+        {t('platforms.displayOrderDescription')}
+      </p>
     </div>
 
-    <div class="setting-group">
-        <div class="group-header">
-            <h3 class="group-title">{t("platforms.builtInTitle")}</h3>
-            <p class="group-description">{t("platforms.builtInDescription")}</p>
-        </div>
-
-        <div class="platform-list">
-            {#if platformsStore.builtInPlatforms.length === 0}
-                <p class="empty-message">{t("platforms.noPlatforms")}</p>
-            {:else}
-                {#each platformsStore.builtInPlatforms as platform (platform.id)}
-                    <div class="platform-item">
-                        <div class="platform-info">
-                            <img
-                                src={platform.icon || FALLBACK_ICON}
-                                alt={platform.name}
-                                class="platform-icon"
-                                onerror={handleIconError}
-                            />
-                            <div class="platform-details">
-                                <span class="platform-name">{platform.name}</span>
-                                <span class="platform-url">{platform.url}</span>
-                            </div>
-                        </div>
-                        <label class="toggle-switch">
-                            <input
-                                type="checkbox"
-                                checked={platform.enabled}
-                                onchange={() => togglePlatform(platform.id)}
-                            />
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-                {/each}
-            {/if}
-        </div>
-    </div>
-
-    <div class="setting-group">
-        <div class="group-header">
-            <h3 class="group-title">{t("platforms.customTitle")}</h3>
-            <Button variant="primary" size="sm" onclick={openAddModal}>
-                <Plus size={16} />
-                {t("platforms.addPlatform")}
-            </Button>
-        </div>
-
-        {#if platformsStore.customPlatforms.length === 0}
-            <div class="empty-state">
-                <p>{t("platforms.customEmpty")}</p>
-                <p class="empty-hint">{t("platforms.customEmptyHint")}</p>
+    <div class='order-list'>
+      {#if orderedPlatforms.length === 0}
+        <p class='empty-message'>{t('platforms.noPlatforms')}</p>
+      {:else}
+        {#each orderedPlatforms as platform, index (platform.id)}
+          <div class='order-item'>
+            <div class='order-info'>
+              <span class='order-number'>{index + 1}</span>
+              <img
+                src={platform.icon || FALLBACK_ICON}
+                alt={platform.name}
+                class='order-icon'
+                onerror={handleIconError}
+              />
+              <div class='order-details'>
+                <span class='order-name'>{platform.name}</span>
+                <span class='order-meta'>
+                  {platform.enabled ? t('common.enabled') : t('common.disabled')}
+                  {platform.isCustom ? ` · ${t('platforms.customTag')}` : ''}
+                </span>
+              </div>
             </div>
-        {:else}
-            <div class="platform-list">
-                {#each platformsStore.customPlatforms as platform (platform.id)}
-                    <div class="platform-item">
-                        <div class="platform-info">
-                            <img
-                                src={platform.icon || FALLBACK_ICON}
-                                alt={platform.name}
-                                class="platform-icon"
-                                onerror={handleIconError}
-                            />
-                            <div class="platform-details">
-                                <span class="platform-name">{platform.name}</span>
-                                <span class="platform-url">{platform.url}</span>
-                            </div>
-                        </div>
-                        <div class="platform-actions">
-                            <label class="toggle-switch">
-                                <input
-                                    type="checkbox"
-                                    checked={platform.enabled}
-                                    onchange={() => togglePlatform(platform.id)}
-                                />
-                                <span class="toggle-slider"></span>
-                            </label>
-                            <Button
-                                variant="icon"
-                                size="sm"
-                                onclick={() => deletePlatform(platform.id)}
-                            >
-                                <Trash2 size={16} />
-                            </Button>
-                        </div>
-                    </div>
-                {/each}
+            <div class='order-actions'>
+              <button
+                type='button'
+                class='order-btn'
+                onclick={() => movePlatform(platform.id, 'up')}
+                disabled={index === 0}
+                aria-label={`${t('platforms.moveUp')} ${platform.name}`}
+              >
+                <ArrowUp size={16} />
+              </button>
+              <button
+                type='button'
+                class='order-btn'
+                onclick={() => movePlatform(platform.id, 'down')}
+                disabled={index === orderedPlatforms.length - 1}
+                aria-label={`${t('platforms.moveDown')} ${platform.name}`}
+              >
+                <ArrowDown size={16} />
+              </button>
             </div>
-        {/if}
+          </div>
+        {/each}
+      {/if}
     </div>
+  </div>
+
+  <div class='setting-group'>
+    <div class='group-header'>
+      <h3 class='group-title'>{t('platforms.builtInTitle')}</h3>
+      <p class='group-description'>{t('platforms.builtInDescription')}</p>
+    </div>
+
+    <div class='platform-list'>
+      {#if platformsStore.builtInPlatforms.length === 0}
+        <p class='empty-message'>{t('platforms.noPlatforms')}</p>
+      {:else}
+        {#each platformsStore.builtInPlatforms as platform (platform.id)}
+          <div class='platform-item'>
+            <div class='platform-info'>
+              <img
+                src={platform.icon || FALLBACK_ICON}
+                alt={platform.name}
+                class='platform-icon'
+                onerror={handleIconError}
+              />
+              <div class='platform-details'>
+                <span class='platform-name'>{platform.name}</span>
+                <span class='platform-url'>{platform.url}</span>
+              </div>
+            </div>
+            <label class='toggle-switch'>
+              <input
+                type='checkbox'
+                checked={platform.enabled}
+                onchange={() => togglePlatform(platform.id)}
+              />
+              <span class='toggle-slider'></span>
+            </label>
+          </div>
+        {/each}
+      {/if}
+    </div>
+  </div>
+
+  <div class='setting-group'>
+    <div class='group-header'>
+      <h3 class='group-title'>{t('platforms.customTitle')}</h3>
+      <Button variant='primary' size='sm' onclick={openAddModal}>
+        <Plus size={16} />
+        {t('platforms.addPlatform')}
+      </Button>
+    </div>
+
+    {#if platformsStore.customPlatforms.length === 0}
+      <div class='empty-state'>
+        <p>{t('platforms.customEmpty')}</p>
+        <p class='empty-hint'>{t('platforms.customEmptyHint')}</p>
+      </div>
+    {:else}
+      <div class='platform-list'>
+        {#each platformsStore.customPlatforms as platform (platform.id)}
+          <div class='platform-item'>
+            <div class='platform-info'>
+              <img
+                src={platform.icon || FALLBACK_ICON}
+                alt={platform.name}
+                class='platform-icon'
+                onerror={handleIconError}
+              />
+              <div class='platform-details'>
+                <span class='platform-name'>{platform.name}</span>
+                <span class='platform-url'>{platform.url}</span>
+              </div>
+            </div>
+            <div class='platform-actions'>
+              <label class='toggle-switch'>
+                <input
+                  type='checkbox'
+                  checked={platform.enabled}
+                  onchange={() => togglePlatform(platform.id)}
+                />
+                <span class='toggle-slider'></span>
+              </label>
+              <Button
+                variant='icon'
+                size='sm'
+                onclick={() => deletePlatform(platform.id)}
+              >
+                <Trash2 size={16} />
+              </Button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
 </div>
 
 {#if showAddModal}
-    <div
-        class="modal-overlay"
-        role="button"
-        tabindex="0"
-    aria-label={t("common.close")}
-        onclick={(event) => {
-            if (event.target === event.currentTarget) closeAddModal();
-        }}
-        onkeydown={(event) => {
-            if (event.key === "Escape") {
-                event.preventDefault();
-                closeAddModal();
-            }
-            if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                closeAddModal();
-            }
-        }}
-    >
-        <div class="modal" role="dialog" aria-modal="true" tabindex="-1" use:focusOnMount>
-            <h3 class="modal-title">{t("platforms.addPlatform")}</h3>
+  <div
+    class='modal-overlay'
+    role='button'
+    tabindex='0'
+    aria-label={t('common.close')}
+    onclick={(event) => {
+      if (event.target === event.currentTarget)
+        closeAddModal()
+    }}
+    onkeydown={(event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeAddModal()
+      }
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        closeAddModal()
+      }
+    }}
+  >
+    <div class='modal' role='dialog' aria-modal='true' tabindex='-1' use:focusOnMount>
+      <h3 class='modal-title'>{t('platforms.addPlatform')}</h3>
 
-            <div class="form-group">
-                <label class="form-label" for="platform-name">
-                    {t("platforms.name")} *
-                </label>
-                <input
-                    id="platform-name"
-                    type="text"
-                    class="form-input"
-                    placeholder={t("platforms.namePlaceholder")}
-                    bind:value={newPlatformName}
-                />
-            </div>
+      <div class='form-group'>
+        <label class='form-label' for='platform-name'>
+          {t('platforms.name')} *
+        </label>
+        <input
+          id='platform-name'
+          type='text'
+          class='form-input'
+          placeholder={t('platforms.namePlaceholder')}
+          bind:value={newPlatformName}
+        />
+      </div>
 
-            <div class="form-group">
-                <label class="form-label" for="platform-url">
-                    {t("platforms.url")} *
-                </label>
-                <input
-                    id="platform-url"
-                    type="url"
-                    class="form-input"
-                    placeholder={t("platforms.urlPlaceholder")}
-                    bind:value={newPlatformUrl}
-                />
-            </div>
+      <div class='form-group'>
+        <label class='form-label' for='platform-url'>
+          {t('platforms.url')} *
+        </label>
+        <input
+          id='platform-url'
+          type='url'
+          class='form-input'
+          placeholder={t('platforms.urlPlaceholder')}
+          bind:value={newPlatformUrl}
+        />
+      </div>
 
-            <div class="form-group">
-                <label class="form-label" for="platform-icon">{t("platforms.icon")}</label>
-                <input
-                    id="platform-icon"
-                    type="url"
-                    class="form-input"
-                    placeholder={t("platforms.iconPlaceholder")}
-                    bind:value={newPlatformIcon}
-                />
-                <p class="form-hint">{t("platforms.iconOptionalHint")}</p>
-            </div>
+      <div class='form-group'>
+        <label class='form-label' for='platform-icon'>{t('platforms.icon')}</label>
+        <input
+          id='platform-icon'
+          type='url'
+          class='form-input'
+          placeholder={t('platforms.iconPlaceholder')}
+          bind:value={newPlatformIcon}
+        />
+        <p class='form-hint'>{t('platforms.iconOptionalHint')}</p>
+      </div>
 
-            <div class="toggle-field">
-                <span class="toggle-text">{t("platforms.enableAfterAdding")}</span>
-                <label class="toggle-switch">
-                    <input
-                        type="checkbox"
-                        aria-label={t("platforms.enableAfterAdding")}
-                        checked={newPlatformEnabled}
-                        onchange={() => (newPlatformEnabled = !newPlatformEnabled)}
-                    />
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+      <div class='toggle-field'>
+        <span class='toggle-text'>{t('platforms.enableAfterAdding')}</span>
+        <label class='toggle-switch'>
+          <input
+            type='checkbox'
+            aria-label={t('platforms.enableAfterAdding')}
+            checked={newPlatformEnabled}
+            onchange={() => (newPlatformEnabled = !newPlatformEnabled)}
+          />
+          <span class='toggle-slider'></span>
+        </label>
+      </div>
 
-            {#if formError}
-                <p class="form-error">{formError}</p>
-            {/if}
+      {#if formError}
+        <p class='form-error'>{formError}</p>
+      {/if}
 
-            <div class="modal-actions">
-                <Button variant="secondary" size="sm" onclick={closeAddModal}>
-                    {t("common.cancel")}
-                </Button>
-                <Button
-                    variant="primary"
-                    size="sm"
-                    onclick={handleAddPlatform}
-                    disabled={isSubmitting}
-                >
-                    {isSubmitting ? t("common.loading") : t("platforms.addPlatform")}
-                </Button>
-            </div>
-        </div>
+      <div class='modal-actions'>
+        <Button variant='secondary' size='sm' onclick={closeAddModal}>
+          {t('common.cancel')}
+        </Button>
+        <Button
+          variant='primary'
+          size='sm'
+          onclick={handleAddPlatform}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? t('common.loading') : t('platforms.addPlatform')}
+        </Button>
+      </div>
     </div>
+  </div>
 {/if}
 
 <style>

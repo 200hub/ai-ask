@@ -1,20 +1,20 @@
 /**
  * 内置AI平台配置
  */
-import type { AIPlatform, TranslationPlatform } from "../types/platform";
+import type { AIPlatform, TranslationPlatform } from '../types/platform'
 
+import tongyiIcon from '$lib/assets/platform-icons/alibabacloud.svg'
+import anthropicIcon from '$lib/assets/platform-icons/anthropic.svg'
+import wenxinIcon from '$lib/assets/platform-icons/baidu.svg'
+import doubaoIcon from '$lib/assets/platform-icons/bytedance.svg'
 // 引入静态图标，确保 Tauri 安全策略下也能正常显示
-import chatgptIcon from "$lib/assets/platform-icons/chatgpt.svg";
-import anthropicIcon from "$lib/assets/platform-icons/anthropic.svg";
-import geminiIcon from "$lib/assets/platform-icons/gemini.svg";
-import copilotIcon from "$lib/assets/platform-icons/copilot.svg";
-import grokIcon from "$lib/assets/platform-icons/grok.svg";
-import deepseekIcon from "$lib/assets/platform-icons/deepseek.svg";
-import kimiIcon from "$lib/assets/platform-icons/kimi.svg";
-import tongyiIcon from "$lib/assets/platform-icons/alibabacloud.svg";
-import wenxinIcon from "$lib/assets/platform-icons/baidu.svg";
-import doubaoIcon from "$lib/assets/platform-icons/bytedance.svg";
-import yuanbaoIcon from "$lib/assets/platform-icons/tencent.svg";
+import chatgptIcon from '$lib/assets/platform-icons/chatgpt.svg'
+import copilotIcon from '$lib/assets/platform-icons/copilot.svg'
+import deepseekIcon from '$lib/assets/platform-icons/deepseek.svg'
+import geminiIcon from '$lib/assets/platform-icons/gemini.svg'
+import grokIcon from '$lib/assets/platform-icons/grok.svg'
+import kimiIcon from '$lib/assets/platform-icons/kimi.svg'
+import yuanbaoIcon from '$lib/assets/platform-icons/tencent.svg'
 
 /**
  * 内置AI平台列表
@@ -22,50 +22,50 @@ import yuanbaoIcon from "$lib/assets/platform-icons/tencent.svg";
 export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   // 国际平台
   {
-    id: "chatgpt",
-    name: "ChatGPT",
+    id: 'chatgpt',
+    name: 'ChatGPT',
     icon: chatgptIcon,
-    url: "https://chat.openai.com",
+    url: 'https://chat.openai.com',
     enabled: true,
     isCustom: false,
     sortOrder: 1,
     selectionToolbarAvailable: true,
   },
   {
-    id: "claude",
-    name: "Claude",
+    id: 'claude',
+    name: 'Claude',
     icon: anthropicIcon,
-    url: "https://claude.ai",
+    url: 'https://claude.ai',
     enabled: true,
     isCustom: false,
     sortOrder: 2,
     selectionToolbarAvailable: true,
   },
   {
-    id: "gemini",
-    name: "Gemini",
+    id: 'gemini',
+    name: 'Gemini',
     icon: geminiIcon,
-    url: "https://gemini.google.com",
+    url: 'https://gemini.google.com',
     enabled: true,
     isCustom: false,
     sortOrder: 3,
     selectionToolbarAvailable: true,
   },
   {
-    id: "copilot",
-    name: "Copilot",
+    id: 'copilot',
+    name: 'Copilot',
     icon: copilotIcon,
-    url: "https://copilot.microsoft.com",
+    url: 'https://copilot.microsoft.com',
     enabled: true,
     isCustom: false,
     sortOrder: 4,
     selectionToolbarAvailable: false,
   },
   {
-    id: "grok",
-    name: "Grok",
+    id: 'grok',
+    name: 'Grok',
     icon: grokIcon,
-    url: "https://grok.x.ai",
+    url: 'https://grok.x.ai',
     enabled: true,
     isCustom: false,
     sortOrder: 5,
@@ -73,171 +73,171 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
   },
   // 国内平台
   {
-    id: "deepseek",
-    name: "DeepSeek",
+    id: 'deepseek',
+    name: 'DeepSeek',
     icon: deepseekIcon,
-    url: "https://chat.deepseek.com",
+    url: 'https://chat.deepseek.com',
     enabled: true,
     isCustom: false,
     sortOrder: 7,
     selectionToolbarAvailable: true,
   },
   {
-    id: "kimi",
-    name: "Kimi",
+    id: 'kimi',
+    name: 'Kimi',
     icon: kimiIcon,
-    url: "https://kimi.moonshot.cn",
+    url: 'https://kimi.moonshot.cn',
     enabled: true,
     isCustom: false,
     sortOrder: 8,
     selectionToolbarAvailable: false,
   },
   {
-    id: "tongyi",
-    name: "通义千问",
+    id: 'tongyi',
+    name: '通义千问',
     icon: tongyiIcon,
-    url: "https://tongyi.aliyun.com/qianwen",
+    url: 'https://tongyi.aliyun.com/qianwen',
     enabled: true,
     isCustom: false,
     sortOrder: 9,
     selectionToolbarAvailable: false,
   },
   {
-    id: "wenxin",
-    name: "文心一言",
+    id: 'wenxin',
+    name: '文心一言',
     icon: wenxinIcon,
-    url: "https://yiyan.baidu.com",
+    url: 'https://yiyan.baidu.com',
     enabled: true,
     isCustom: false,
     sortOrder: 10,
     selectionToolbarAvailable: false,
   },
   {
-    id: "doubao",
-    name: "豆包",
+    id: 'doubao',
+    name: '豆包',
     icon: doubaoIcon,
-    url: "https://www.doubao.com",
+    url: 'https://www.doubao.com',
     enabled: true,
     isCustom: false,
     sortOrder: 11,
     selectionToolbarAvailable: false,
   },
   {
-    id: "yuanbao",
-    name: "腾讯元宝",
+    id: 'yuanbao',
+    name: '腾讯元宝',
     icon: yuanbaoIcon,
-    url: "https://yuanbao.tencent.com",
+    url: 'https://yuanbao.tencent.com',
     enabled: true,
     isCustom: false,
     sortOrder: 12,
     selectionToolbarAvailable: false,
   },
-];
+]
 
 /**
  * 内置翻译平台列表
  */
 export const BUILT_IN_TRANSLATION_PLATFORMS: TranslationPlatform[] = [
   {
-    id: "google",
-    name: "Google翻译",
-    icon: "https://ssl.gstatic.com/translate/favicon.ico",
-    url: "https://translate.google.com/?sl=auto&tl=zh-CN&op=translate",
+    id: 'google',
+    name: 'Google翻译',
+    icon: 'https://ssl.gstatic.com/translate/favicon.ico',
+    url: 'https://translate.google.com/?sl=auto&tl=zh-CN&op=translate',
     enabled: true,
-    supportLanguages: ["zh-CN", "en", "ja", "ko", "fr", "de", "es", "ru"],
+    supportLanguages: ['zh-CN', 'en', 'ja', 'ko', 'fr', 'de', 'es', 'ru'],
   },
   {
-    id: "deepl",
-    name: "DeepL",
-    icon: "https://www.deepl.com/img/favicon/favicon_96.png",
-    url: "https://www.deepl.com/translator#auto/zh/",
+    id: 'deepl',
+    name: 'DeepL',
+    icon: 'https://www.deepl.com/img/favicon/favicon_96.png',
+    url: 'https://www.deepl.com/translator#auto/zh/',
     enabled: true,
-    supportLanguages: ["zh-CN", "en", "ja", "de", "fr", "es", "it", "nl", "pl", "pt", "ru"],
+    supportLanguages: ['zh-CN', 'en', 'ja', 'de', 'fr', 'es', 'it', 'nl', 'pl', 'pt', 'ru'],
   },
   {
-    id: "youdao",
-    name: "有道翻译",
-    icon: "https://shared.ydstatic.com/images/favicon.ico",
-    url: "https://fanyi.youdao.com",
+    id: 'youdao',
+    name: '有道翻译',
+    icon: 'https://shared.ydstatic.com/images/favicon.ico',
+    url: 'https://fanyi.youdao.com',
     enabled: true,
-    supportLanguages: ["zh-CN", "en", "ja", "ko", "fr", "de", "es", "ru"],
+    supportLanguages: ['zh-CN', 'en', 'ja', 'ko', 'fr', 'de', 'es', 'ru'],
   },
   {
-    id: "baidu",
-    name: "百度翻译",
-    icon: "https://fanyi.baidu.com/favicon.ico",
-    url: "https://fanyi.baidu.com",
+    id: 'baidu',
+    name: '百度翻译',
+    icon: 'https://fanyi.baidu.com/favicon.ico',
+    url: 'https://fanyi.baidu.com',
     enabled: true,
-    supportLanguages: ["zh-CN", "en", "ja", "ko", "fr", "de", "es", "ru", "th", "ar"],
+    supportLanguages: ['zh-CN', 'en', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'th', 'ar'],
   },
   {
-    id: "bing",
-    name: "微软翻译",
-    icon: "https://www.bing.com/favicon.ico",
-    url: "https://www.bing.com/translator",
+    id: 'bing',
+    name: '微软翻译',
+    icon: 'https://www.bing.com/favicon.ico',
+    url: 'https://www.bing.com/translator',
     enabled: true,
-    supportLanguages: ["zh-CN", "en", "ja", "ko", "fr", "de", "es", "ru", "ar", "hi"],
+    supportLanguages: ['zh-CN', 'en', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'ar', 'hi'],
   },
-];
+]
 
 /**
  * 应用信息
  */
 export const APP_INFO = {
-  name: "AI Ask",
-  version: "0.0.1-alpha.13",
-  description: "一个简洁高效的AI问答助手",
-  author: "AI Ask Team",
-  repository: "https://github.com/200hub/ai-ask",
+  name: 'AI Ask',
+  version: '0.0.1-alpha.13',
+  description: '一个简洁高效的AI问答助手',
+  author: 'AI Ask Team',
+  repository: 'https://github.com/200hub/ai-ask',
   /** 缺陷反馈（Issues）页面地址 */
-  issues: "https://github.com/200hub/ai-ask/issues",
-};
+  issues: 'https://github.com/200hub/ai-ask/issues',
+}
 
 /**
  * 更新相关事件常量
  */
 export const UPDATE_EVENTS = {
-  AVAILABLE: "update:available",
-  DOWNLOADING: "update:downloading",
-  DOWNLOADED: "update:downloaded",
-  available: "update:available",
-  downloading: "update:downloading",
-  downloaded: "update:downloaded",
-} as const;
+  AVAILABLE: 'update:available',
+  DOWNLOADING: 'update:downloading',
+  DOWNLOADED: 'update:downloaded',
+  available: 'update:available',
+  downloading: 'update:downloading',
+  downloaded: 'update:downloaded',
+} as const
 
 /**
  * 快捷键列表（用于配置界面展示）
  */
 export const AVAILABLE_SHORTCUTS = [
-  "CommandOrControl+Shift+A",
-  "CommandOrControl+Shift+Q",
-  "CommandOrControl+Shift+W",
-  "CommandOrControl+Shift+E",
-  "CommandOrControl+Alt+A",
-  "CommandOrControl+Alt+Q",
-  "Alt+Shift+A",
-  "Alt+Shift+Q",
-];
+  'CommandOrControl+Shift+A',
+  'CommandOrControl+Shift+Q',
+  'CommandOrControl+Shift+W',
+  'CommandOrControl+Shift+E',
+  'CommandOrControl+Alt+A',
+  'CommandOrControl+Alt+Q',
+  'Alt+Shift+A',
+  'Alt+Shift+Q',
+]
 
 /**
  * 翻译快捷键列表
  */
 export const TRANSLATION_SHORTCUTS = [
-  "CommandOrControl+Shift+T",
-  "CommandOrControl+Shift+Y",
-  "CommandOrControl+Alt+T",
-  "Alt+Shift+T",
-];
+  'CommandOrControl+Shift+T',
+  'CommandOrControl+Shift+Y',
+  'CommandOrControl+Alt+T',
+  'Alt+Shift+T',
+]
 
 /**
  * 划词工具栏快捷键列表
  */
 export const SELECTION_TOOLBAR_SHORTCUTS = [
-  "CommandOrControl+Shift+S",
-  "CommandOrControl+Shift+D",
-  "CommandOrControl+Alt+S",
-  "Alt+Shift+S",
-];
+  'CommandOrControl+Shift+S',
+  'CommandOrControl+Shift+D',
+  'CommandOrControl+Alt+S',
+  'Alt+Shift+S',
+]
 
 /**
  * 默认窗口配置
@@ -247,7 +247,7 @@ export const DEFAULT_WINDOW_CONFIG = {
   height: 800,
   minWidth: 900,
   minHeight: 600,
-};
+}
 
 /**
  * 侧边栏配置
@@ -256,7 +256,7 @@ export const SIDEBAR_CONFIG = {
   width: 70,
   iconSize: 40,
   gap: 12,
-};
+}
 
 /**
  * 时间相关常量（毫秒）
@@ -266,7 +266,7 @@ export const TIMING = {
   SHORTCUT_THROTTLE_MS: 350,
   /** 隐藏窗口前等待时间 */
   HIDE_WINDOW_DELAY_MS: 100,
-  /** 代理测试超时时间（秒）*/
+  /** 代理测试超时时间（秒） */
   PROXY_TEST_TIMEOUT_SECS: 10,
   /** 错误消息自动清除时间 */
   ERROR_AUTO_CLEAR_MS: 5000,
@@ -283,41 +283,41 @@ export const TIMING = {
   EXISTING_WEBVIEW_READY_TIMEOUT_MS: 2000,
   /** 显示加载状态的最小延迟（毫秒） - 如果 WebView 很快就绪，不显示加载动画 */
   LOADING_INDICATOR_MIN_DELAY_MS: 500,
-} as const;
+} as const
 
 /**
  * 网络相关常量
  */
 export const NETWORK = {
   /** 代理测试目标 URL */
-  PROXY_TEST_URL: "https://www.example.com",
+  PROXY_TEST_URL: 'https://www.example.com',
   /** HTTP 重定向限制次数 */
   HTTP_REDIRECT_LIMIT: 5,
-} as const;
+} as const
 
 /**
  * 事件名称常量
  */
 export const EVENTS = {
   /** 隐藏所有 webviews 事件 */
-  HIDE_ALL_WEBVIEWS: "hideAllWebviews",
+  HIDE_ALL_WEBVIEWS: 'hideAllWebviews',
   /** 恢复 webviews 事件 */
-  RESTORE_WEBVIEWS: "restoreWebviews",
+  RESTORE_WEBVIEWS: 'restoreWebviews',
   /** 打开设置事件 */
-  OPEN_SETTINGS: "open-settings",
+  OPEN_SETTINGS: 'open-settings',
   /** 翻译快捷键触发事件 */
-  TRANSLATION_HOTKEY_TRIGGERED: "translation-hotkey-triggered",
+  TRANSLATION_HOTKEY_TRIGGERED: 'translation-hotkey-triggered',
   /** 确保翻译可见事件 */
-  ENSURE_TRANSLATION_VISIBLE: "ensureTranslationVisible",
+  ENSURE_TRANSLATION_VISIBLE: 'ensureTranslationVisible',
   /** 子 WebView 页面开始加载 */
-  CHILD_WEBVIEW_LOAD_STARTED: "child-webview:load-started",
+  CHILD_WEBVIEW_LOAD_STARTED: 'child-webview:load-started',
   /** 子 WebView 页面加载完成 */
-  CHILD_WEBVIEW_READY: "child-webview:ready",
+  CHILD_WEBVIEW_READY: 'child-webview:ready',
   /** 注入结果（通过特殊导航传回） */
-  CHILD_WEBVIEW_INJECTION_RESULT: "child-webview:injection-result",
+  CHILD_WEBVIEW_INJECTION_RESULT: 'child-webview:injection-result',
   /** 划词工具栏临时禁用状态更新事件 */
-  SELECTION_TOOLBAR_TEMP_DISABLE_CHANGED: "selection-toolbar:temporary-disable-changed",
-} as const;
+  SELECTION_TOOLBAR_TEMP_DISABLE_CHANGED: 'selection-toolbar:temporary-disable-changed',
+} as const
 
 /**
  * 注入相关常量
@@ -334,14 +334,14 @@ export const INJECTION = {
   /** AI 聊天轮询间隔（毫秒） */
   CHAT_POLL_INTERVAL_MS: 1000,
   /** 默认提取输出格式 */
-  DEFAULT_EXTRACT_OUTPUT_FORMAT: "text" as const,
-} as const;
+  DEFAULT_EXTRACT_OUTPUT_FORMAT: 'text' as const,
+} as const
 
 // Export individual constants for convenience
-export const DEFAULT_INJECTION_TIMEOUT = INJECTION.DEFAULT_TIMEOUT_MS;
-export const DEFAULT_MAX_RETRIES = INJECTION.DEFAULT_MAX_RETRIES;
-export const INJECTION_RETRY_DELAY = INJECTION.RETRY_DELAY_MS;
-export const DEFAULT_EXTRACT_OUTPUT_FORMAT = INJECTION.DEFAULT_EXTRACT_OUTPUT_FORMAT;
+export const DEFAULT_INJECTION_TIMEOUT = INJECTION.DEFAULT_TIMEOUT_MS
+export const DEFAULT_MAX_RETRIES = INJECTION.DEFAULT_MAX_RETRIES
+export const INJECTION_RETRY_DELAY = INJECTION.RETRY_DELAY_MS
+export const DEFAULT_EXTRACT_OUTPUT_FORMAT = INJECTION.DEFAULT_EXTRACT_OUTPUT_FORMAT
 
 /**
  * 代码语言识别相关常量
@@ -351,71 +351,71 @@ export const KNOWN_CODE_LANGUAGES = [
   // 1. 语言识别归一化校验（见 injection-format.ts）
   // 2. 生成 fenced code block 的语言前缀
   // 3. 后续扩展时可直接在此追加，避免散落硬编码
-  "assembly",
-  "bash",
-  "c",
-  "csharp",
-  "cpp",
-  "css",
-  "dart",
-  "elixir",
-  "erlang",
-  "go",
-  "graphql",
-  "html",
-  "java",
-  "javascript",
-  "json",
-  "kotlin",
-  "lua",
-  "markdown",
-  "objective-c",
-  "perl",
-  "php",
-  "plaintext",
-  "powershell",
-  "python",
-  "r",
-  "ruby",
-  "rust",
-  "scala",
-  "sql",
-  "swift",
-  "typescript",
-  "xml",
-  "yaml",
-] as const;
+  'assembly',
+  'bash',
+  'c',
+  'csharp',
+  'cpp',
+  'css',
+  'dart',
+  'elixir',
+  'erlang',
+  'go',
+  'graphql',
+  'html',
+  'java',
+  'javascript',
+  'json',
+  'kotlin',
+  'lua',
+  'markdown',
+  'objective-c',
+  'perl',
+  'php',
+  'plaintext',
+  'powershell',
+  'python',
+  'r',
+  'ruby',
+  'rust',
+  'scala',
+  'sql',
+  'swift',
+  'typescript',
+  'xml',
+  'yaml',
+] as const
 
 export const CODE_LANGUAGE_ALIASES: Record<string, string> = {
   // 常用别名映射：兼容平台 DOM 中常出现的缩写/变体，统一到 KNOWN_CODE_LANGUAGES
-  js: "javascript",
-  jsx: "javascript",
-  node: "javascript",
-  ts: "typescript",
-  tsx: "typescript",
-  py: "python",
-  sh: "bash",
-  shell: "bash",
-  shellscript: "bash",
-  zsh: "bash",
-  bash: "bash",
-  ps: "powershell",
-  ps1: "powershell",
-  powershell: "powershell",
-  cplusplus: "cpp",
-  "c++": "cpp",
-  "c#": "csharp",
-  cs: "csharp",
-  golang: "go",
-  objc: "objective-c",
-  objectivec: "objective-c",
-  yml: "yaml",
-  plain: "plaintext",
-  plaintext: "plaintext",
-  text: "plaintext",
-};
+  'js': 'javascript',
+  'jsx': 'javascript',
+  'node': 'javascript',
+  'ts': 'typescript',
+  'tsx': 'typescript',
+  'py': 'python',
+  'sh': 'bash',
+  'shell': 'bash',
+  'shellscript': 'bash',
+  'zsh': 'bash',
+  'bash': 'bash',
+  'ps': 'powershell',
+  'ps1': 'powershell',
+  'powershell': 'powershell',
+  'cplusplus': 'cpp',
+  'c++': 'cpp',
+  'c#': 'csharp',
+  'cs': 'csharp',
+  'golang': 'go',
+  'objc': 'objective-c',
+  'objectivec': 'objective-c',
+  'yml': 'yaml',
+  'plain': 'plaintext',
+  'plaintext': 'plaintext',
+  'text': 'plaintext',
+}
 
-export const CODE_LANGUAGE_LABEL_MAX_LENGTH = 32;
+export const CODE_LANGUAGE_LABEL_MAX_LENGTH = 32
 // 语言标签最大长度：防止把整段描述性文字误识别为语言（仅接受短 token）
 
 /**
@@ -430,13 +430,13 @@ export const CLIPBOARD = {
   MIN_NON_WHITESPACE: 1,
   /** 使用 execCommand 回退方案时隐藏 textarea 的屏幕位置（像素） */
   OFFSCREEN_POSITION_PX: -9999,
-} as const;
+} as const
 
 /**
  * 调试 / 注入 UI 相关常量
  * 为顶部浮动调试控件预留的逻辑像素高度
  */
-export const DEBUG_FLOATING_CONTROLS_OFFSET = 120;
+export const DEBUG_FLOATING_CONTROLS_OFFSET = 120
 
 /**
  * 划词工具栏配置常量
@@ -462,7 +462,7 @@ export const SELECTION_TOOLBAR = {
   TEMP_DISABLE_DURATION_MS: 15 * 60 * 1000,
   /** 临时禁用预设时长列表（毫秒） */
   TEMP_DISABLE_PRESETS_MS: [5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000, 60 * 60 * 1000] as const,
-} as const;
+} as const
 
 /**
  * 翻译平台语言代码映射
@@ -471,40 +471,40 @@ export const SELECTION_TOOLBAR = {
 export const TRANSLATION_LANG_CODES = {
   /** Google Translate 语言代码 */
   google: {
-    "zh-CN": "zh-CN",
-    "en-US": "en",
-    "ja-JP": "ja",
-    "ko-KR": "ko",
+    'zh-CN': 'zh-CN',
+    'en-US': 'en',
+    'ja-JP': 'ja',
+    'ko-KR': 'ko',
   },
   /** DeepL 语言代码 */
   deepl: {
-    "zh-CN": "zh",
-    "en-US": "en",
-    "ja-JP": "ja",
-    "ko-KR": "ko",
+    'zh-CN': 'zh',
+    'en-US': 'en',
+    'ja-JP': 'ja',
+    'ko-KR': 'ko',
   },
   /** 有道翻译语言代码 */
   youdao: {
-    "zh-CN": "zh-CHS",
-    "en-US": "en",
-    "ja-JP": "ja",
-    "ko-KR": "ko",
+    'zh-CN': 'zh-CHS',
+    'en-US': 'en',
+    'ja-JP': 'ja',
+    'ko-KR': 'ko',
   },
   /** 百度翻译语言代码 */
   baidu: {
-    "zh-CN": "zh",
-    "en-US": "en",
-    "ja-JP": "jp",
-    "ko-KR": "kor",
+    'zh-CN': 'zh',
+    'en-US': 'en',
+    'ja-JP': 'jp',
+    'ko-KR': 'kor',
   },
   /** Bing Translator 语言代码 */
   bing: {
-    "zh-CN": "zh-Hans",
-    "en-US": "en",
-    "ja-JP": "ja",
-    "ko-KR": "ko",
+    'zh-CN': 'zh-Hans',
+    'en-US': 'en',
+    'ja-JP': 'ja',
+    'ko-KR': 'ko',
   },
-} as const;
+} as const
 
 /**
  * 翻译注入相关常量（Translation injection）
@@ -524,4 +524,4 @@ export const TRANSLATION_INJECTION = {
   MAX_RETRIES: 3,
   /** 重试之间的等待时间（毫秒） */
   RETRY_DELAY_MS: 600,
-} as const;
+} as const

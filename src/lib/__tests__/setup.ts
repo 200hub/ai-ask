@@ -1,34 +1,34 @@
-import { beforeEach, vi } from "vitest";
+import { beforeEach, vi } from 'vitest'
 
 const log = {
   debug: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
-};
+}
 
-vi.mock("$lib/utils/logger", () => ({ logger: log, log }));
+vi.mock('$lib/utils/logger', () => ({ logger: log, log }))
 
 beforeEach(() => {
-  log.debug.mockClear();
-  log.info.mockClear();
-  log.warn.mockClear();
-  log.error.mockClear();
-});
+  log.debug.mockClear()
+  log.info.mockClear()
+  log.warn.mockClear()
+  log.error.mockClear()
+})
 
-type MatchMediaResult = {
-  matches: boolean;
-  media: string;
-  addEventListener: (type: string, listener: () => void) => void;
-  removeEventListener: (type: string, listener: () => void) => void;
-  onchange: null;
-  addListener: (listener: () => void) => void;
-  removeListener: (listener: () => void) => void;
-  dispatchEvent: () => boolean;
-};
+interface MatchMediaResult {
+  matches: boolean
+  media: string
+  addEventListener: (type: string, listener: () => void) => void
+  removeEventListener: (type: string, listener: () => void) => void
+  onchange: null
+  addListener: (listener: () => void) => void
+  removeListener: (listener: () => void) => void
+  dispatchEvent: () => boolean
+}
 
-if (typeof window !== "undefined" && !window.matchMedia) {
-  Object.defineProperty(window, "matchMedia", {
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: vi.fn().mockImplementation(
       (query: string): MatchMediaResult => ({
@@ -42,5 +42,5 @@ if (typeof window !== "undefined" && !window.matchMedia) {
         dispatchEvent: () => false,
       }),
     ),
-  });
+  })
 }

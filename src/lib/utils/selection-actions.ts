@@ -4,90 +4,91 @@
  * 提供翻译和AI解释的注入逻辑
  */
 
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import type { ClickAction, FillTextAction, InjectionAction } from '$lib/types/injection'
+import type { AIPlatform, TranslationPlatform } from '$lib/types/platform'
 
-import { i18n } from "$lib/i18n";
-import { appState } from "$lib/stores/app.svelte";
-import { configStore } from "$lib/stores/config.svelte";
-import { translationStore } from "$lib/stores/translation.svelte";
-import { platformsStore } from "$lib/stores/platforms.svelte";
-import { generateInjectionScript } from "$lib/utils/injection";
-import { logger } from "$lib/utils/logger";
-import { EVENTS, TIMING, TRANSLATION_INJECTION } from "$lib/utils/constants";
+import { i18n } from '$lib/i18n'
+import { appState } from '$lib/stores/app.svelte'
+import { configStore } from '$lib/stores/config.svelte'
+import { platformsStore } from '$lib/stores/platforms.svelte'
+import { translationStore } from '$lib/stores/translation.svelte'
+import { EVENTS, TIMING, TRANSLATION_INJECTION } from '$lib/utils/constants'
+import { generateInjectionScript } from '$lib/utils/injection'
 import {
   getDefaultChatTemplate,
   getDefaultTranslationTemplate,
-} from "$lib/utils/injection-templates";
-import type { AIPlatform, TranslationPlatform } from "$lib/types/platform";
-import type { ClickAction, FillTextAction, InjectionAction } from "$lib/types/injection";
+} from '$lib/utils/injection-templates'
+import { logger } from '$lib/utils/logger'
+import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 
-type WebviewReadyEntry = {
-  ready: boolean;
-  resolvers: Array<() => void>;
-};
+interface WebviewReadyEntry {
+  ready: boolean
+  resolvers: Array<() => void>
+}
 
-const webviewReadyState = new Map<string, WebviewReadyEntry>();
-let webviewEventListenersRegistered = false;
-const t = i18n.t;
+const webviewReadyState = new Map<string, WebviewReadyEntry>()
+let webviewEventListenersRegistered = false
+const t = i18n.t
 
 function getOrCreateReadyEntry(id: string): WebviewReadyEntry {
-  const existing = webviewReadyState.get(id);
+  const existing = webviewReadyState.get(id)
   if (existing) {
-    return existing;
+    return existing
   }
 
   const entry: WebviewReadyEntry = {
     ready: false,
     resolvers: [],
-  };
-  webviewReadyState.set(id, entry);
-  return entry;
+  }
+  webviewReadyState.set(id, entry)
+  return entry
 }
 
 function markWebviewLoading(id: string): void {
-  const entry = getOrCreateReadyEntry(id);
-  entry.ready = false;
+  const entry = getOrCreateReadyEntry(id)
+  entry.ready = false
 }
 
 function markWebviewReady(id: string): void {
-  const entry = getOrCreateReadyEntry(id);
-  entry.ready = true;
-  const resolvers = [...entry.resolvers];
-  entry.resolvers = [];
-  resolvers.forEach((resolver) => resolver());
+  const entry = getOrCreateReadyEntry(id)
+  entry.ready = true
+  const resolvers = [...entry.resolvers]
+  entry.resolvers = []
+  resolvers.forEach(resolver => resolver())
 }
 
 async function ensureWebviewEventListeners(): Promise<void> {
-  if (webviewEventListenersRegistered || typeof window === "undefined") {
-    return;
+  if (webviewEventListenersRegistered || typeof window === 'undefined') {
+    return
   }
 
   try {
-    const mainWindow = getCurrentWebviewWindow();
+    const mainWindow = getCurrentWebviewWindow()
 
     await Promise.all([
       mainWindow.listen(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, (event) => {
-        const payload = event.payload as { id?: string } | undefined;
+        const payload = event.payload as { id?: string } | undefined
         if (!payload?.id) {
-          return;
+          return
         }
 
-        markWebviewLoading(payload.id);
+        markWebviewLoading(payload.id)
       }),
       mainWindow.listen(EVENTS.CHILD_WEBVIEW_READY, (event) => {
-        const payload = event.payload as { id?: string } | undefined;
+        const payload = event.payload as { id?: string } | undefined
         if (!payload?.id) {
-          return;
+          return
         }
 
-        markWebviewReady(payload.id);
+        markWebviewReady(payload.id)
       }),
-    ]);
+    ])
 
-    webviewEventListenersRegistered = true;
-  } catch (error) {
-    logger.warn("Failed to register child webview readiness listeners", error);
+    webviewEventListenersRegistered = true
+  }
+  catch (error) {
+    logger.warn('Failed to register child webview readiness listeners', error)
   }
 }
 
@@ -101,84 +102,85 @@ async function ensureWebviewEventListeners(): Promise<void> {
  * 注意：超时时间只是保护上限，如果页面提前加载完成，会立即继续执行
  */
 async function waitForWebviewReady(id: string): Promise<void> {
-  await ensureWebviewEventListeners();
+  await ensureWebviewEventListeners()
 
   // 检查 WebView 是否已存在，自动选择合适的超时时间
-  let alreadyExists = false;
+  let alreadyExists = false
   try {
-    alreadyExists = await invoke<boolean>("check_child_webview_exists", {
+    alreadyExists = await invoke<boolean>('check_child_webview_exists', {
       payload: { id },
-    });
-  } catch (error) {
-    logger.warn("Failed to check webview existence, assuming new", { webviewId: id, error });
+    })
+  }
+  catch (error) {
+    logger.warn('Failed to check webview existence, assuming new', { webviewId: id, error })
   }
 
   const timeoutMs = alreadyExists
     ? TIMING.EXISTING_WEBVIEW_READY_TIMEOUT_MS
-    : TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS;
+    : TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS
 
-  const startTime = Date.now();
-  logger.info("Waiting for webview ready (smart timeout)", {
+  const startTime = Date.now()
+  logger.info('Waiting for webview ready (smart timeout)', {
     webviewId: id,
     alreadyExists,
     timeoutMs,
-  });
+  })
 
-  const entry = webviewReadyState.get(id);
+  const entry = webviewReadyState.get(id)
   if (entry?.ready) {
-    logger.info("Webview already ready, skipping wait", { webviewId: id });
-    return;
+    logger.info('Webview already ready, skipping wait', { webviewId: id })
+    return
   }
 
   await new Promise<void>((resolve) => {
-    const targetEntry = entry ?? getOrCreateReadyEntry(id);
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const targetEntry = entry ?? getOrCreateReadyEntry(id)
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
 
     const wrappedResolve = (): void => {
       if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-        timeoutHandle = undefined;
+        clearTimeout(timeoutHandle)
+        timeoutHandle = undefined
       }
 
-      const currentEntry = webviewReadyState.get(id);
+      const currentEntry = webviewReadyState.get(id)
       if (currentEntry) {
         currentEntry.resolvers = currentEntry.resolvers.filter(
-          (resolver) => resolver !== wrappedResolve,
-        );
-        currentEntry.ready = true;
+          resolver => resolver !== wrappedResolve,
+        )
+        currentEntry.ready = true
       }
 
-      const actualWaitTime = Date.now() - startTime;
-      logger.info("Webview ready event received", {
+      const actualWaitTime = Date.now() - startTime
+      logger.info('Webview ready event received', {
         webviewId: id,
         actualWaitMs: actualWaitTime,
         wasTimeout: false,
-      });
+      })
 
-      resolve();
-    };
+      resolve()
+    }
 
     timeoutHandle = setTimeout(() => {
-      const currentEntry = webviewReadyState.get(id);
+      const currentEntry = webviewReadyState.get(id)
       if (currentEntry) {
         currentEntry.resolvers = currentEntry.resolvers.filter(
-          (resolver) => resolver !== wrappedResolve,
-        );
+          resolver => resolver !== wrappedResolve,
+        )
       }
 
-      const actualWaitTime = Date.now() - startTime;
-      logger.warn("Wait for child webview ready timed out, proceeding anyway", {
+      const actualWaitTime = Date.now() - startTime
+      logger.warn('Wait for child webview ready timed out, proceeding anyway', {
         webviewId: id,
         timeoutMs,
         actualWaitMs: actualWaitTime,
         alreadyExists,
         wasTimeout: true,
-      });
-      resolve();
-    }, timeoutMs);
+      })
+      resolve()
+    }, timeoutMs)
 
-    targetEntry.resolvers.push(wrappedResolve);
-  });
+    targetEntry.resolvers.push(wrappedResolve)
+  })
 }
 
 /**
@@ -193,48 +195,50 @@ async function waitForWebviewReady(id: string): Promise<void> {
  */
 export async function executeTranslation(selectedText: string): Promise<void> {
   try {
-    logger.info("Executing translation", { textLength: selectedText.length });
+    logger.info('Executing translation', { textLength: selectedText.length })
 
     // 切换到翻译视图
-    const currentTranslatorId = configStore.config.currentTranslator;
+    const currentTranslatorId = configStore.config.currentTranslator
     const currentTranslator = currentTranslatorId
       ? translationStore.getPlatformById(currentTranslatorId)
-      : null;
+      : null
 
     if (!currentTranslator || !currentTranslator.enabled) {
-      logger.warn("No translation platform available for selection toolbar", {
-        translatorId: currentTranslatorId ?? "unknown",
-      });
-      appState.setError(t("errors.selectionToolbar.noTranslatorConfigured"));
-      return;
+      logger.warn('No translation platform available for selection toolbar', {
+        translatorId: currentTranslatorId ?? 'unknown',
+      })
+      appState.setError(t('errors.selectionToolbar.noTranslatorConfigured'))
+      return
     }
 
     // 立即切换视图，给用户即时反馈（不等待 WebView 加载）
-    appState.switchToTranslationView();
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("ensureTranslationVisible"));
+    appState.switchToTranslationView()
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ensureTranslationVisible'))
     }
 
-    const webviewId = `translator-${currentTranslator.id}`;
+    const webviewId = `translator-${currentTranslator.id}`
 
     // 在后台异步执行加载和注入，不阻塞当前操作
     // 使用 void 明确表示我们不等待这个 Promise
     void (async () => {
       try {
-        await waitForWebviewReady(webviewId);
-        await injectTranslationText(selectedText, currentTranslator, webviewId);
-        logger.info("Translation executed successfully");
-      } catch (error) {
-        logger.error("Failed to inject translation text in background", error);
-        appState.setError(t("errors.selectionToolbar.translationFailed"));
+        await waitForWebviewReady(webviewId)
+        await injectTranslationText(selectedText, currentTranslator, webviewId)
+        logger.info('Translation executed successfully')
       }
-    })();
+      catch (error) {
+        logger.error('Failed to inject translation text in background', error)
+        appState.setError(t('errors.selectionToolbar.translationFailed'))
+      }
+    })()
 
-    logger.info("Translation view switched, content will be injected when ready");
-  } catch (error) {
-    logger.error("Failed to execute translation", error);
-    appState.setError(t("errors.selectionToolbar.translationFailed"));
-    throw error;
+    logger.info('Translation view switched, content will be injected when ready')
+  }
+  catch (error) {
+    logger.error('Failed to execute translation', error)
+    appState.setError(t('errors.selectionToolbar.translationFailed'))
+    throw error
   }
 }
 
@@ -250,20 +254,20 @@ async function injectTranslationText(
   webviewId: string,
 ): Promise<void> {
   try {
-    const template = getDefaultTranslationTemplate(translator.id);
+    const template = getDefaultTranslationTemplate(translator.id)
 
     if (!template) {
-      logger.warn("No injection template for translator", { translatorId: translator.id });
-      return;
+      logger.warn('No injection template for translator', { translatorId: translator.id })
+      return
     }
 
     const fillTemplate = template.actions.find(
-      (action): action is FillTextAction => action.type === "fill",
-    );
+      (action): action is FillTextAction => action.type === 'fill',
+    )
 
     if (!fillTemplate) {
-      logger.warn("Translation template missing fill action", { translatorId: translator.id });
-      return;
+      logger.warn('Translation template missing fill action', { translatorId: translator.id })
+      return
     }
 
     const fillAction: FillTextAction = {
@@ -272,39 +276,40 @@ async function injectTranslationText(
       triggerEvents: fillTemplate.triggerEvents ?? true,
       delay: fillTemplate.delay ?? TRANSLATION_INJECTION.FILL_DELAY_MS,
       timeout: fillTemplate.timeout ?? TRANSLATION_INJECTION.FILL_TIMEOUT_MS,
-    };
+    }
 
-    const actions: InjectionAction[] = [fillAction];
+    const actions: InjectionAction[] = [fillAction]
 
     const clickTemplate = template.actions.find(
-      (action): action is ClickAction => action.type === "click",
-    );
+      (action): action is ClickAction => action.type === 'click',
+    )
 
     if (clickTemplate) {
       const clickAction: ClickAction = {
         ...clickTemplate,
         delay: clickTemplate.delay ?? fillAction.delay ?? TRANSLATION_INJECTION.FILL_DELAY_MS,
         timeout: clickTemplate.timeout ?? TRANSLATION_INJECTION.CLICK_TIMEOUT_MS,
-      };
-      actions.push(clickAction);
+      }
+      actions.push(clickAction)
     }
 
-    const script = generateInjectionScript(actions);
+    const script = generateInjectionScript(actions)
 
-    await invoke("evaluate_child_webview_script", {
+    await invoke('evaluate_child_webview_script', {
       payload: {
         id: webviewId,
         script,
       },
-    });
+    })
 
-    logger.info("Translation text injected successfully", {
+    logger.info('Translation text injected successfully', {
       translatorId: translator.id,
       webviewId,
-    });
-  } catch (error) {
-    logger.error("Failed to inject translation text", error);
-    throw error;
+    })
+  }
+  catch (error) {
+    logger.error('Failed to inject translation text', error)
+    throw error
   }
 }
 
@@ -320,40 +325,42 @@ async function injectTranslationText(
  */
 export async function executeExplanation(selectedText: string): Promise<void> {
   try {
-    logger.info("Executing AI explanation", { textLength: selectedText.length });
+    logger.info('Executing AI explanation', { textLength: selectedText.length })
 
     // 获取默认解释平台
-    const platform = resolveExplainPlatform();
+    const platform = resolveExplainPlatform()
     if (!platform) {
-      logger.warn("No AI platform available for explanation");
-      appState.setError(t("errors.selectionToolbar.noAiPlatform"));
-      return;
+      logger.warn('No AI platform available for explanation')
+      appState.setError(t('errors.selectionToolbar.noAiPlatform'))
+      return
     }
 
     // 立即切换到AI聊天视图，给用户即时反馈（不等待 WebView 加载）
-    appState.switchToChatView(platform);
+    appState.switchToChatView(platform)
 
-    const webviewId = `ai-chat-${platform.id}`;
-    const prompt = buildExplanationPrompt(selectedText);
+    const webviewId = `ai-chat-${platform.id}`
+    const prompt = buildExplanationPrompt(selectedText)
 
     // 在后台异步执行加载和注入，不阻塞当前操作
     // 使用 void 明确表示我们不等待这个 Promise
     void (async () => {
       try {
-        await waitForWebviewReady(webviewId);
-        await injectAIPrompt(prompt, platform, webviewId);
-        logger.info("AI explanation executed successfully");
-      } catch (error) {
-        logger.error("Failed to inject AI prompt in background", error);
-        appState.setError(t("errors.selectionToolbar.explanationFailed"));
+        await waitForWebviewReady(webviewId)
+        await injectAIPrompt(prompt, platform, webviewId)
+        logger.info('AI explanation executed successfully')
       }
-    })();
+      catch (error) {
+        logger.error('Failed to inject AI prompt in background', error)
+        appState.setError(t('errors.selectionToolbar.explanationFailed'))
+      }
+    })()
 
-    logger.info("AI chat view switched, prompt will be injected when ready");
-  } catch (error) {
-    logger.error("Failed to execute AI explanation", error);
-    appState.setError(t("errors.selectionToolbar.explanationFailed"));
-    throw error;
+    logger.info('AI chat view switched, prompt will be injected when ready')
+  }
+  catch (error) {
+    logger.error('Failed to execute AI explanation', error)
+    appState.setError(t('errors.selectionToolbar.explanationFailed'))
+    throw error
   }
 }
 
@@ -369,20 +376,20 @@ async function injectAIPrompt(
   webviewId: string,
 ): Promise<void> {
   try {
-    const template = getDefaultChatTemplate(platform.id);
+    const template = getDefaultChatTemplate(platform.id)
 
     if (!template) {
-      logger.warn("No injection template for AI platform", { platformId: platform.id });
-      return;
+      logger.warn('No injection template for AI platform', { platformId: platform.id })
+      return
     }
 
     const fillTemplate = template.actions.find(
-      (action): action is FillTextAction => action.type === "fill",
-    );
+      (action): action is FillTextAction => action.type === 'fill',
+    )
 
     if (!fillTemplate) {
-      logger.warn("AI template missing fill action", { platformId: platform.id });
-      return;
+      logger.warn('AI template missing fill action', { platformId: platform.id })
+      return
     }
 
     const fillAction: FillTextAction = {
@@ -391,39 +398,40 @@ async function injectAIPrompt(
       triggerEvents: fillTemplate.triggerEvents ?? true,
       delay: fillTemplate.delay ?? TRANSLATION_INJECTION.FILL_DELAY_MS,
       timeout: fillTemplate.timeout ?? TRANSLATION_INJECTION.FILL_TIMEOUT_MS,
-    };
+    }
 
-    const actions: InjectionAction[] = [fillAction];
+    const actions: InjectionAction[] = [fillAction]
 
     const clickTemplate = template.actions.find(
-      (action): action is ClickAction => action.type === "click",
-    );
+      (action): action is ClickAction => action.type === 'click',
+    )
 
     if (clickTemplate) {
       const clickAction: ClickAction = {
         ...clickTemplate,
         delay: clickTemplate.delay ?? fillAction.delay ?? TRANSLATION_INJECTION.FILL_DELAY_MS,
         timeout: clickTemplate.timeout ?? TRANSLATION_INJECTION.CLICK_TIMEOUT_MS,
-      };
-      actions.push(clickAction);
+      }
+      actions.push(clickAction)
     }
 
-    const script = generateInjectionScript(actions);
+    const script = generateInjectionScript(actions)
 
-    await invoke("evaluate_child_webview_script", {
+    await invoke('evaluate_child_webview_script', {
       payload: {
         id: webviewId,
         script,
       },
-    });
+    })
 
-    logger.info("AI prompt injected successfully", {
+    logger.info('AI prompt injected successfully', {
       platformId: platform.id,
       webviewId,
-    });
-  } catch (error) {
-    logger.error("Failed to inject AI prompt", error);
-    throw error;
+    })
+  }
+  catch (error) {
+    logger.error('Failed to inject AI prompt', error)
+    throw error
   }
 }
 
@@ -435,16 +443,16 @@ async function injectAIPrompt(
  */
 function buildExplanationPrompt(text: string): string {
   // 根据当前语言构建不同的提示词
-  const locale = configStore.config.locale || "zh-CN";
+  const locale = configStore.config.locale || 'zh-CN'
 
   const prompts: Record<string, string> = {
-    "zh-CN": `请解释以下内容：\n\n${text}`,
-    "en-US": `Please explain the following:\n\n${text}`,
-    "ja-JP": `以下の内容を説明してください：\n\n${text}`,
-    "ko-KR": `다음 내용을 설명해 주세요:\n\n${text}`,
-  };
+    'zh-CN': `请解释以下内容：\n\n${text}`,
+    'en-US': `Please explain the following:\n\n${text}`,
+    'ja-JP': `以下の内容を説明してください：\n\n${text}`,
+    'ko-KR': `다음 내용을 설명해 주세요:\n\n${text}`,
+  }
 
-  return prompts[locale] || prompts["zh-CN"];
+  return prompts[locale] || prompts['zh-CN']
 }
 
 function resolveExplainPlatform(): AIPlatform | null {
@@ -452,19 +460,19 @@ function resolveExplainPlatform(): AIPlatform | null {
     configStore.config.selectionToolbarDefaultPlatformId ?? undefined,
     configStore.config.lastUsedPlatform ?? undefined,
     configStore.config.defaultPlatform ?? undefined,
-  ].filter((id): id is string => Boolean(id));
+  ].filter((id): id is string => Boolean(id))
 
   for (const id of candidateIds) {
-    const platform = platformsStore.getPlatformById(id);
+    const platform = platformsStore.getPlatformById(id)
     if (platform && platform.enabled && (platform.selectionToolbarAvailable ?? true)) {
-      return platform;
+      return platform
     }
   }
 
-  const fallback = platformsStore.selectionToolbarPlatforms[0];
+  const fallback = platformsStore.selectionToolbarPlatforms[0]
   if (fallback) {
-    return fallback;
+    return fallback
   }
 
-  return null;
+  return null
 }

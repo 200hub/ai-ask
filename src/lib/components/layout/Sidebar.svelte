@@ -1,101 +1,101 @@
-<script lang="ts">
-    /**
-     * 侧边栏组件 - 显示AI平台图标和功能入口
-     */
-    import { Settings, Languages } from "lucide-svelte";
-    import { appState } from "$lib/stores/app.svelte";
-    import { platformsStore } from "$lib/stores/platforms.svelte";
-    import { configStore } from "$lib/stores/config.svelte";
-    import { i18n } from "$lib/i18n";
-    import type { AIPlatform } from "$lib/types/platform";
+<script lang='ts'>
+  import type { AIPlatform } from '$lib/types/platform'
+  import { i18n } from '$lib/i18n'
+  import { appState } from '$lib/stores/app.svelte'
+  import { configStore } from '$lib/stores/config.svelte'
+  import { platformsStore } from '$lib/stores/platforms.svelte'
+  /**
+   * 侧边栏组件 - 显示AI平台图标和功能入口
+   */
+  import { Languages, Settings } from 'lucide-svelte'
 
-    const t = i18n.t;
+  const t = i18n.t
 
-    /**
-     * 选择AI平台
-     */
-    function selectPlatform(platform: AIPlatform) {
-        const alreadySelected =
-            appState.currentView === "chat" && appState.selectedPlatform?.id === platform.id;
+  /**
+   * 选择AI平台
+   */
+  function selectPlatform(platform: AIPlatform) {
+    const alreadySelected
+      = appState.currentView === 'chat' && appState.selectedPlatform?.id === platform.id
 
-        if (alreadySelected) {
-            appState.switchToWelcomeView();
-            configStore.setLastUsedPlatform(null);
-            return;
-        }
-
-        appState.switchToChatView(platform);
-        configStore.setLastUsedPlatform(platform.id);
+    if (alreadySelected) {
+      appState.switchToWelcomeView()
+      configStore.setLastUsedPlatform(null)
+      return
     }
 
-    /**
-     * 打开翻译功能
-     */
-    function openTranslation() {
-        appState.switchToTranslationView();
-    }
+    appState.switchToChatView(platform)
+    configStore.setLastUsedPlatform(platform.id)
+  }
 
-    /**
-     * 打开设置
-     */
-    function openSettings() {
-        appState.openSettings();
-    }
+  /**
+   * 打开翻译功能
+   */
+  function openTranslation() {
+    appState.switchToTranslationView()
+  }
 
-    /**
-     * 检查是否是当前选中的平台
-     */
-    function isSelected(platformId: string): boolean {
-        return appState.selectedPlatform?.id === platformId;
-    }
+  /**
+   * 打开设置
+   */
+  function openSettings() {
+    appState.openSettings()
+  }
+
+  /**
+   * 检查是否是当前选中的平台
+   */
+  function isSelected(platformId: string): boolean {
+    return appState.selectedPlatform?.id === platformId
+  }
 </script>
 
-<aside class="sidebar">
-    <div class="platform-list">
-        {#each platformsStore.enabledPlatforms as platform (platform.id)}
-            <button
-                class="platform-item tooltip"
-                class:selected={isSelected(platform.id)}
-                onclick={() => selectPlatform(platform)}
-                data-tooltip={platform.name}
-                title={platform.name}
-                aria-label={platform.name}
-            >
-                <img
-                    src={platform.icon}
-                    alt={platform.name}
-                    class="platform-icon"
-                    onerror={(e) => {
-                        const target = e.currentTarget as HTMLImageElement;
-                        target.src =
-                            "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22currentColor%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22/%3E%3C/svg%3E";
-                    }}
-                />
-            </button>
-        {/each}
-    </div>
+<aside class='sidebar'>
+  <div class='platform-list'>
+    {#each platformsStore.enabledPlatforms as platform (platform.id)}
+      <button
+        class='platform-item tooltip'
+        class:selected={isSelected(platform.id)}
+        onclick={() => selectPlatform(platform)}
+        data-tooltip={platform.name}
+        title={platform.name}
+        aria-label={platform.name}
+      >
+        <img
+          src={platform.icon}
+          alt={platform.name}
+          class='platform-icon'
+          onerror={(e) => {
+            const target = e.currentTarget as HTMLImageElement
+            target.src
+              = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22currentColor%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22/%3E%3C/svg%3E'
+          }}
+        />
+      </button>
+    {/each}
+  </div>
 
-    <div class="bottom-actions">
-        <button
-            class="action-btn tooltip"
-            class:selected={appState.currentView === "translation"}
-            onclick={openTranslation}
-            data-tooltip={t("sidebar.translation")}
-            aria-label={t("sidebar.translation")}
-        >
-            <Languages size={20} />
-        </button>
+  <div class='bottom-actions'>
+    <button
+      class='action-btn tooltip'
+      class:selected={appState.currentView === 'translation'}
+      onclick={openTranslation}
+      data-tooltip={t('sidebar.translation')}
+      aria-label={t('sidebar.translation')}
+    >
+      <Languages size={20} />
+    </button>
 
-        <button
-            class="action-btn tooltip"
-            class:selected={appState.currentView === "settings"}
-            onclick={openSettings}
-            data-tooltip={t("sidebar.settings")}
-            aria-label={t("sidebar.settings")}
-        >
-            <Settings size={20} />
-        </button>
-    </div>
+    <button
+      class='action-btn tooltip'
+      class:selected={appState.currentView === 'settings'}
+      onclick={openSettings}
+      data-tooltip={t('sidebar.settings')}
+      aria-label={t('sidebar.settings')}
+    >
+      <Settings size={20} />
+    </button>
+  </div>
 </aside>
 
 <style>

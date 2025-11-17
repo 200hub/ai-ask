@@ -1,162 +1,167 @@
-<script lang="ts">
-    /**
-     * Translation provider settings panel.
-     */
-    import { onMount } from "svelte";
-    import { translationStore } from "$lib/stores/translation.svelte";
-    import { i18n } from "$lib/i18n";
-    import type { TranslationPlatform } from "$lib/types/platform";
-    import { logger } from "$lib/utils/logger";
+<script lang='ts'>
+  import type { TranslationPlatform } from '$lib/types/platform'
+  import { i18n } from '$lib/i18n'
+  import { translationStore } from '$lib/stores/translation.svelte'
+  import { logger } from '$lib/utils/logger'
+  /**
+   * Translation provider settings panel.
+   */
+  import { onMount } from 'svelte'
 
-    const t = i18n.t;
+  const t = i18n.t
 
-    function translate(key: string, params?: Record<string, string>) {
-        let value = t(key);
-        if (params) {
-            for (const [paramKey, paramValue] of Object.entries(params)) {
-                value = value.replace(`{${paramKey}}`, paramValue);
-            }
-        }
-        return value;
+  function translate(key: string, params?: Record<string, string>) {
+    let value = t(key)
+    if (params) {
+      for (const [paramKey, paramValue] of Object.entries(params)) {
+        value = value.replace(`{${paramKey}}`, paramValue)
+      }
+    }
+    return value
+  }
+
+  const FALLBACK_ICON
+    = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'40\' height=\'40\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129\'/%3E%3C/svg%3E'
+
+  onMount(async () => {
+    if (translationStore.platforms.length === 0) {
+      try {
+        await translationStore.init()
+      }
+      catch (error) {
+        logger.error('Failed to load translation platforms', error)
+      }
+    }
+  })
+
+  function handleIconError(event: Event) {
+    const target = event.currentTarget as HTMLImageElement | null
+    if (target && target.src !== FALLBACK_ICON) {
+      target.src = FALLBACK_ICON
+    }
+  }
+
+  function formatPlatformNames(platforms: TranslationPlatform[]): string {
+    if (platforms.length === 0) {
+      return ''
     }
 
-    const FALLBACK_ICON =
-        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129'/%3E%3C/svg%3E";
-
-    onMount(async () => {
-        if (translationStore.platforms.length === 0) {
-            try {
-                await translationStore.init();
-            } catch (error) {
-                logger.error("Failed to load translation platforms", error);
-            }
-        }
-    });
-
-    function handleIconError(event: Event) {
-        const target = event.currentTarget as HTMLImageElement | null;
-        if (target && target.src !== FALLBACK_ICON) {
-            target.src = FALLBACK_ICON;
-        }
+    const locale = i18n.locale.get()
+    if (typeof Intl !== 'undefined' && typeof Intl.ListFormat === 'function') {
+      try {
+        const formatter = new Intl.ListFormat(locale, {
+          style: 'long',
+          type: 'conjunction',
+        })
+        return formatter.format(platforms.map(platform => platform.name))
+      }
+      catch (error) {
+        logger.error('Failed to format translator list', error)
+      }
     }
 
-    function formatPlatformNames(platforms: TranslationPlatform[]): string {
-        if (platforms.length === 0) {
-            return "";
-        }
+    return platforms.map(platform => platform.name).join(', ')
+  }
 
-        const locale = i18n.locale.get();
-        if (typeof Intl !== "undefined" && typeof Intl.ListFormat === "function") {
-            try {
-                const formatter = new Intl.ListFormat(locale, {
-                    style: "long",
-                    type: "conjunction",
-                });
-                return formatter.format(platforms.map((platform) => platform.name));
-            } catch (error) {
-                logger.error("Failed to format translator list", error);
-            }
-        }
-
-        return platforms.map((platform) => platform.name).join(", ");
+  async function togglePlatform(id: string) {
+    try {
+      await translationStore.togglePlatform(id)
     }
-
-    async function togglePlatform(id: string) {
-        try {
-            await translationStore.togglePlatform(id);
-        } catch (error) {
-            logger.error("Failed to toggle translation platform", error);
-            window.alert(t("translationSettings.toggleError"));
-        }
+    catch (error) {
+      logger.error('Failed to toggle translation platform', error)
+      // TODO
+      // eslint-disable-next-line no-alert
+      window.alert(t('translationSettings.toggleError'))
     }
+  }
 </script>
 
-<div class="settings-section">
-    <div class="setting-group">
-        <div class="group-header">
-            <h3 class="group-title">{t("translationSettings.providersTitle")}</h3>
-            <p class="group-description">
-                {t("translationSettings.providersDescription")}
-            </p>
-            <div class="enabled-summary">
-                <span class="enabled-label">{t("translationSettings.enabledListTitle")}</span>
-                {#if translationStore.enabledPlatforms.length > 0}
-                    <span class="enabled-names">
-                        {formatPlatformNames(translationStore.enabledPlatforms)}
-                    </span>
-                {:else}
-                    <span class="enabled-empty">{t("translationSettings.enabledListEmpty")}</span>
+<div class='settings-section'>
+  <div class='setting-group'>
+    <div class='group-header'>
+      <h3 class='group-title'>{t('translationSettings.providersTitle')}</h3>
+      <p class='group-description'>
+        {t('translationSettings.providersDescription')}
+      </p>
+      <div class='enabled-summary'>
+        <span class='enabled-label'>{t('translationSettings.enabledListTitle')}</span>
+        {#if translationStore.enabledPlatforms.length > 0}
+          <span class='enabled-names'>
+            {formatPlatformNames(translationStore.enabledPlatforms)}
+          </span>
+        {:else}
+          <span class='enabled-empty'>{t('translationSettings.enabledListEmpty')}</span>
+        {/if}
+      </div>
+    </div>
+
+    <div class='platform-list'>
+      {#if translationStore.platforms.length === 0}
+        <p class='empty-message'>{t('translation.noPlatforms')}</p>
+      {:else}
+        {#each translationStore.platforms as platform (platform.id)}
+          <div class='platform-item'>
+            <div class='platform-info'>
+              <img
+                src={platform.icon || FALLBACK_ICON}
+                alt={platform.name}
+                class='platform-icon'
+                onerror={handleIconError}
+              />
+              <div class='platform-details'>
+                <div class='platform-name-row'>
+                  <span class='platform-name'>{platform.name}</span>
+                </div>
+                <span class='platform-url'>{platform.url}</span>
+                {#if platform.supportLanguages && platform.supportLanguages.length > 0}
+                  <span class='languages'>
+                    {translate('translationSettings.supportedLanguages', {
+                      languages: platform.supportLanguages.slice(0, 4).join(', '),
+                    })}
+                    {#if platform.supportLanguages.length > 4}
+                      {translate('translationSettings.moreLanguages', {
+                        count: String(platform.supportLanguages.length - 4),
+                      })}
+                    {/if}
+                  </span>
                 {/if}
+              </div>
             </div>
-        </div>
 
-        <div class="platform-list">
-            {#if translationStore.platforms.length === 0}
-                <p class="empty-message">{t("translation.noPlatforms")}</p>
-            {:else}
-                {#each translationStore.platforms as platform (platform.id)}
-                    <div class="platform-item">
-                        <div class="platform-info">
-                            <img
-                                src={platform.icon || FALLBACK_ICON}
-                                alt={platform.name}
-                                class="platform-icon"
-                                onerror={handleIconError}
-                            />
-                            <div class="platform-details">
-                                <div class="platform-name-row">
-                                    <span class="platform-name">{platform.name}</span>
-                                </div>
-                                <span class="platform-url">{platform.url}</span>
-                                {#if platform.supportLanguages && platform.supportLanguages.length > 0}
-                                    <span class="languages">
-                                        {translate("translationSettings.supportedLanguages", {
-                                            languages: platform.supportLanguages.slice(0, 4).join(", "),
-                                        })}
-                                        {#if platform.supportLanguages.length > 4}
-                                            {translate("translationSettings.moreLanguages", {
-                                                count: String(platform.supportLanguages.length - 4),
-                                            })}
-                                        {/if}
-                                    </span>
-                                {/if}
-                            </div>
-                        </div>
-
-                        <div class="platform-actions">
-                            <label class="toggle-switch">
-                                <input
-                                    type="checkbox"
-                                    checked={platform.enabled}
-                                    onchange={() => togglePlatform(platform.id)}
-                                />
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                {/each}
-            {/if}
-        </div>
+            <div class='platform-actions'>
+              <label class='toggle-switch'>
+                <input
+                  type='checkbox'
+                  checked={platform.enabled}
+                  onchange={() => togglePlatform(platform.id)}
+                />
+                <span class='toggle-slider'></span>
+              </label>
+            </div>
+          </div>
+        {/each}
+      {/if}
     </div>
+  </div>
 
-    <div class="info-box">
-        <svg class="info-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-        </svg>
-        <div class="info-text">
-            <p><strong>{t("translationSettings.tipsTitle")}</strong></p>
-            <ul>
-                <li>{t("translationSettings.tips.item1")}</li>
-                <li>{t("translationSettings.tips.item2")}</li>
-                <li>{t("translationSettings.tips.item3")}</li>
-            </ul>
-        </div>
+  <div class='info-box'>
+    <svg class='info-icon' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+      <path
+        stroke-linecap='round'
+        stroke-linejoin='round'
+        stroke-width='2'
+        d='M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
+      />
+    </svg>
+    <div class='info-text'>
+      <p><strong>{t('translationSettings.tipsTitle')}</strong></p>
+      <ul>
+        <li>{t('translationSettings.tips.item1')}</li>
+        <li>{t('translationSettings.tips.item2')}</li>
+        <li>{t('translationSettings.tips.item3')}</li>
+      </ul>
     </div>
+  </div>
 </div>
 
 <style>

@@ -1,85 +1,85 @@
-<script lang="ts">
-    /**
-     * 通用按钮组件（移除 Tailwind 样式残留，纯 CSS 变量实现）
-     */
-    import type { Snippet } from "svelte";
+<script lang='ts'>
+  /**
+   * 通用按钮组件（移除 Tailwind 样式残留，纯 CSS 变量实现）
+   */
+  import type { Snippet } from 'svelte'
 
-    interface Props {
-        variant?: "primary" | "secondary" | "icon" | "ghost";
-        size?: "sm" | "md" | "lg";
-        disabled?: boolean;
-        loading?: boolean;
-        class?: string;
-        type?: "button" | "submit" | "reset";
-        onclick?: (_event: MouseEvent) => void;
-        children?: Snippet;
-        ariaLabel?: string; // 方便传递可访问性标签
-        title?: string; // 可选的 title 属性
-    }
+  interface Props {
+    variant?: 'primary' | 'secondary' | 'icon' | 'ghost'
+    size?: 'sm' | 'md' | 'lg'
+    disabled?: boolean
+    loading?: boolean
+    class?: string
+    type?: 'button' | 'submit' | 'reset'
+    onclick?: (_event: MouseEvent) => void
+    children?: Snippet
+    ariaLabel?: string // 方便传递可访问性标签
+    title?: string // 可选的 title 属性
+  }
 
-    let {
-        variant = "primary",
-        size = "md",
-        disabled = false,
-        loading = false,
-        class: className = "",
-        type = "button",
-        onclick,
-        children,
-        ariaLabel,
-        title,
-    }: Props = $props();
+  const {
+    variant = 'primary',
+    size = 'md',
+    disabled = false,
+    loading = false,
+    class: className = '',
+    type = 'button',
+    onclick,
+    children,
+    ariaLabel,
+    title,
+  }: Props = $props()
 
-    // 映射到语义 class（避免使用不存在的原 Tailwind 工具类）
-    const sizeClasses: Record<string, string> = {
-        sm: "btn-sm",
-        md: "btn-md",
-        lg: "btn-lg",
-    };
+  // 映射到语义 class（避免使用不存在的原 Tailwind 工具类）
+  const sizeClasses: Record<string, string> = {
+    sm: 'btn-sm',
+    md: 'btn-md',
+    lg: 'btn-lg',
+  }
 
-    const variantClasses: Record<string, string> = {
-        primary: "btn-primary",
-        secondary: "btn-secondary",
-        icon: "btn-icon",
-        ghost: "btn-ghost",
-    };
+  const variantClasses: Record<string, string> = {
+    primary: 'btn-primary',
+    secondary: 'btn-secondary',
+    icon: 'btn-icon',
+    ghost: 'btn-ghost',
+  }
 </script>
 
 <button
-    {type}
-    class="btn {variantClasses[variant]} {sizeClasses[size]} {className}"
-    disabled={disabled || loading}
-    onclick={onclick}
-    aria-label={ariaLabel}
-    title={title}
+  {type}
+  class='btn {variantClasses[variant]} {sizeClasses[size]} {className}'
+  disabled={disabled || loading}
+  onclick={onclick}
+  aria-label={ariaLabel}
+  title={title}
 >
-    {#if loading}
-        <svg
-            class="spinner-icon"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-        >
-            <circle
-                class="spinner-circle"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-            ></circle>
-            <path
-                class="spinner-path"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            ></path>
-        </svg>
-    {/if}
+  {#if loading}
+    <svg
+      class='spinner-icon'
+      xmlns='http://www.w3.org/2000/svg'
+      fill='none'
+      viewBox='0 0 24 24'
+      aria-hidden='true'
+    >
+      <circle
+        class='spinner-circle'
+        cx='12'
+        cy='12'
+        r='10'
+        stroke='currentColor'
+        stroke-width='4'
+      ></circle>
+      <path
+        class='spinner-path'
+        fill='currentColor'
+        d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'
+      ></path>
+    </svg>
+  {/if}
 
-    {#if children}
-        {@render children()}
-    {/if}
+  {#if children}
+    {@render children()}
+  {/if}
 </button>
 
 <style>

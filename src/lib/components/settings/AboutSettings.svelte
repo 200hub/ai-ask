@@ -1,288 +1,291 @@
-<script lang="ts">
-    /**
-     * 关于页面组件
-     */
-    import { APP_INFO } from "$lib/utils/constants";
-    import { open } from "@tauri-apps/plugin-shell";
-    import { i18n } from "$lib/i18n";
-    import { logger } from "$lib/utils/logger";
-    import { appState } from "$lib/stores/app.svelte";
-    import { summarizeReleaseNotes } from "$lib/utils/update";
+<script lang='ts'>
+  import { i18n } from '$lib/i18n'
+  import { appState } from '$lib/stores/app.svelte'
+  /**
+   * 关于页面组件
+   */
+  import { APP_INFO } from '$lib/utils/constants'
+  import { logger } from '$lib/utils/logger'
+  import { summarizeReleaseNotes } from '$lib/utils/update'
+  import { open } from '@tauri-apps/plugin-shell'
 
-    const t = i18n.t;
+  const t = i18n.t
 
-    /**
-     * 打开GitHub仓库
-     */
-    async function openRepository() {
-        try {
-            await open(APP_INFO.repository);
-        } catch (error) {
-            logger.error("Failed to open repository", error);
-        }
+  /**
+   * 打开GitHub仓库
+   */
+  async function openRepository() {
+    try {
+      await open(APP_INFO.repository)
     }
-
-    /**
-     * 打开调试页面
-     */
-    function openDebugPage() {
-        logger.info("Opening debug page");
-        appState.switchToDebugView();
+    catch (error) {
+      logger.error('Failed to open repository', error)
     }
+  }
 
-    /**
-     * 打开最新版本发布页
-     */
-    async function openReleaseNotes() {
-        const target =
-            appState.updateReleaseUrl?.trim().length
-                ? appState.updateReleaseUrl!
-                : `${APP_INFO.repository}/releases/latest`;
-        try {
-            await open(target);
-        } catch (error) {
-            logger.error("Failed to open release notes", error);
-        }
+  /**
+   * 打开调试页面
+   */
+  function openDebugPage() {
+    logger.info('Opening debug page')
+    appState.switchToDebugView()
+  }
+
+  /**
+   * 打开最新版本发布页
+   */
+  async function openReleaseNotes() {
+    const target
+      = appState.updateReleaseUrl?.trim().length
+        ? appState.updateReleaseUrl!
+        : `${APP_INFO.repository}/releases/latest`
+    try {
+      await open(target)
     }
-
-    /**
-     * 打开缺陷反馈页面（GitHub Issues）
-     */
-    async function openIssueTracker() {
-        const target = APP_INFO.issues ?? `${APP_INFO.repository}/issues`;
-        try {
-            await open(target);
-        } catch (error) {
-            logger.error("Failed to open issues page", error);
-        }
+    catch (error) {
+      logger.error('Failed to open release notes', error)
     }
+  }
 
-    const updateVersion = $derived(appState.updateVersion);
-    const updateSummary = $derived(
-        summarizeReleaseNotes(appState.updateReleaseNotes),
-    );
-    const updatePublishedAt = $derived(appState.updatePublishedAt);
-
-    function formatTranslation(
-        key: string,
-        params: Record<string, string | number> = {},
-    ): string {
-        let output = t(key);
-        for (const [paramKey, paramValue] of Object.entries(params)) {
-            output = output.replace(`{${paramKey}}`, String(paramValue));
-        }
-        return output;
+  /**
+   * 打开缺陷反馈页面（GitHub Issues）
+   */
+  async function openIssueTracker() {
+    const target = APP_INFO.issues ?? `${APP_INFO.repository}/issues`
+    try {
+      await open(target)
     }
-
-    function formatPublishedAt(value: string | null): string {
-        if (!value) {
-            return "";
-        }
-        const ms = Date.parse(value);
-        if (Number.isNaN(ms)) {
-            return value;
-        }
-        return new Date(ms).toLocaleString();
+    catch (error) {
+      logger.error('Failed to open issues page', error)
     }
+  }
+
+  const updateVersion = $derived(appState.updateVersion)
+  const updateSummary = $derived(
+    summarizeReleaseNotes(appState.updateReleaseNotes),
+  )
+  const updatePublishedAt = $derived(appState.updatePublishedAt)
+
+  function formatTranslation(
+    key: string,
+    params: Record<string, string | number> = {},
+  ): string {
+    let output = t(key)
+    for (const [paramKey, paramValue] of Object.entries(params)) {
+      output = output.replace(`{${paramKey}}`, String(paramValue))
+    }
+    return output
+  }
+
+  function formatPublishedAt(value: string | null): string {
+    if (!value) {
+      return ''
+    }
+    const ms = Date.parse(value)
+    if (Number.isNaN(ms)) {
+      return value
+    }
+    return new Date(ms).toLocaleString()
+  }
 
 </script>
 
-<div class="about-section">
-    <!-- 应用信息 -->
-    <div class="app-info-card">
-        <div class="app-logo">
-            <svg
-                class="logo-icon"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-            >
-                <path
-                    d="M12 2L2 7L12 12L22 7L12 2Z"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                />
-                <path
-                    d="M2 17L12 22L22 17"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                />
-                <path
-                    d="M2 12L12 17L22 12"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                />
-            </svg>
-        </div>
-        <h1 class="app-name">{APP_INFO.name}</h1>
-        <p class="app-version">
-            {t("about.version")}: {APP_INFO.version}
-            {#if updateVersion && updateVersion !== APP_INFO.version}
-                <span class="app-version-update">
-                    {formatTranslation("about.updateAvailableInline", { version: updateVersion })}
-                </span>
-            {/if}
-        </p>
-        <p class="app-description">{t("about.description")}</p>
+<div class='about-section'>
+  <!-- 应用信息 -->
+  <div class='app-info-card'>
+    <div class='app-logo'>
+      <svg
+        class='logo-icon'
+        viewBox='0 0 24 24'
+        fill='none'
+        xmlns='http://www.w3.org/2000/svg'
+      >
+        <path
+          d='M12 2L2 7L12 12L22 7L12 2Z'
+          stroke='currentColor'
+          stroke-width='2'
+          stroke-linecap='round'
+          stroke-linejoin='round'
+        />
+        <path
+          d='M2 17L12 22L22 17'
+          stroke='currentColor'
+          stroke-width='2'
+          stroke-linecap='round'
+          stroke-linejoin='round'
+        />
+        <path
+          d='M2 12L12 17L22 12'
+          stroke='currentColor'
+          stroke-width='2'
+          stroke-linecap='round'
+          stroke-linejoin='round'
+        />
+      </svg>
     </div>
+    <h1 class='app-name'>{APP_INFO.name}</h1>
+    <p class='app-version'>
+      {t('about.version')}: {APP_INFO.version}
+      {#if updateVersion && updateVersion !== APP_INFO.version}
+        <span class='app-version-update'>
+          {formatTranslation('about.updateAvailableInline', { version: updateVersion })}
+        </span>
+      {/if}
+    </p>
+    <p class='app-description'>{t('about.description')}</p>
+  </div>
 
-    <!-- 更新信息 -->
-    <div class="info-card update-card">
-        <h3 class="card-title">{t("about.updateTitle")}</h3>
-        {#if updateVersion === null}
-            <p class="info-text muted">{t("about.updateLoading")}</p>
-        {:else if updateVersion !== APP_INFO.version}
-            <div class="update-chip">
-                {formatTranslation("about.updateAvailable", { version: updateVersion })}
-            </div>
-            {#if updatePublishedAt}
-                <div class="update-meta">
-                    {formatTranslation("about.updatePublishedAt", {
-                        date: formatPublishedAt(updatePublishedAt),
-                    })}
-                </div>
-            {/if}
-
-            {#if updateSummary}
-                <div class="update-summary">
-                    <span class="summary-label">{t("about.updateSummaryLabel")}</span>
-                    <pre>{updateSummary}</pre>
-                </div>
-            {:else}
-                <p class="info-text muted">{t("about.updateNoSummary")}</p>
-            {/if}
-
-            <div class="link-group">
-                <button class="link-btn" onclick={openReleaseNotes}>
-                    <svg
-                        class="link-icon"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                        />
-                    </svg>
-                    {t("about.updateSeeChangelog")}
-                </button>
-                <span class="update-hint">{t("about.updateDownloadHint")}</span>
-            </div>
-        {:else}
-            <p class="info-text">{t("about.updateLatest")}</p>
-        {/if}
-    </div>
-
-    <!-- 功能特性 -->
-    <div class="info-card">
-        <h3 class="card-title">{t("about.features")}</h3>
-        <div class="features-list">
-            <div class="feature-item">
-                <span class="feature-icon">🤖</span>
-                <span class="feature-text">{t("about.feature1")}</span>
-            </div>
-            <div class="feature-item">
-                <span class="feature-icon">🌐</span>
-                <span class="feature-text">{t("about.feature2")}</span>
-            </div>
-            <div class="feature-item">
-                <span class="feature-icon">⚙️</span>
-                <span class="feature-text">{t("about.feature3")}</span>
-            </div>
-            <div class="feature-item">
-                <span class="feature-icon">🎨</span>
-                <span class="feature-text">{t("about.feature4")}</span>
-            </div>
+  <!-- 更新信息 -->
+  <div class='info-card update-card'>
+    <h3 class='card-title'>{t('about.updateTitle')}</h3>
+    {#if updateVersion === null}
+      <p class='info-text muted'>{t('about.updateLoading')}</p>
+    {:else if updateVersion !== APP_INFO.version}
+      <div class='update-chip'>
+        {formatTranslation('about.updateAvailable', { version: updateVersion })}
+      </div>
+      {#if updatePublishedAt}
+        <div class='update-meta'>
+          {formatTranslation('about.updatePublishedAt', {
+            date: formatPublishedAt(updatePublishedAt),
+          })}
         </div>
-    </div>
+      {/if}
 
-    <!-- 开源信息 -->
-    <div class="info-card">
-        <h3 class="card-title">{t("about.openSource")}</h3>
-        <div class="opensource-info">
-            <p class="info-text">{t("about.license")}</p>
-            <div class="link-group">
-                <button class="link-btn" onclick={openRepository}>
-                    <svg
-                        class="link-icon"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                        />
-                    </svg>
-                    {t("about.visitRepository")}
-                </button>
-                <button class="link-btn secondary" onclick={openIssueTracker}>
-                    <svg
-                        class="link-icon"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M18 10a6 6 0 11-12 0 6 6 0 0112 0z"
-                        />
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M12 14v2m0-8h.01"
-                        />
-                    </svg>
-                    {t("about.reportIssueButton")}
-                </button>
-            </div>
-            <p class="info-text muted">{t("about.reportIssueDescription")}</p>
+      {#if updateSummary}
+        <div class='update-summary'>
+          <span class='summary-label'>{t('about.updateSummaryLabel')}</span>
+          <pre>{updateSummary}</pre>
         </div>
-    </div>
+      {:else}
+        <p class='info-text muted'>{t('about.updateNoSummary')}</p>
+      {/if}
 
-    <!-- 开发者选项 -->
-    {#if import.meta.env.DEV}
-        <div class="info-card">
-            <h3 class="card-title">{t("about.developer")}</h3>
-            <div class="developer-options">
-                <button class="debug-btn" onclick={openDebugPage}>
-                    <svg
-                        class="debug-icon"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-                        />
-                    </svg>
-                    {t("about.debugInjection")}
-                </button>
-            </div>
-        </div>
+      <div class='link-group'>
+        <button class='link-btn' onclick={openReleaseNotes}>
+          <svg
+            class='link-icon'
+            fill='none'
+            stroke='currentColor'
+            viewBox='0 0 24 24'
+          >
+            <path
+              stroke-linecap='round'
+              stroke-linejoin='round'
+              stroke-width='2'
+              d='M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14'
+            />
+          </svg>
+          {t('about.updateSeeChangelog')}
+        </button>
+        <span class='update-hint'>{t('about.updateDownloadHint')}</span>
+      </div>
+    {:else}
+      <p class='info-text'>{t('about.updateLatest')}</p>
     {/if}
+  </div>
 
-    <!-- 版权信息 -->
-    <div class="copyright">
-        <p>© 2025 {APP_INFO.name}. {t("about.copyright")}.</p>
+  <!-- 功能特性 -->
+  <div class='info-card'>
+    <h3 class='card-title'>{t('about.features')}</h3>
+    <div class='features-list'>
+      <div class='feature-item'>
+        <span class='feature-icon'>🤖</span>
+        <span class='feature-text'>{t('about.feature1')}</span>
+      </div>
+      <div class='feature-item'>
+        <span class='feature-icon'>🌐</span>
+        <span class='feature-text'>{t('about.feature2')}</span>
+      </div>
+      <div class='feature-item'>
+        <span class='feature-icon'>⚙️</span>
+        <span class='feature-text'>{t('about.feature3')}</span>
+      </div>
+      <div class='feature-item'>
+        <span class='feature-icon'>🎨</span>
+        <span class='feature-text'>{t('about.feature4')}</span>
+      </div>
     </div>
+  </div>
+
+  <!-- 开源信息 -->
+  <div class='info-card'>
+    <h3 class='card-title'>{t('about.openSource')}</h3>
+    <div class='opensource-info'>
+      <p class='info-text'>{t('about.license')}</p>
+      <div class='link-group'>
+        <button class='link-btn' onclick={openRepository}>
+          <svg
+            class='link-icon'
+            fill='none'
+            stroke='currentColor'
+            viewBox='0 0 24 24'
+          >
+            <path
+              stroke-linecap='round'
+              stroke-linejoin='round'
+              stroke-width='2'
+              d='M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14'
+            />
+          </svg>
+          {t('about.visitRepository')}
+        </button>
+        <button class='link-btn secondary' onclick={openIssueTracker}>
+          <svg
+            class='link-icon'
+            fill='none'
+            stroke='currentColor'
+            viewBox='0 0 24 24'
+          >
+            <path
+              stroke-linecap='round'
+              stroke-linejoin='round'
+              stroke-width='2'
+              d='M18 10a6 6 0 11-12 0 6 6 0 0112 0z'
+            />
+            <path
+              stroke-linecap='round'
+              stroke-linejoin='round'
+              stroke-width='2'
+              d='M12 14v2m0-8h.01'
+            />
+          </svg>
+          {t('about.reportIssueButton')}
+        </button>
+      </div>
+      <p class='info-text muted'>{t('about.reportIssueDescription')}</p>
+    </div>
+  </div>
+
+  <!-- 开发者选项 -->
+  {#if import.meta.env.DEV}
+    <div class='info-card'>
+      <h3 class='card-title'>{t('about.developer')}</h3>
+      <div class='developer-options'>
+        <button class='debug-btn' onclick={openDebugPage}>
+          <svg
+            class='debug-icon'
+            fill='none'
+            stroke='currentColor'
+            viewBox='0 0 24 24'
+          >
+            <path
+              stroke-linecap='round'
+              stroke-linejoin='round'
+              stroke-width='2'
+              d='M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4'
+            />
+          </svg>
+          {t('about.debugInjection')}
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- 版权信息 -->
+  <div class='copyright'>
+    <p>© 2025 {APP_INFO.name}. {t('about.copyright')}.</p>
+  </div>
 </div>
 
 <style>

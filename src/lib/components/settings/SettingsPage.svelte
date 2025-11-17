@@ -1,76 +1,76 @@
-<script lang="ts">
-    import type { SettingsTab } from "$lib/types/config";
-    import GeneralSettings from "./GeneralSettings.svelte";
-    import PlatformSettings from "./PlatformSettings.svelte";
-    import ProxySettings from "./ProxySettings.svelte";
-    import TranslationSettings from "./TranslationSettings.svelte";
-    import AboutSettings from "./AboutSettings.svelte";
-    import { i18n } from "$lib/i18n";
+<script lang='ts'>
+  import type { SettingsTab } from '$lib/types/config'
+  import { i18n } from '$lib/i18n'
+  import AboutSettings from './AboutSettings.svelte'
+  import GeneralSettings from './GeneralSettings.svelte'
+  import PlatformSettings from './PlatformSettings.svelte'
+  import ProxySettings from './ProxySettings.svelte'
+  import TranslationSettings from './TranslationSettings.svelte'
 
-    const t = i18n.t;
+  const t = i18n.t
 
-    let currentTab = $state<SettingsTab>("general");
+  let currentTab = $state<SettingsTab>('general')
 
-    const tabs: Array<{
-        id: SettingsTab;
-        labelKey: string;
-        descriptionKey: string;
-        icon: string;
-    }> = [
-        { id: "general", labelKey: "settings.general", descriptionKey: "general.title", icon: "⚙️" },
-        { id: "platforms", labelKey: "settings.platforms", descriptionKey: "platforms.title", icon: "🤖" },
-        { id: "proxy", labelKey: "settings.proxy", descriptionKey: "proxy.title", icon: "🌐" },
-        { id: "translation", labelKey: "settings.translation", descriptionKey: "translationSettings.title", icon: "🌍" },
-        { id: "about", labelKey: "settings.about", descriptionKey: "about.title", icon: "ℹ️" },
-    ];
+  const tabs: Array<{
+    id: SettingsTab
+    labelKey: string
+    descriptionKey: string
+    icon: string
+  }> = [
+    { id: 'general', labelKey: 'settings.general', descriptionKey: 'general.title', icon: '⚙️' },
+    { id: 'platforms', labelKey: 'settings.platforms', descriptionKey: 'platforms.title', icon: '🤖' },
+    { id: 'proxy', labelKey: 'settings.proxy', descriptionKey: 'proxy.title', icon: '🌐' },
+    { id: 'translation', labelKey: 'settings.translation', descriptionKey: 'translationSettings.title', icon: '🌍' },
+    { id: 'about', labelKey: 'settings.about', descriptionKey: 'about.title', icon: 'ℹ️' },
+  ]
 
-    function switchTab(tabId: SettingsTab) {
-        currentTab = tabId;
-    }
+  function switchTab(tabId: SettingsTab) {
+    currentTab = tabId
+  }
 </script>
 
-<div class="settings-page">
-    <div class="settings-layout">
-        <aside class="settings-sidebar">
-                <div class="sidebar-header">
-                    <p class="sidebar-eyebrow">{t("app.name")}</p>
-                    <h2 class="sidebar-title">{t("settings.title")}</h2>
-                    <p class="sidebar-description">{t("app.description")}</p>
-                </div>
+<div class='settings-page'>
+  <div class='settings-layout'>
+    <aside class='settings-sidebar'>
+      <div class='sidebar-header'>
+        <p class='sidebar-eyebrow'>{t('app.name')}</p>
+        <h2 class='sidebar-title'>{t('settings.title')}</h2>
+        <p class='sidebar-description'>{t('app.description')}</p>
+      </div>
 
-                <nav class="sidebar-nav" aria-label={t("settings.title")}>
-                    {#each tabs as tab (tab.id)}
-                        <button
-                            type="button"
-                            class="sidebar-tab"
-                            class:active={currentTab === tab.id}
-                            onclick={() => switchTab(tab.id)}
-                            aria-current={currentTab === tab.id ? "page" : undefined}
-                        >
-                            <span class="tab-icon">{tab.icon}</span>
-                            <span class="tab-text">
-                                <span class="tab-label">{t(tab.labelKey)}</span>
-                                <span class="tab-subtitle">{t(tab.descriptionKey)}</span>
-                            </span>
-                        </button>
-                    {/each}
-                </nav>
-        </aside>
+      <nav class='sidebar-nav' aria-label={t('settings.title')}>
+        {#each tabs as tab (tab.id)}
+          <button
+            type='button'
+            class='sidebar-tab'
+            class:active={currentTab === tab.id}
+            onclick={() => switchTab(tab.id)}
+            aria-current={currentTab === tab.id ? 'page' : undefined}
+          >
+            <span class='tab-icon'>{tab.icon}</span>
+            <span class='tab-text'>
+              <span class='tab-label'>{t(tab.labelKey)}</span>
+              <span class='tab-subtitle'>{t(tab.descriptionKey)}</span>
+            </span>
+          </button>
+        {/each}
+      </nav>
+    </aside>
 
-        <section class="settings-main">
-            {#if currentTab === "general"}
-                <GeneralSettings />
-            {:else if currentTab === "platforms"}
-                <PlatformSettings />
-            {:else if currentTab === "proxy"}
-                <ProxySettings />
-            {:else if currentTab === "translation"}
-                <TranslationSettings />
-            {:else if currentTab === "about"}
-                <AboutSettings />
-            {/if}
-        </section>
-    </div>
+    <section class='settings-main'>
+      {#if currentTab === 'general'}
+        <GeneralSettings />
+      {:else if currentTab === 'platforms'}
+        <PlatformSettings />
+      {:else if currentTab === 'proxy'}
+        <ProxySettings />
+      {:else if currentTab === 'translation'}
+        <TranslationSettings />
+      {:else if currentTab === 'about'}
+        <AboutSettings />
+      {/if}
+    </section>
+  </div>
 </div>
 
 <style>

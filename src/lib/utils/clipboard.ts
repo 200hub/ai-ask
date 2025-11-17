@@ -5,8 +5,8 @@
  * 优先使用现代 Clipboard API，降级使用 execCommand 作为回退方案。
  */
 
-import { logger } from "$lib/utils/logger";
-import { CLIPBOARD } from "$lib/utils/constants";
+import { CLIPBOARD } from '$lib/utils/constants'
+import { logger } from '$lib/utils/logger'
 
 /**
  * 复制文本到剪贴板
@@ -24,24 +24,25 @@ import { CLIPBOARD } from "$lib/utils/constants";
  * ```
  */
 export async function copyTextToClipboard(rawText: string): Promise<void> {
-  const text = rawText ?? "";
+  const text = rawText ?? ''
   if (!text) {
-    logger.debug("Clipboard copy skipped: empty text");
-    return;
+    logger.debug('Clipboard copy skipped: empty text')
+    return
   }
 
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
     try {
-      await navigator.clipboard.writeText(text);
-      logger.info("Clipboard copy completed via navigator.clipboard", { textLength: text.length });
-      return;
-    } catch (error) {
-      logger.warn("navigator.clipboard.writeText failed, falling back to execCommand", error);
+      await navigator.clipboard.writeText(text)
+      logger.info('Clipboard copy completed via navigator.clipboard', { textLength: text.length })
+      return
+    }
+    catch (error) {
+      logger.warn('navigator.clipboard.writeText failed, falling back to execCommand', error)
     }
   }
 
-  copyUsingExecCommand(text);
-  logger.info("Clipboard copy completed via execCommand fallback", { textLength: text.length });
+  copyUsingExecCommand(text)
+  logger.info('Clipboard copy completed via execCommand fallback', { textLength: text.length })
 }
 
 /**
@@ -54,29 +55,29 @@ export async function copyTextToClipboard(rawText: string): Promise<void> {
  * @throws 如果 execCommand 失败
  */
 function copyUsingExecCommand(text: string): void {
-  if (typeof document === "undefined") {
-    throw new Error("Clipboard fallback unavailable: document is undefined");
+  if (typeof document === 'undefined') {
+    throw new TypeError('Clipboard fallback unavailable: document is undefined')
   }
 
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.top = `${CLIPBOARD.OFFSCREEN_POSITION_PX}px`;
-  textarea.style.left = `${CLIPBOARD.OFFSCREEN_POSITION_PX}px`;
-  textarea.style.opacity = "0";
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.top = `${CLIPBOARD.OFFSCREEN_POSITION_PX}px`
+  textarea.style.left = `${CLIPBOARD.OFFSCREEN_POSITION_PX}px`
+  textarea.style.opacity = '0'
 
-  document.body.appendChild(textarea);
-  textarea.focus();
-  textarea.select();
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
 
-  const success = typeof document.execCommand === "function" ? document.execCommand("copy") : false;
-  document.body.removeChild(textarea);
-  if (typeof window !== "undefined") {
-    window.getSelection?.()?.removeAllRanges();
+  const success = typeof document.execCommand === 'function' ? document.execCommand('copy') : false
+  document.body.removeChild(textarea)
+  if (typeof window !== 'undefined') {
+    window.getSelection?.()?.removeAllRanges()
   }
 
   if (!success) {
-    throw new Error("document.execCommand copy failed");
+    throw new Error('document.execCommand copy failed')
   }
 }

@@ -1,22 +1,22 @@
-<script lang="ts">
+<script lang='ts'>
+  import { i18n } from '$lib/i18n'
+  import { configStore } from '$lib/stores/config.svelte'
+  import { APP_INFO } from '$lib/utils/constants'
   /**
    * 欢迎页面组件 - 显示应用介绍和快捷键提示
    */
-  import { Zap, Keyboard, Globe } from 'lucide-svelte';
-  import { configStore } from '$lib/stores/config.svelte';
-  import { APP_INFO } from '$lib/utils/constants';
-  import { i18n } from '$lib/i18n';
+  import { Globe, Keyboard, Zap } from 'lucide-svelte'
 
-  const t = i18n.t;
+  const t = i18n.t
 
   function translate(key: string, params?: Record<string, string>) {
-    let value = t(key);
+    let value = t(key)
     if (params) {
       for (const [paramKey, paramValue] of Object.entries(params)) {
-        value = value.replace(`{${paramKey}}`, paramValue);
+        value = value.replace(`{${paramKey}}`, paramValue)
       }
     }
-    return value;
+    return value
   }
 
   function formatShortcut(hotkey: string): string {
@@ -24,59 +24,59 @@
       .replace('CommandOrControl', 'Ctrl/Cmd')
       .replace('Alt', 'Alt')
       .replace('Shift', 'Shift')
-      .replace(/\+/g, ' + ');
+      .replace(/\+/g, ' + ')
   }
 
   const features = [
     {
       icon: Zap,
       titleKey: 'welcome.features.quickTitle',
-      descriptionKey: 'welcome.features.quickDescription'
+      descriptionKey: 'welcome.features.quickDescription',
     },
     {
       icon: Keyboard,
       titleKey: 'welcome.features.hotkeyTitle',
       descriptionKey: 'welcome.features.hotkeyDescription',
-      needsShortcut: true
+      needsShortcut: true,
     },
     {
       icon: Globe,
       titleKey: 'welcome.features.translationTitle',
-      descriptionKey: 'welcome.features.translationDescription'
-    }
-  ];
+      descriptionKey: 'welcome.features.translationDescription',
+    },
+  ]
 </script>
 
-<div class="welcome-container">
-  <div class="welcome-content">
+<div class='welcome-container'>
+  <div class='welcome-content'>
     <!-- Logo和标题 -->
-    <div class="header-section">
-      <div class="logo">
-        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <div class='header-section'>
+      <div class='logo'>
+        <svg class='logo-icon' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'>
+          <path d='M12 2L2 7L12 12L22 7L12 2Z' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' />
+          <path d='M2 17L12 22L22 17' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' />
+          <path d='M2 12L12 17L22 12' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' />
         </svg>
       </div>
-      <h1 class="title">{APP_INFO.name}</h1>
-      <p class="subtitle">{t('app.description')}</p>
-      <p class="version">v{APP_INFO.version}</p>
+      <h1 class='title'>{APP_INFO.name}</h1>
+      <p class='subtitle'>{t('app.description')}</p>
+      <p class='version'>v{APP_INFO.version}</p>
     </div>
 
     <!-- 功能介绍 -->
-    <div class="features-section">
+    <div class='features-section'>
       {#each features as feature (feature.titleKey)}
         {@const Icon = feature.icon}
-        <div class="feature-card">
-          <div class="feature-icon">
+        <div class='feature-card'>
+          <div class='feature-icon'>
             <Icon size={24} />
           </div>
-          <h3 class="feature-title">{t(feature.titleKey)}</h3>
-          <p class="feature-description">
+          <h3 class='feature-title'>{t(feature.titleKey)}</h3>
+          <p class='feature-description'>
             {feature.needsShortcut
               ? translate(feature.descriptionKey, {
-                  shortcut: formatShortcut(configStore.config.globalHotkey)
-                })
+                shortcut: formatShortcut(configStore.config.globalHotkey),
+              })
               : t(feature.descriptionKey)}
           </p>
         </div>
@@ -84,27 +84,27 @@
     </div>
 
     <!-- 使用提示 -->
-    <div class="tips-section">
-      <h2 class="tips-title">{t('welcome.tipsTitle')}</h2>
-      <div class="tips-content">
-        <div class="tip-item">
-          <span class="tip-number">1</span>
-          <span class="tip-text">{t('welcome.steps.step1')}</span>
+    <div class='tips-section'>
+      <h2 class='tips-title'>{t('welcome.tipsTitle')}</h2>
+      <div class='tips-content'>
+        <div class='tip-item'>
+          <span class='tip-number'>1</span>
+          <span class='tip-text'>{t('welcome.steps.step1')}</span>
         </div>
-        <div class="tip-item">
-          <span class="tip-number">2</span>
-          <span class="tip-text">{t('welcome.steps.step2')}</span>
+        <div class='tip-item'>
+          <span class='tip-number'>2</span>
+          <span class='tip-text'>{t('welcome.steps.step2')}</span>
         </div>
-        <div class="tip-item">
-          <span class="tip-number">3</span>
-          <span class="tip-text">{t('welcome.steps.step3')}</span>
+        <div class='tip-item'>
+          <span class='tip-number'>3</span>
+          <span class='tip-text'>{t('welcome.steps.step3')}</span>
         </div>
       </div>
     </div>
 
     <!-- 底部提示 -->
-    <div class="footer-section">
-      <p class="footer-text">
+    <div class='footer-section'>
+      <p class='footer-text'>
         {t('welcome.trayHint')}
       </p>
     </div>

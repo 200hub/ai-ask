@@ -1,343 +1,352 @@
-<script lang="ts">
-    /**
-     * Proxy settings panel
-     * Supports: system proxy, custom proxy
-     */
-    import { onMount } from "svelte";
-    import { invoke } from "@tauri-apps/api/core";
-    import { configStore } from "$lib/stores/config.svelte";
-    import type { ProxyConfig } from "$lib/types/config";
-    import { i18n } from "$lib/i18n";
-    import { logger } from "$lib/utils/logger";
+<script lang='ts'>
+  import type { ProxyConfig } from '$lib/types/config'
+  import { i18n } from '$lib/i18n'
+  import { configStore } from '$lib/stores/config.svelte'
+  import { logger } from '$lib/utils/logger'
+  import { invoke } from '@tauri-apps/api/core'
+  /**
+   * Proxy settings panel
+   * Supports: system proxy, custom proxy
+   */
+  import { onMount } from 'svelte'
 
-    type ProxyType = "system" | "custom";
+  type ProxyType = 'system' | 'custom'
 
-    interface ProxyTestResult {
-        success: boolean;
-        message: string;
-        latency?: number;
+  interface ProxyTestResult {
+    success: boolean
+    message: string
+    latency?: number
+  }
+
+  const DEFAULT_PROXY_HOST = '127.0.0.1'
+  const DEFAULT_PROXY_PORT = '7890'
+
+  const t = i18n.t
+
+  function translate(key: string, params?: Record<string, string>) {
+    let value = t(key)
+    if (params) {
+      for (const [paramKey, paramValue] of Object.entries(params)) {
+        value = value.replace(`{${paramKey}}`, paramValue)
+      }
+    }
+    return value
+  }
+
+  let proxyType = $state<ProxyType>('system')
+  let customProxyHost = $state(DEFAULT_PROXY_HOST)
+  let customProxyPort = $state(DEFAULT_PROXY_PORT)
+  let isSaving = $state(false)
+  let saveStatus = $state<'idle' | 'success' | 'error'>('idle')
+  let saveMessage = $state<string | null>(null)
+  let testStatus = $state<'idle' | 'testing' | 'success' | 'error'>('idle')
+  let testMessage = $state<string | null>(null)
+  let isDirty = $state(false)
+
+  function syncFromConfig() {
+    const proxy = configStore.config.proxy
+
+    if (!proxy || proxy.type === 'system') {
+      proxyType = 'system'
+      customProxyHost = DEFAULT_PROXY_HOST
+      customProxyPort = DEFAULT_PROXY_PORT
+    }
+    else {
+      proxyType = 'custom'
+      customProxyHost = proxy.host ?? DEFAULT_PROXY_HOST
+      customProxyPort = proxy.port ?? DEFAULT_PROXY_PORT
     }
 
-    const DEFAULT_PROXY_HOST = "127.0.0.1";
-    const DEFAULT_PROXY_PORT = "7890";
+    isDirty = false
+    saveStatus = 'idle'
+    saveMessage = null
+  }
 
-    const t = i18n.t;
+  onMount(async () => {
+    if (!configStore.initialized) {
+      await configStore.init()
+    }
+    syncFromConfig()
+  })
 
-    function translate(key: string, params?: Record<string, string>) {
-        let value = t(key);
-        if (params) {
-            for (const [paramKey, paramValue] of Object.entries(params)) {
-                value = value.replace(`{${paramKey}}`, paramValue);
-            }
-        }
-        return value;
+  function markDirty() {
+    isDirty = true
+    saveStatus = 'idle'
+    saveMessage = null
+  }
+
+  function handleTypeChange(type: ProxyType) {
+    if (proxyType === type)
+      return
+    proxyType = type
+    markDirty()
+  }
+
+  function validateCustomProxy() {
+    const host = customProxyHost.trim()
+    const port = customProxyPort.trim()
+
+    if (!host) {
+      throw new Error(t('proxy.hostRequired'))
     }
 
-    let proxyType = $state<ProxyType>("system");
-    let customProxyHost = $state(DEFAULT_PROXY_HOST);
-    let customProxyPort = $state(DEFAULT_PROXY_PORT);
-    let isSaving = $state(false);
-    let saveStatus = $state<"idle" | "success" | "error">("idle");
-    let saveMessage = $state<string | null>(null);
-    let testStatus = $state<"idle" | "testing" | "success" | "error">("idle");
-    let testMessage = $state<string | null>(null);
-    let isDirty = $state(false);
-
-    function syncFromConfig() {
-        const proxy = configStore.config.proxy;
-
-        if (!proxy || proxy.type === "system") {
-            proxyType = "system";
-            customProxyHost = DEFAULT_PROXY_HOST;
-            customProxyPort = DEFAULT_PROXY_PORT;
-        } else {
-            proxyType = "custom";
-            customProxyHost = proxy.host ?? DEFAULT_PROXY_HOST;
-            customProxyPort = proxy.port ?? DEFAULT_PROXY_PORT;
-        }
-
-        isDirty = false;
-        saveStatus = "idle";
-        saveMessage = null;
+    if (!port) {
+      throw new Error(t('proxy.portRequired'))
     }
 
-    onMount(async () => {
-        if (!configStore.initialized) {
-            await configStore.init();
-        }
-        syncFromConfig();
-    });
-
-    function markDirty() {
-        isDirty = true;
-        saveStatus = "idle";
-        saveMessage = null;
+    const portNumber = Number(port)
+    if (
+      !Number.isInteger(portNumber)
+      || portNumber <= 0
+      || portNumber > 65535
+    ) {
+      throw new Error(t('proxy.portRangeError'))
     }
 
-    function handleTypeChange(type: ProxyType) {
-        if (proxyType === type) return;
-        proxyType = type;
-        markDirty();
+    return { host, port }
+  }
+
+  async function handleSave() {
+    if (!isDirty) {
+      saveStatus = 'success'
+      saveMessage = t('proxy.noChanges')
+      return
     }
 
-    function validateCustomProxy() {
-        const host = customProxyHost.trim();
-        const port = customProxyPort.trim();
+    let proxyPayload: ProxyConfig
 
-        if (!host) {
-            throw new Error(t("proxy.hostRequired"));
-        }
-
-        if (!port) {
-            throw new Error(t("proxy.portRequired"));
-        }
-
-        const portNumber = Number(port);
-        if (
-            !Number.isInteger(portNumber) ||
-            portNumber <= 0 ||
-            portNumber > 65535
-        ) {
-            throw new Error(t("proxy.portRangeError"));
-        }
-
-        return { host, port }; 
+    try {
+      if (proxyType === 'custom') {
+        const { host, port } = validateCustomProxy()
+        proxyPayload = { type: 'custom', host, port }
+      }
+      else {
+        proxyPayload = { type: 'system' }
+      }
+    }
+    catch (error) {
+      saveStatus = 'error'
+      saveMessage
+        = error instanceof Error
+          ? error.message
+          : t('proxy.saveFailed')
+      return
     }
 
-    async function handleSave() {
-        if (!isDirty) {
-            saveStatus = "success";
-            saveMessage = t("proxy.noChanges");
-            return;
-        }
+    isSaving = true
+    saveStatus = 'idle'
+    saveMessage = null
 
-        let proxyPayload: ProxyConfig;
+    try {
+      await configStore.update({ proxy: proxyPayload })
+      saveStatus = 'success'
+      saveMessage = t('proxy.saveSuccess')
+      syncFromConfig()
+    }
+    catch (error) {
+      logger.error('Failed to save proxy settings', error)
+      saveStatus = 'error'
+      const errorMsg
+        = error instanceof Error
+          ? error.message
+          : t('proxy.saveFailed')
+      saveMessage = errorMsg
+      // Log detailed error information
+      logger.error('Detailed proxy save error', {
+        error,
+        proxyPayload,
+        currentConfig: configStore.config,
+      })
+    }
+    finally {
+      isSaving = false
+    }
+  }
 
-        try {
-            if (proxyType === "custom") {
-                const { host, port } = validateCustomProxy();
-                proxyPayload = { type: "custom", host, port };
-            } else {
-                proxyPayload = { type: "system" };
-            }
-        } catch (error) {
-            saveStatus = "error";
-            saveMessage =
-                error instanceof Error
-                    ? error.message
-                    : t("proxy.saveFailed");
-            return;
-        }
+  async function handleTestProxy() {
+    testStatus = 'testing'
+    testMessage = null
 
-        isSaving = true;
-        saveStatus = "idle";
-        saveMessage = null;
+    let payload: ProxyConfig = { type: proxyType }
 
-        try {
-            await configStore.update({ proxy: proxyPayload });
-            saveStatus = "success";
-            saveMessage = t("proxy.saveSuccess");
-            syncFromConfig();
-        } catch (error) {
-            logger.error("Failed to save proxy settings", error);
-            saveStatus = "error";
-            const errorMsg =
-                error instanceof Error
-                    ? error.message
-                    : t("proxy.saveFailed");
-            saveMessage = errorMsg;
-            // Log detailed error information
-            logger.error("Detailed proxy save error", {
-                error,
-                proxyPayload,
-                currentConfig: configStore.config,
-            });
-        } finally {
-            isSaving = false;
-        }
+    if (proxyType === 'custom') {
+      try {
+        const { host, port } = validateCustomProxy()
+        payload = { type: 'custom', host, port }
+      }
+      catch (error) {
+        testStatus = 'error'
+        testMessage
+          = error instanceof Error
+            ? error.message
+            : t('proxy.invalidSettings')
+        return
+      }
     }
 
-    async function handleTestProxy() {
-        testStatus = "testing";
-        testMessage = null;
+    try {
+      const result = await invoke<ProxyTestResult>(
+        'test_proxy_connection',
+        {
+          config: payload,
+        },
+      )
 
-        let payload: ProxyConfig = { type: proxyType };
-
-        if (proxyType === "custom") {
-            try {
-                const { host, port } = validateCustomProxy();
-                payload = { type: "custom", host, port };
-            } catch (error) {
-                testStatus = "error";
-                testMessage =
-                    error instanceof Error
-                        ? error.message
-                        : t("proxy.invalidSettings");
-                return;
-            }
-        }
-
-        try {
-            const result = await invoke<ProxyTestResult>(
-                "test_proxy_connection",
-                {
-                    config: payload,
-                },
-            );
-
-            if (result.success) {
-                testStatus = "success";
-                const latencyText =
-                    typeof result.latency === "number"
-                        ? translate("proxy.latencySuffix", {
-                              latency: String(result.latency),
-                          })
-                        : "";
-                testMessage = translate("proxy.testSuccess", {
-                    latency: latencyText,
-                });
-            } else {
-                testStatus = "error";
-                testMessage = result.message || t("proxy.testFailed");
-            }
-        } catch (error) {
-            logger.error("Failed to test proxy", error);
-            testStatus = "error";
-            testMessage =
-                error instanceof Error ? error.message : t("proxy.testFailed");
-        }
+      if (result.success) {
+        testStatus = 'success'
+        const latencyText
+          = typeof result.latency === 'number'
+            ? translate('proxy.latencySuffix', {
+              latency: String(result.latency),
+            })
+            : ''
+        testMessage = translate('proxy.testSuccess', {
+          latency: latencyText,
+        })
+      }
+      else {
+        testStatus = 'error'
+        testMessage = result.message || t('proxy.testFailed')
+      }
     }
+    catch (error) {
+      logger.error('Failed to test proxy', error)
+      testStatus = 'error'
+      testMessage
+        = error instanceof Error ? error.message : t('proxy.testFailed')
+    }
+  }
 </script>
 
-<div class="proxy-settings">
-    <div class="section-header">
-        <h3 class="section-title">{t("proxy.title")}</h3>
-        <p class="section-description">{t("proxy.description")}</p>
+<div class='proxy-settings'>
+  <div class='section-header'>
+    <h3 class='section-title'>{t('proxy.title')}</h3>
+    <p class='section-description'>{t('proxy.description')}</p>
+  </div>
+
+  <div class='form-section'>
+    <span class='form-label'>{t('proxy.type')}</span>
+
+    <div class='radio-group'>
+      <label class='radio-option'>
+        <input
+          type='radio'
+          name='proxy-type'
+          value='system'
+          checked={proxyType === 'system'}
+          onchange={() => handleTypeChange('system')}
+        />
+        <div class='radio-content'>
+          <div class='radio-title'>{t('proxy.system')}</div>
+          <div class='radio-description'>
+            {t('proxy.systemDescription')}
+          </div>
+        </div>
+      </label>
+
+      <label class='radio-option'>
+        <input
+          type='radio'
+          name='proxy-type'
+          value='custom'
+          checked={proxyType === 'custom'}
+          onchange={() => handleTypeChange('custom')}
+        />
+        <div class='radio-content'>
+          <div class='radio-title'>{t('proxy.custom')}</div>
+          <div class='radio-description'>
+            {t('proxy.customDescription')}
+          </div>
+        </div>
+      </label>
     </div>
+  </div>
 
-    <div class="form-section">
-        <span class="form-label">{t("proxy.type")}</span>
-
-        <div class="radio-group">
-            <label class="radio-option">
-                <input
-                    type="radio"
-                    name="proxy-type"
-                    value="system"
-                    checked={proxyType === "system"}
-                    onchange={() => handleTypeChange("system")}
-                />
-                <div class="radio-content">
-                    <div class="radio-title">{t("proxy.system")}</div>
-                    <div class="radio-description">
-                        {t("proxy.systemDescription")}
-                    </div>
-                </div>
-            </label>
-
-            <label class="radio-option">
-                <input
-                    type="radio"
-                    name="proxy-type"
-                    value="custom"
-                    checked={proxyType === "custom"}
-                    onchange={() => handleTypeChange("custom")}
-                />
-                <div class="radio-content">
-                    <div class="radio-title">{t("proxy.custom")}</div>
-                    <div class="radio-description">
-                        {t("proxy.customDescription")}
-                    </div>
-                </div>
-            </label>
+  {#if proxyType === 'custom'}
+    <div class='custom-proxy-section'>
+      <div class='form-row'>
+        <div class='form-group'>
+          <label class='form-label' for='proxy-host'>{t('proxy.host')}</label>
+          <input
+            id='proxy-host'
+            type='text'
+            class='form-input'
+            placeholder={t('proxy.hostPlaceholder')}
+            bind:value={customProxyHost}
+            oninput={markDirty}
+          />
         </div>
+
+        <div class='form-group'>
+          <label class='form-label' for='proxy-port'>{t('proxy.port')}</label>
+          <input
+            id='proxy-port'
+            type='text'
+            class='form-input'
+            placeholder={t('proxy.portPlaceholder')}
+            bind:value={customProxyPort}
+            oninput={markDirty}
+          />
+        </div>
+      </div>
+
+      <div class='proxy-example'>
+        <strong>{t('proxy.example')}:</strong>
+        <code>http://{customProxyHost}:{customProxyPort}</code>
+      </div>
     </div>
+  {/if}
 
-    {#if proxyType === "custom"}
-        <div class="custom-proxy-section">
-            <div class="form-row">
-                <div class="form-group">
-                    <label class="form-label" for="proxy-host">{t("proxy.host")}</label>
-                    <input
-                        id="proxy-host"
-                        type="text"
-                        class="form-input"
-                        placeholder={t("proxy.hostPlaceholder")}
-                        bind:value={customProxyHost}
-                        oninput={markDirty}
-                    />
-                </div>
+  <div class='action-buttons'>
+    <button
+      class='btn btn-primary'
+      type='button'
+      disabled={isSaving}
+      onclick={handleSave}
+    >
+      {isSaving ? t('common.loading') : t('proxy.saveSettings')}
+    </button>
+    <button
+      class='btn btn-secondary'
+      type='button'
+      disabled={testStatus === 'testing'}
+      onclick={handleTestProxy}
+    >
+      {testStatus === 'testing' ? t('common.loading') : t('proxy.testConnection')}
+    </button>
+  </div>
 
-                <div class="form-group">
-                    <label class="form-label" for="proxy-port">{t("proxy.port")}</label>
-                    <input
-                        id="proxy-port"
-                        type="text"
-                        class="form-input"
-                        placeholder={t("proxy.portPlaceholder")}
-                        bind:value={customProxyPort}
-                        oninput={markDirty}
-                    />
-                </div>
-            </div>
-
-            <div class="proxy-example">
-                <strong>{t("proxy.example")}:</strong>
-                <code>http://{customProxyHost}:{customProxyPort}</code>
-            </div>
-        </div>
-    {/if}
-
-    <div class="action-buttons">
-        <button
-            class="btn btn-primary"
-            type="button"
-            disabled={isSaving}
-            onclick={handleSave}
-        >
-            {isSaving ? t("common.loading") : t("proxy.saveSettings")}
-        </button>
-        <button
-            class="btn btn-secondary"
-            type="button"
-            disabled={testStatus === "testing"}
-            onclick={handleTestProxy}
-        >
-            {testStatus === "testing" ? t("common.loading") : t("proxy.testConnection")}
-        </button>
+  {#if saveStatus !== 'idle' && saveMessage}
+    <div class={`status-message ${saveStatus}`}>
+      <p>{saveMessage}</p>
     </div>
+  {/if}
 
-    {#if saveStatus !== "idle" && saveMessage}
-        <div class={`status-message ${saveStatus}`}>
-            <p>{saveMessage}</p>
-        </div>
-    {/if}
-
-    {#if testStatus !== "idle" && testMessage}
-        <div class={`status-message ${testStatus}`}>
-            <p>{testMessage}</p>
-        </div>
-    {/if}
-
-    <div class="info-box">
-        <svg
-            class="info-icon"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-        >
-            <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-        </svg>
-        <div class="info-text">
-            <p>{t("proxy.infoTip1")}</p>
-            <p class="mt-2">{t("proxy.infoTip2")}</p>
-        </div>
+  {#if testStatus !== 'idle' && testMessage}
+    <div class={`status-message ${testStatus}`}>
+      <p>{testMessage}</p>
     </div>
+  {/if}
+
+  <div class='info-box'>
+    <svg
+      class='info-icon'
+      fill='none'
+      stroke='currentColor'
+      viewBox='0 0 24 24'
+    >
+      <path
+        stroke-linecap='round'
+        stroke-linejoin='round'
+        stroke-width='2'
+        d='M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
+      />
+    </svg>
+    <div class='info-text'>
+      <p>{t('proxy.infoTip1')}</p>
+      <p class='mt-2'>{t('proxy.infoTip2')}</p>
+    </div>
+  </div>
 </div>
 
 <style>

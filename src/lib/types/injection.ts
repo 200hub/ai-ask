@@ -10,46 +10,46 @@
  * Fill text action configuration
  */
 export interface FillTextAction {
-  type: "fill";
+  type: 'fill'
   /**
    * CSS selector to find the target element
    */
-  selector: string;
+  selector: string
   /**
    * Text content to fill
    */
-  content: string;
+  content: string
   /**
    * Whether to trigger input events (default: true)
    */
-  triggerEvents?: boolean;
+  triggerEvents?: boolean
   /**
    * Delay before filling in milliseconds (default: 0)
    */
-  delay?: number;
+  delay?: number
   /**
    * Wait timeout in milliseconds (default: 5000)
    */
-  timeout?: number;
+  timeout?: number
 }
 
 /**
  * Click action configuration
  */
 export interface ClickAction {
-  type: "click";
+  type: 'click'
   /**
    * CSS selector to find the target element
    */
-  selector: string;
+  selector: string
   /**
    * Delay before clicking in milliseconds (default: 0)
    */
-  delay?: number;
+  delay?: number
   /**
    * Wait timeout in milliseconds (default: 5000)
    */
-  timeout?: number;
+  timeout?: number
 }
 
 /**
@@ -57,50 +57,50 @@ export interface ClickAction {
  */
 // 提取结果期望的输出格式：
 // text -> 直接使用纯文本； markdown -> 若 extractScript 返回 HTML，则进行 Turndown 转换
-export type ExtractOutputFormat = "text" | "markdown";
+export type ExtractOutputFormat = 'text' | 'markdown'
 
 export interface ExtractAction {
-  type: "extract";
+  type: 'extract'
   /**
    * Maximum time to wait for content in milliseconds (default: 10000)
    */
-  timeout?: number;
+  timeout?: number
   /**
    * Polling interval in milliseconds (default: 500)
    */
-  pollInterval?: number;
+  pollInterval?: number
   /**
    * Custom JavaScript code to extract content
    * Function receives no parameters: () => string | { text?: string; html?: string }
    */
-  extractScript: string;
+  extractScript: string
   /**
    * Desired output format for the extracted content
    */
-  outputFormat?: ExtractOutputFormat;
+  outputFormat?: ExtractOutputFormat
 }
 
 // 浏览器端执行 extractScript 后返回的初步结果（尚未格式化）
 export interface ExtractScriptResult {
-  success: boolean;
-  content: string;
-  html?: string;
-  format: ExtractOutputFormat;
+  success: boolean
+  content: string
+  html?: string
+  format: ExtractOutputFormat
 }
 
 // formatExtractedContent 规范化后的结果结构
 export interface FormattedExtractResult {
-  format: ExtractOutputFormat;
-  text: string;
-  markdown?: string;
-  html?: string;
+  format: ExtractOutputFormat
+  text: string
+  markdown?: string
+  html?: string
 }
 
 /**
  * Union type of all action types
  */
 // 统一动作联合类型，便于模板中使用 actions: InjectionAction[]
-export type InjectionAction = FillTextAction | ClickAction | ExtractAction;
+export type InjectionAction = FillTextAction | ClickAction | ExtractAction
 
 /**
  * Injection template for a specific platform
@@ -109,23 +109,23 @@ export interface InjectionTemplate {
   /**
    * Platform identifier (e.g., 'chatgpt', 'claude')
    */
-  platformId: string;
+  platformId: string
   /**
    * Template name
    */
-  name: string;
+  name: string
   /**
    * Template description
    */
-  description?: string;
+  description?: string
   /**
    * URL pattern to match (regex string)
    */
-  urlPattern: string;
+  urlPattern: string
   /**
    * Sequence of actions to perform
    */
-  actions: InjectionAction[];
+  actions: InjectionAction[]
 }
 
 /**
@@ -135,19 +135,19 @@ export interface InjectionResult {
   /**
    * Whether execution was successful
    */
-  success: boolean;
+  success: boolean
   /**
    * Error message if failed
    */
-  error?: string;
+  error?: string
   /**
    * Execution duration in milliseconds
    */
-  duration?: number;
+  duration?: number
   /**
    * Number of actions executed
    */
-  actionsExecuted?: number;
+  actionsExecuted?: number
 }
 
 /**
@@ -157,13 +157,13 @@ export interface InjectionConfig {
   /**
    * Default timeout for element selectors in milliseconds
    */
-  defaultTimeout?: number;
+  defaultTimeout?: number
   /**
    * Whether to enable debug logging
    */
-  debug?: boolean;
+  debug?: boolean
   /**
    * Maximum retry attempts for failed actions
    */
-  maxRetries?: number;
+  maxRetries?: number
 }

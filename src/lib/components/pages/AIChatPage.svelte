@@ -1,745 +1,761 @@
-<script lang="ts">
-    /**
-     * AI对话组件 - 子 Webview 管理器
-     * 
-     * 核心功能:
-     * 1. 管理多个 AI 平台的子 webview 实例
-     * 2. 处理子 webview 的创建、定位、显示/隐藏
-     * 3. 同步主窗口和子 webview 的状态（位置、尺寸）
-     * 4. 响应窗口事件和用户交互
-     */
-    import { onMount, onDestroy } from "svelte";
-    import { appState } from "$lib/stores/app.svelte";
-    import { configStore } from "$lib/stores/config.svelte";
-    import type { AIPlatform } from "$lib/types/platform";
-    import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-    import { calculateChildWebviewBounds, ChildWebviewProxy } from "$lib/utils/childWebview";
-    import { createProxySignature, resolveProxyUrl } from "$lib/utils/proxy";
-    import { i18n } from "$lib/i18n";
-    import { logger } from "$lib/utils/logger";
-    import { TIMING } from "$lib/utils/constants";
+<script lang='ts'>
+  import type { AIPlatform } from '$lib/types/platform'
+  import { i18n } from '$lib/i18n'
+  import { appState } from '$lib/stores/app.svelte'
+  import { configStore } from '$lib/stores/config.svelte'
+  import { calculateChildWebviewBounds, ChildWebviewProxy } from '$lib/utils/childWebview'
+  import { TIMING } from '$lib/utils/constants'
+  import { logger } from '$lib/utils/logger'
+  import { createProxySignature, resolveProxyUrl } from '$lib/utils/proxy'
+  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+  /**
+   * AI对话组件 - 子 Webview 管理器
+   *
+   * 核心功能:
+   * 1. 管理多个 AI 平台的子 webview 实例
+   * 2. 处理子 webview 的创建、定位、显示/隐藏
+   * 3. 同步主窗口和子 webview 的状态（位置、尺寸）
+   * 4. 响应窗口事件和用户交互
+   */
+  import { onDestroy, onMount } from 'svelte'
 
-    type ManagedWebview = ChildWebviewProxy;
-    const t = i18n.t;
+  type ManagedWebview = ChildWebviewProxy
+  const t = i18n.t
 
-    // ========== 核心状态变量 ==========
-    
+  // ========== 核心状态变量 ==========
+
     /** 主窗口实例 */
-    const mainWindow = getCurrentWebviewWindow();
-    
-    /** 子 webview 映射表: platformId -> 子 webview 代理 */
-    let webviewWindows = $state<Map<string, ManagedWebview>>(new Map());
-    
-    /** 当前激活的平台ID */
-    let activePlatformId = $state<string | null>(null);
-    
-    /** 主窗口是否获得焦点 */
-    let isMainWindowFocused = $state(true);
+  const mainWindow = getCurrentWebviewWindow()
 
-    /** 当前代理配置签名，用于监听变更 */
-    let proxySignature = $state(createProxySignature(configStore.config.proxy));
-    
-    /** 平台切换序列号，用于识别并取消过期的异步操作 */
-    let platformSwitchSequence = 0;
-    
-    // ========== 重新布局相关状态 ==========
-    
+  /** 子 webview 映射表: platformId -> 子 webview 代理 */
+  let webviewWindows = $state<Map<string, ManagedWebview>>(new Map())
+
+  /** 当前激活的平台ID */
+  let activePlatformId = $state<string | null>(null)
+
+  /** 主窗口是否获得焦点 */
+  let isMainWindowFocused = $state(true)
+
+  /** 当前代理配置签名，用于监听变更 */
+  let proxySignature = $state(createProxySignature(configStore.config.proxy))
+
+  /** 平台切换序列号，用于识别并取消过期的异步操作 */
+  let platformSwitchSequence = 0
+
+  // ========== 重新布局相关状态 ==========
+
     /** 是否有待处理的重新布局请求 */
-    let isPendingReflow = false;
-    
-    /** 是否需要确保激活窗口在前台 */
-    let shouldEnsureActiveFront = false;
-    
-    // ========== 事件监听器清理函数 ==========
-    
+  let isPendingReflow = false
+
+  /** 是否需要确保激活窗口在前台 */
+  let shouldEnsureActiveFront = false
+
+  // ========== 事件监听器清理函数 ==========
+
     /** Tauri 窗口事件监听器清理函数集合 */
-    const windowEventUnlisteners = {
-        resize: null as (() => void) | null,
-        move: null as (() => void) | null,
-        scale: null as (() => void) | null,
-        focus: null as (() => void) | null,
-        blur: null as (() => void) | null,
-        close: null as (() => void) | null,
-        windowEvent: null as (() => void) | null,
-        hideWebviews: null as (() => void) | null,
-        restoreWebviews: null as (() => void) | null,
-    };
+  const windowEventUnlisteners = {
+    resize: null as (() => void) | null,
+    move: null as (() => void) | null,
+    scale: null as (() => void) | null,
+    focus: null as (() => void) | null,
+    blur: null as (() => void) | null,
+    close: null as (() => void) | null,
+    windowEvent: null as (() => void) | null,
+    hideWebviews: null as (() => void) | null,
+    restoreWebviews: null as (() => void) | null,
+  }
 
-    /** 标记是否需要在恢复主窗口时恢复 WebView */
-    let shouldRestoreWebviews = false;
+  /** 标记是否需要在恢复主窗口时恢复 WebView */
+  let shouldRestoreWebviews = false
 
-    // ========== 响应式状态监听 ==========
+  // ========== 响应式状态监听 ==========
 
     /** 监听代理配置变化，必要时重建 WebView */
-    $effect(() => {
-        const signature = createProxySignature(configStore.config.proxy);
-        if (signature !== proxySignature) {
-            proxySignature = signature;
-            void handleProxyConfigChange();
-        }
-    });
-    
-    /** 监听选中平台变化，自动切换显示对应的WebView */
-    $effect(() => {
-        const platform = appState.selectedPlatform;
-        const currentView = appState.currentView;
+  $effect(() => {
+    const signature = createProxySignature(configStore.config.proxy)
+    if (signature !== proxySignature) {
+      proxySignature = signature
+      void handleProxyConfigChange()
+    }
+  })
 
-        // 递增序列号，使所有正在进行的异步操作失效
-        platformSwitchSequence++;
+  /** 监听选中平台变化，自动切换显示对应的WebView */
+  $effect(() => {
+    const platform = appState.selectedPlatform
+    const currentView = appState.currentView
 
-        if (!platform) {
-            activePlatformId = null;
-            appState.setWebviewLoading(false);
-            void hideAllWebviews();
-            return;
-        }
+    // 递增序列号，使所有正在进行的异步操作失效
+    platformSwitchSequence++
 
-        activePlatformId = platform.id;
-
-        if (currentView !== "chat") {
-            appState.setWebviewLoading(false);
-            void hideAllWebviews();
-            return;
-        }
-
-        void showPlatformWebview(platform, platformSwitchSequence);
-    });
-
-    // ========== WebView 管理核心方法 ==========
-    
-    async function handleProxyConfigChange() {
-        if (webviewWindows.size === 0) {
-            return;
-        }
-
-        const closeTasks: Promise<void>[] = [];
-
-        for (const [id, webview] of webviewWindows.entries()) {
-            closeTasks.push(
-                webview
-                    .close()
-                    .catch((error) => {
-                        logger.error("Failed to close AI platform WebView", { id, error });
-                    }),
-            );
-        }
-
-        await Promise.all(closeTasks);
-        // eslint-disable-next-line svelte/prefer-svelte-reactivity
-        webviewWindows = new Map() as typeof webviewWindows;
-        shouldRestoreWebviews = false;
-
-        // 递增序列号，触发重新显示当前平台
-        platformSwitchSequence++;
-        
-        if (appState.currentView === "chat" && appState.selectedPlatform) {
-            await showPlatformWebview(appState.selectedPlatform, platformSwitchSequence);
-        }
+    if (!platform) {
+      activePlatformId = null
+      appState.setWebviewLoading(false)
+      void hideAllWebviews()
+      return
     }
 
-    /**
-     * 显示指定平台的子 webview
-     * 
-     * 工作流程:
-     * 1. 隐藏其他平台的子 webview
-     * 2. 获取或创建目标平台的子 webview
-     * 3. 调整位置和尺寸
-     * 4. 显示并获取焦点
-     * 
-     * @param platform - 要显示的AI平台配置
-     * @param expectedSequence - 预期的切换序列号，用于检测并放弃过期的操作
-     */
-    async function showPlatformWebview(platform: AIPlatform, expectedSequence: number) {
-        try {
-            appState.setWebviewLoading(true);
-            const start = Date.now();
+    activePlatformId = platform.id
 
-            // 检查序列号：如果有更新的请求，立即放弃当前操作
-            if (platformSwitchSequence !== expectedSequence) {
-                logger.debug('Platform switch cancelled (newer request arrived)', { 
-                    platform: platform.name,
-                    expectedSequence,
-                    currentSequence: platformSwitchSequence,
-                });
-                return;
-            }
+    if (currentView !== 'chat') {
+      appState.setWebviewLoading(false)
+      void hideAllWebviews()
+      return
+    }
 
-            // 1. 隐藏其他平台的WebView
-            await hideOtherWebviews(platform.id);
+    void showPlatformWebview(platform, platformSwitchSequence)
+  })
 
-            // 再次检查序列号
-            if (platformSwitchSequence !== expectedSequence) {
-                logger.debug('Platform switch cancelled after hiding others', { platform: platform.name });
-                return;
-            }
+  // ========== WebView 管理核心方法 ==========
 
-            // 2. 获取或创建目标WebView
-            let webview = webviewWindows.get(platform.id);
-            // 记录当前是否已经存在该平台对应的 WebView：
+  async function handleProxyConfigChange() {
+    if (webviewWindows.size === 0) {
+      return
+    }
+
+    const closeTasks: Promise<void>[] = []
+
+    for (const [id, webview] of webviewWindows.entries()) {
+      closeTasks.push(
+        webview
+          .close()
+          .catch((error) => {
+            logger.error('Failed to close AI platform WebView', { id, error })
+          }),
+      )
+    }
+
+    await Promise.all(closeTasks)
+
+    webviewWindows = new Map() as typeof webviewWindows
+    shouldRestoreWebviews = false
+
+    // 递增序列号，触发重新显示当前平台
+    platformSwitchSequence++
+
+    if (appState.currentView === 'chat' && appState.selectedPlatform) {
+      await showPlatformWebview(appState.selectedPlatform, platformSwitchSequence)
+    }
+  }
+
+  /**
+   * 显示指定平台的子 webview
+   *
+   * 工作流程:
+   * 1. 隐藏其他平台的子 webview
+   * 2. 获取或创建目标平台的子 webview
+   * 3. 调整位置和尺寸
+   * 4. 显示并获取焦点
+   *
+   * @param platform - 要显示的AI平台配置
+   * @param expectedSequence - 预期的切换序列号，用于检测并放弃过期的操作
+   */
+  async function showPlatformWebview(platform: AIPlatform, expectedSequence: number) {
+    try {
+      appState.setWebviewLoading(true)
+      const start = Date.now()
+
+      // 检查序列号：如果有更新的请求，立即放弃当前操作
+      if (platformSwitchSequence !== expectedSequence) {
+        logger.debug('Platform switch cancelled (newer request arrived)', {
+          platform: platform.name,
+          expectedSequence,
+          currentSequence: platformSwitchSequence,
+        })
+        return
+      }
+
+      // 1. 隐藏其他平台的WebView
+      await hideOtherWebviews(platform.id)
+
+      // 再次检查序列号
+      if (platformSwitchSequence !== expectedSequence) {
+        logger.debug('Platform switch cancelled after hiding others', { platform: platform.name })
+        return
+      }
+
+      // 2. 获取或创建目标WebView
+      let webview = webviewWindows.get(platform.id)
+      // 记录当前是否已经存在该平台对应的 WebView：
             // - true：之前已经创建过子窗口，本次只是切换回该平台（暖启动）
             // - false：首次创建该平台 WebView（冷启动）
-            const hadExistingWebview = Boolean(webview);
-            
-            if (!webview) {
-                webview = await createWebviewForPlatform(platform);
-                
-                // 检查序列号：创建过程中可能有新请求
-                if (platformSwitchSequence !== expectedSequence) {
-                    logger.debug('Platform switch cancelled after creation', { platform: platform.name });
-                    await webview.hide();
-                    return;
-                }
-                
-                webviewWindows.set(platform.id, webview);
-                // 等待页面真正加载完成再显示，避免用户看到空白页
-                await webview.waitForLoadFinished();
-                
-                // 再次检查序列号
-                if (platformSwitchSequence !== expectedSequence) {
-                    logger.debug('Platform switch cancelled after load finished', { platform: platform.name });
-                    await webview.hide();
-                    return;
-                }
-            } else if (webview.isVisible() && !shouldRestoreWebviews) {
-                await webview.setFocus();
-                scheduleWebviewReflow({ shouldEnsureActiveFront: true });
-                // WebView 本身已经在前台且不需要恢复流程：
+      const hadExistingWebview = Boolean(webview)
+
+      if (!webview) {
+        webview = await createWebviewForPlatform(platform)
+
+        // 检查序列号：创建过程中可能有新请求
+        if (platformSwitchSequence !== expectedSequence) {
+          logger.debug('Platform switch cancelled after creation', { platform: platform.name })
+          await webview.hide()
+          return
+        }
+
+        webviewWindows.set(platform.id, webview)
+        // 等待页面真正加载完成再显示，避免用户看到空白页
+        await webview.waitForLoadFinished()
+
+        // 再次检查序列号
+        if (platformSwitchSequence !== expectedSequence) {
+          logger.debug('Platform switch cancelled after load finished', { platform: platform.name })
+          await webview.hide()
+          return
+        }
+      }
+      else if (webview.isVisible() && !shouldRestoreWebviews) {
+        await webview.setFocus()
+        scheduleWebviewReflow({ shouldEnsureActiveFront: true })
+        // WebView 本身已经在前台且不需要恢复流程：
                 // 这种情况相当于直接把现有窗口“拉前台”，只需要很短的暖启动等待，
                 // 避免用户看到加载动画长时间停留。
-                {
-                    const elapsed = Date.now() - start;
-                    const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_WARM_MS - elapsed, 0);
-                    if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
-                }
-                
-                // 最终检查序列号
-                if (platformSwitchSequence === expectedSequence) {
-                    appState.setWebviewLoading(false);
-                }
-                return;
-            } else {
-                // 已存在的 webview，更新位置
-                const bounds = await calculateChildWebviewBounds(mainWindow);
-                await webview.updateBounds(bounds);
-                
-                // 检查序列号
-                if (platformSwitchSequence !== expectedSequence) {
-                    logger.debug('Platform switch cancelled after bounds update', { platform: platform.name });
-                    return;
-                }
-            }
+        {
+          const elapsed = Date.now() - start
+          const waitMs = Math.max(TIMING.MIN_WEBVIEW_LOADING_WARM_MS - elapsed, 0)
+          if (waitMs > 0)
+            await new Promise(r => setTimeout(r, waitMs))
+        }
 
-            // 3. 显示窗口并获取焦点
-            await webview.show();
-            
-            // 检查序列号
-            if (platformSwitchSequence !== expectedSequence) {
-                logger.debug('Platform switch cancelled after show', { platform: platform.name });
-                await webview.hide();
-                return;
-            }
-            
-            await webview.setFocus();
-            // 聚焦后再稍作等待，避免页面首帧尚未渲染导致的闪烁
-            await new Promise((r) => setTimeout(r, TIMING.WEBVIEW_READY_EXTRA_DELAY_MS));
-            shouldRestoreWebviews = false;
+        // 最终检查序列号
+        if (platformSwitchSequence === expectedSequence) {
+          appState.setWebviewLoading(false)
+        }
+        return
+      }
+      else {
+        // 已存在的 webview，更新位置
+        const bounds = await calculateChildWebviewBounds(mainWindow)
+        await webview.updateBounds(bounds)
 
-            // 根据冷/暖启动动态调整最小加载时长：
+        // 检查序列号
+        if (platformSwitchSequence !== expectedSequence) {
+          logger.debug('Platform switch cancelled after bounds update', { platform: platform.name })
+          return
+        }
+      }
+
+      // 3. 显示窗口并获取焦点
+      await webview.show()
+
+      // 检查序列号
+      if (platformSwitchSequence !== expectedSequence) {
+        logger.debug('Platform switch cancelled after show', { platform: platform.name })
+        await webview.hide()
+        return
+      }
+
+      await webview.setFocus()
+      // 聚焦后再稍作等待，避免页面首帧尚未渲染导致的闪烁
+      await new Promise(r => setTimeout(r, TIMING.WEBVIEW_READY_EXTRA_DELAY_MS))
+      shouldRestoreWebviews = false
+
+      // 根据冷/暖启动动态调整最小加载时长：
             // - 冷启动：第一次创建 WebView，使用较长的 MIN_WEBVIEW_LOADING_MS，保证有清晰的加载过渡；
             // - 暖启动：复用已经打开过的 WebView，只需很短的 MIN_WEBVIEW_LOADING_WARM_MS，提升切换速度。
             // elapsed 是从开始切换到现在的耗时，如果已经等得够久，就不再额外等待。
-            {
-                const elapsed = Date.now() - start;
-                const minLoadingMs = hadExistingWebview
-                    ? TIMING.MIN_WEBVIEW_LOADING_WARM_MS
-                    : TIMING.MIN_WEBVIEW_LOADING_MS;
-                const waitMs = Math.max(minLoadingMs - elapsed, 0);
-                if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+      {
+        const elapsed = Date.now() - start
+        const minLoadingMs = hadExistingWebview
+          ? TIMING.MIN_WEBVIEW_LOADING_WARM_MS
+          : TIMING.MIN_WEBVIEW_LOADING_MS
+        const waitMs = Math.max(minLoadingMs - elapsed, 0)
+        if (waitMs > 0)
+          await new Promise(r => setTimeout(r, waitMs))
+      }
+
+      // 最终检查序列号后才关闭加载状态
+      if (platformSwitchSequence === expectedSequence) {
+        appState.setWebviewLoading(false)
+      }
+      else {
+        logger.debug('Platform switch completed but cancelled (newer request)', {
+          platform: platform.name,
+          expectedSequence,
+          currentSequence: platformSwitchSequence,
+        })
+      }
+    }
+    catch (error) {
+      logger.error('Failed to show AI platform WebView', { platform: platform.name, error })
+
+      // 只有在序列号匹配时才显示错误
+      if (platformSwitchSequence === expectedSequence) {
+        appState.setError(t('chat.loadError'))
+        appState.setWebviewLoading(false)
+      }
+    }
+  }
+
+  /**
+   * 隐藏除指定平台外的所有子 webview
+   *
+   * @param excludePlatformId - 需要保持显示的平台ID
+   */
+  async function hideOtherWebviews(excludePlatformId: string) {
+    const hidePromises: Promise<void>[] = []
+
+    for (const [id, webview] of webviewWindows.entries()) {
+      if (id !== excludePlatformId) {
+        hidePromises.push(
+          (async () => {
+            try {
+              await webview.hide()
             }
-            
-            // 最终检查序列号后才关闭加载状态
-            if (platformSwitchSequence === expectedSequence) {
-                appState.setWebviewLoading(false);
-            } else {
-                logger.debug('Platform switch completed but cancelled (newer request)', { 
-                    platform: platform.name,
-                    expectedSequence,
-                    currentSequence: platformSwitchSequence,
-                });
+            catch (error) {
+              logger.error('Failed to hide WebView', { id, error })
             }
-        } catch (error) {
-            logger.error("Failed to show AI platform WebView", { platform: platform.name, error });
-            
-            // 只有在序列号匹配时才显示错误
-            if (platformSwitchSequence === expectedSequence) {
-                appState.setError(t("chat.loadError"));
-                appState.setWebviewLoading(false);
-            }
-        }
+          })(),
+        )
+      }
     }
 
-    /**
-     * 隐藏除指定平台外的所有子 webview
-     * 
-     * @param excludePlatformId - 需要保持显示的平台ID
-     */
-    async function hideOtherWebviews(excludePlatformId: string) {
-        const hidePromises: Promise<void>[] = [];
+    await Promise.all(hidePromises)
+  }
 
-        for (const [id, webview] of webviewWindows.entries()) {
-            if (id !== excludePlatformId) {
-                hidePromises.push(
-                    (async () => {
-                        try {
-                            await webview.hide();
-                        } catch (error) {
-                            logger.error("Failed to hide WebView", { id, error });
-                        }
-                    })()
-                );
-            }
-        }
+  /**
+   * 为指定平台创建新的子 webview
+   *
+   * @param platform - AI平台配置
+   * @returns Promise<ManagedWebview> - 创建的子 webview 代理实例
+   */
+  async function createWebviewForPlatform(platform: AIPlatform): Promise<ManagedWebview> {
+    const bounds = await calculateChildWebviewBounds(mainWindow)
+    const proxyUrl = resolveProxyUrl(configStore.config.proxy)
+    const webview = new ChildWebviewProxy(`ai-chat-${platform.id}`, platform.url, proxyUrl)
+    await webview.ensure(bounds)
+    return webview
+  }
 
-        await Promise.all(hidePromises);
-    }
+  // ========== WebView 定位计算 ==========
 
-    /**
-     * 为指定平台创建新的子 webview
-     * 
-     * @param platform - AI平台配置
-     * @returns Promise<ManagedWebview> - 创建的子 webview 代理实例
-     */
-    async function createWebviewForPlatform(platform: AIPlatform): Promise<ManagedWebview> {
-    const bounds = await calculateChildWebviewBounds(mainWindow);
-    const proxyUrl = resolveProxyUrl(configStore.config.proxy);
-        const webview = new ChildWebviewProxy(`ai-chat-${platform.id}`, platform.url, proxyUrl);
-        await webview.ensure(bounds);
-        return webview;
-    }
-
-    // ========== WebView 定位计算 ==========
-    
     /**
      * 计算子 webview 的精确边界信息
-     * 
+     *
      * @returns 子 webview 的位置、尺寸和缩放信息
      */
 
     // ========== 子 webview 定位和布局管理 ==========
-    
+
     /** 重排配置选项 */
-    interface WebviewReflowOptions {
-        /** 是否确保激活窗口显示在前台 */
-        shouldEnsureActiveFront?: boolean;
-        /** 是否立即执行，不进行防抖 */
-        immediate?: boolean;
+  interface WebviewReflowOptions {
+    /** 是否确保激活窗口显示在前台 */
+    shouldEnsureActiveFront?: boolean
+    /** 是否立即执行，不进行防抖 */
+    immediate?: boolean
+  }
+
+  /** 批量定位配置选项 */
+  interface BatchPositionOptions {
+    /** 是否确保激活窗口显示在前台 */
+    shouldEnsureActiveFront?: boolean
+  }
+
+  /**
+   * 批量调整所有子 webview 的位置和状态
+   *
+   * @param options - 批量定位选项
+   * @param options.shouldEnsureActiveFront - 是否确保激活的窗口在前台
+   */
+  async function positionAllWebviews({ shouldEnsureActiveFront = false }: BatchPositionOptions = {}): Promise<void> {
+    if (webviewWindows.size === 0) {
+      return
     }
 
-    /** 批量定位配置选项 */
-    interface BatchPositionOptions {
-        /** 是否确保激活窗口显示在前台 */
-        shouldEnsureActiveFront?: boolean;
-    }
+    const bounds = await calculateChildWebviewBounds(mainWindow)
+    const activeWebview = activePlatformId ? webviewWindows.get(activePlatformId) : null
+    const positionTasks: Promise<void>[] = []
 
-    /**
-     * 批量调整所有子 webview 的位置和状态
-     * 
-     * @param options - 批量定位选项
-     */
-    async function positionAllWebviews({ shouldEnsureActiveFront = false }: BatchPositionOptions = {}) {
-        if (webviewWindows.size === 0) {
-            return;
-        }
+    // 并行处理所有 WebView 的定位
+    for (const webview of webviewWindows.values()) {
+      const isCurrentlyActive = webview === activeWebview
 
-    const bounds = await calculateChildWebviewBounds(mainWindow);
-        const activeWebview = activePlatformId ? webviewWindows.get(activePlatformId) : null;
-        const positionTasks: Promise<void>[] = [];
+      positionTasks.push(
+        (async () => {
+          // 调整位置
+          await webview.updateBounds(bounds)
 
-        // 并行处理所有 WebView 的定位
-        for (const webview of webviewWindows.values()) {
-            const isCurrentlyActive = webview === activeWebview;
-            
-            positionTasks.push(
-                (async () => {
-                    // 调整位置
-                    await webview.updateBounds(bounds);
-
-                    // 如果需要确保激活窗口在前台且当前窗口是激活的
-                    if (shouldEnsureActiveFront && isCurrentlyActive && isMainWindowFocused) {
-                        try {
-                            await webview.show();
-                            await webview.setFocus();
-                        } catch (error) {
-                            logger.error("Failed to activate WebView", error);
-                        }
-                    }
-                })()
-            );
-        }
-
-        await Promise.all(positionTasks);
-    }
-
-    /**
-     * 调度子 webview 重排操作（支持防抖）
-     * 
-     * @param options - 重排配置选项
-     */
-    function scheduleWebviewReflow({
-        shouldEnsureActiveFront: requestActiveFront = false,
-        immediate = false,
-    }: WebviewReflowOptions = {}) {
-        // 累积需要确保激活窗口在前台的标志
-        shouldEnsureActiveFront ||= requestActiveFront;
-
-        /** 执行实际的重排操作 */
-        const executeReflow = () => {
-            const needsActiveFront = shouldEnsureActiveFront;
-            shouldEnsureActiveFront = false;
-
-            // 异步执行，避免阻塞
-            positionAllWebviews({ shouldEnsureActiveFront: needsActiveFront })
-                .catch((error) => {
-                    logger.error("WebView batch reflow failed", error);
-                });
-        };
-
-        // 立即执行模式
-        if (immediate) {
-            if (isPendingReflow) {
-                isPendingReflow = false; // 取消之前的防抖操作
+          // 如果需要确保激活窗口在前台且当前窗口是激活的
+          if (shouldEnsureActiveFront && isCurrentlyActive && isMainWindowFocused) {
+            try {
+              await webview.show()
+              await webview.setFocus()
             }
-            executeReflow();
-            return;
-        }
-
-        // 防抖模式：如果已有待处理的操作，直接返回
-        if (isPendingReflow) {
-            return;
-        }
-
-        isPendingReflow = true;
-
-        /** 防抖执行包装器 */
-        const debouncedExecute = () => {
-            isPendingReflow = false;
-            executeReflow();
-        };
-
-        // 优先使用 requestAnimationFrame 进行调度
-        if (typeof requestAnimationFrame === "function") {
-            requestAnimationFrame(debouncedExecute);
-        } else {
-            setTimeout(debouncedExecute, 16); // 约60FPS的降级方案
-        }
+            catch (error) {
+              logger.error('Failed to activate WebView', error)
+            }
+          }
+        })(),
+      )
     }
 
-    // ========== 子 webview 生命周期管理 ==========
-    
+    await Promise.all(positionTasks)
+  }
+
+  /**
+   * 调度子 webview 重排操作（支持防抖）
+   *
+   * @param options - 重排配置选项
+   * @param options.shouldEnsureActiveFront - 是否确保激活的窗口在前台
+   * @param options.immediate - 是否立即执行重排
+   */
+  function scheduleWebviewReflow({
+    shouldEnsureActiveFront: requestActiveFront = false,
+    immediate = false,
+  }: WebviewReflowOptions = {}) {
+    // 累积需要确保激活窗口在前台的标志
+    shouldEnsureActiveFront ||= requestActiveFront
+
+    /** 执行实际的重排操作 */
+    const executeReflow = () => {
+      const needsActiveFront = shouldEnsureActiveFront
+      shouldEnsureActiveFront = false
+
+      // 异步执行，避免阻塞
+      positionAllWebviews({ shouldEnsureActiveFront: needsActiveFront })
+        .catch((error) => {
+          logger.error('WebView batch reflow failed', error)
+        })
+    }
+
+    // 立即执行模式
+    if (immediate) {
+      if (isPendingReflow) {
+        isPendingReflow = false // 取消之前的防抖操作
+      }
+      executeReflow()
+      return
+    }
+
+    // 防抖模式：如果已有待处理的操作，直接返回
+    if (isPendingReflow) {
+      return
+    }
+
+    isPendingReflow = true
+
+    /** 防抖执行包装器 */
+    const debouncedExecute = () => {
+      isPendingReflow = false
+      executeReflow()
+    }
+
+    // 优先使用 requestAnimationFrame 进行调度
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(debouncedExecute)
+    }
+    else {
+      setTimeout(debouncedExecute, 16) // 约60FPS的降级方案
+    }
+  }
+
+  // ========== 子 webview 生命周期管理 ==========
+
     /**
      * 隐藏所有子 webview
      */
-    interface HideAllOptions {
-        markForRestore?: boolean;
-    }
+  interface HideAllOptions {
+    markForRestore?: boolean
+  }
 
-    async function hideAllWebviews({ markForRestore = false }: HideAllOptions = {}) {
-        shouldRestoreWebviews = markForRestore;
+  async function hideAllWebviews({ markForRestore = false }: HideAllOptions = {}) {
+    shouldRestoreWebviews = markForRestore
 
-        const hideTasks = Array.from(webviewWindows.values()).map((webview) =>
-            webview.hide().catch((error) => {
-                logger.error("Failed to hide WebView", error);
-            })
-        );
+    const hideTasks = Array.from(webviewWindows.values()).map(webview =>
+      webview.hide().catch((error) => {
+        logger.error('Failed to hide WebView', error)
+      }),
+    )
 
-        await Promise.all(hideTasks);
-    }
+    await Promise.all(hideTasks)
+  }
 
-    /**
-     * 关闭所有子 webview 并清理资源
-     */
-    async function closeAllWebviews() {
-        const closeTasks = Array.from(webviewWindows.values()).map((webview) =>
-            webview.close().catch((error) => {
-                logger.error("Failed to close WebView", error);
-            })
-        );
+  /**
+   * 关闭所有子 webview 并清理资源
+   */
+  async function closeAllWebviews() {
+    const closeTasks = Array.from(webviewWindows.values()).map(webview =>
+      webview.close().catch((error) => {
+        logger.error('Failed to close WebView', error)
+      }),
+    )
 
-        await Promise.all(closeTasks);
-        
-        webviewWindows.clear();
-        shouldRestoreWebviews = false;
-    }
+    await Promise.all(closeTasks)
 
-    // ========== 公共接口方法 ==========
-    
+    webviewWindows.clear()
+    shouldRestoreWebviews = false
+  }
+
+  // ========== 公共接口方法 ==========
+
     /**
      * 刷新当前激活平台的子 webview
-     * 
+     *
      * @exposed 供父组件调用
      */
-    export async function reloadCurrentPlatform() {
-        if (!activePlatformId || !appState.selectedPlatform) {
-            logger.warn("No active platform to reload");
-            return;
-        }
-
-        const currentWebview = webviewWindows.get(activePlatformId);
-        if (!currentWebview) {
-            logger.warn("Platform WebView not found", { platformId: activePlatformId });
-            return;
-        }
-
-        try {
-            await currentWebview.close();
-            webviewWindows.delete(activePlatformId);
-            
-            // 递增序列号并重新显示平台
-            platformSwitchSequence++;
-            await showPlatformWebview(appState.selectedPlatform, platformSwitchSequence);
-        } catch (error) {
-            logger.error("Failed to reload platform", { platform: appState.selectedPlatform.name, error });
-            appState.setError(t("chat.loadError"));
-        }
+  export async function reloadCurrentPlatform() {
+    if (!activePlatformId || !appState.selectedPlatform) {
+      logger.warn('No active platform to reload')
+      return
     }
 
-    // ========== 事件处理器 ==========
-    
+    const currentWebview = webviewWindows.get(activePlatformId)
+    if (!currentWebview) {
+      logger.warn('Platform WebView not found', { platformId: activePlatformId })
+      return
+    }
+
+    try {
+      await currentWebview.close()
+      webviewWindows.delete(activePlatformId)
+
+      // 递增序列号并重新显示平台
+      platformSwitchSequence++
+      await showPlatformWebview(appState.selectedPlatform, platformSwitchSequence)
+    }
+    catch (error) {
+      logger.error('Failed to reload platform', { platform: appState.selectedPlatform.name, error })
+      appState.setError(t('chat.loadError'))
+    }
+  }
+
+  // ========== 事件处理器 ==========
+
     /**
      * 处理来自 Header 组件的刷新事件
      * 只有当刷新事件的平台ID匹配当前激活平台时才执行刷新
      */
-    function handleRefreshEvent(event: Event) {
-        const customEvent = event as CustomEvent<{ platformId?: string }>;
-        if (customEvent.detail?.platformId === activePlatformId) {
-            void reloadCurrentPlatform();
-        }
+  function handleRefreshEvent(event: Event) {
+    const customEvent = event as CustomEvent<{ platformId?: string }>
+    if (customEvent.detail?.platformId === activePlatformId) {
+      void reloadCurrentPlatform()
+    }
+  }
+
+  /** 处理隐藏所有子 webview 的事件 */
+  function handleHideAllWebviewsEvent(event: Event) {
+    const customEvent = event as CustomEvent<{ markForRestore?: boolean }>
+    const markForRestore = customEvent.detail?.markForRestore ?? true
+    void hideAllWebviews({ markForRestore })
+  }
+
+  function handleMainWindowResize(size?: { width: number, height: number }) {
+    if (size && (size.width === 0 || size.height === 0)) {
+      void hideAllWebviews({ markForRestore: true })
+      return
     }
 
-    /** 处理隐藏所有子 webview 的事件 */
-    function handleHideAllWebviewsEvent(event: Event) {
-        const customEvent = event as CustomEvent<{ markForRestore?: boolean }>;
-        const markForRestore = customEvent.detail?.markForRestore ?? true;
-        void hideAllWebviews({ markForRestore });
+    scheduleWebviewReflow({ shouldEnsureActiveFront: false, immediate: false })
+  }
+
+  function handleMainWindowMove() {
+    scheduleWebviewReflow({ shouldEnsureActiveFront: false, immediate: false })
+  }
+
+  async function restoreActiveWebview() {
+    if (!shouldRestoreWebviews) {
+      return
     }
 
-    function handleMainWindowResize(size?: { width: number; height: number }) {
-        if (size && (size.width === 0 || size.height === 0)) {
-            void hideAllWebviews({ markForRestore: true });
-            return;
-        }
-
-        scheduleWebviewReflow({ shouldEnsureActiveFront: false, immediate: false });
+    if (appState.currentView !== 'chat') {
+      shouldRestoreWebviews = false
+      return
     }
 
-    function handleMainWindowMove() {
-        scheduleWebviewReflow({ shouldEnsureActiveFront: false, immediate: false });
+    if (!appState.selectedPlatform) {
+      shouldRestoreWebviews = false
+      return
     }
 
-    async function restoreActiveWebview() {
-        if (!shouldRestoreWebviews) {
-            return;
-        }
+    shouldRestoreWebviews = false
 
-        if (appState.currentView !== "chat") {
-            shouldRestoreWebviews = false;
-            return;
-        }
+    try {
+      const platform = appState.selectedPlatform
+      const existing = webviewWindows.get(platform.id)
 
-        if (!appState.selectedPlatform) {
-            shouldRestoreWebviews = false;
-            return;
-        }
+      if (existing) {
+        const bounds = await calculateChildWebviewBounds(mainWindow)
+        await existing.updateBounds(bounds)
+        await existing.show()
+        await existing.setFocus()
+      }
+      else {
+        // 递增序列号并显示平台
+        platformSwitchSequence++
+        await showPlatformWebview(platform, platformSwitchSequence)
+      }
 
-        shouldRestoreWebviews = false;
-
-        try {
-            const platform = appState.selectedPlatform;
-            const existing = webviewWindows.get(platform.id);
-
-            if (existing) {
-                const bounds = await calculateChildWebviewBounds(mainWindow);
-                await existing.updateBounds(bounds);
-                await existing.show();
-                await existing.setFocus();
-            } else {
-                // 递增序列号并显示平台
-                platformSwitchSequence++;
-                await showPlatformWebview(platform, platformSwitchSequence);
-            }
-
-            scheduleWebviewReflow({ shouldEnsureActiveFront: true });
-        } catch (error) {
-            logger.error("Failed to restore WebView", error);
-        }
+      scheduleWebviewReflow({ shouldEnsureActiveFront: true })
     }
+    catch (error) {
+      logger.error('Failed to restore WebView', error)
+    }
+  }
 
-    // ========== 组件生命周期 ==========
-    
+  // ========== 组件生命周期 ==========
+
     /**
      * 清理单个事件监听器的工具函数
      */
-    function cleanupEventListener(
-        key: keyof typeof windowEventUnlisteners,
-        unlisten: (() => void) | null
-    ) {
-        if (unlisten) {
-            unlisten();
-            windowEventUnlisteners[key] = null;
+  function cleanupEventListener(
+    key: keyof typeof windowEventUnlisteners,
+    unlisten: (() => void) | null,
+  ) {
+    if (unlisten) {
+      unlisten()
+      windowEventUnlisteners[key] = null
+    }
+  }
+
+  /**
+   * 清理所有 Tauri 窗口事件监听器
+   */
+  function cleanupAllWindowEvents() {
+    Object.entries(windowEventUnlisteners).forEach(([key, unlisten]) => {
+      cleanupEventListener(key as keyof typeof windowEventUnlisteners, unlisten)
+    })
+  }
+
+  onMount(() => {
+    // ========== DOM 事件监听器 ==========
+
+    const domEventHandlers = [
+      { event: 'refreshWebview', handler: handleRefreshEvent as (e: Event) => void },
+      { event: 'hideAllWebviews', handler: handleHideAllWebviewsEvent as (e: Event) => void },
+      { event: 'resize', handler: () => handleMainWindowResize() },
+    ]
+
+    // 注册 DOM 事件监听器
+    domEventHandlers.forEach(({ event, handler }) => {
+      window.addEventListener(event, handler)
+    })
+
+    // ========== Tauri 窗口事件监听器 ==========
+
+    let isComponentDisposed = false;
+
+    (async () => {
+      try {
+        // 初始化窗口焦点状态
+        try {
+          isMainWindowFocused = await mainWindow.isFocused()
         }
-    }
+        catch (error) {
+          logger.error('Failed to get window focus state', error)
+        }
 
-    /**
-     * 清理所有 Tauri 窗口事件监听器
-     */
-    function cleanupAllWindowEvents() {
-        Object.entries(windowEventUnlisteners).forEach(([key, unlisten]) => {
-            cleanupEventListener(key as keyof typeof windowEventUnlisteners, unlisten);
-        });
-    }
+        // 注册窗口尺寸变化监听
+        windowEventUnlisteners.resize = await mainWindow.onResized(({ payload }) => {
+          handleMainWindowResize(payload ?? undefined)
+        })
 
-    onMount(() => {
-        // ========== DOM 事件监听器 ==========
-        
-        const domEventHandlers = [
-            { event: "refreshWebview", handler: handleRefreshEvent as (e: Event) => void },
-            { event: "hideAllWebviews", handler: handleHideAllWebviewsEvent as (e: Event) => void },
-            { event: "resize", handler: () => handleMainWindowResize() },
-        ];
+        // 注册窗口移动监听
+        windowEventUnlisteners.move = await mainWindow.onMoved(() => {
+          handleMainWindowMove()
+        })
 
-        // 注册 DOM 事件监听器
-        domEventHandlers.forEach(({ event, handler }) => {
-            window.addEventListener(event, handler);
-        });
+        // 注册缩放变化监听
+        windowEventUnlisteners.scale = await mainWindow.onScaleChanged(() => {
+          handleMainWindowResize()
+        })
 
-        // ========== Tauri 窗口事件监听器 ==========
-        
-        let isComponentDisposed = false;
+        // 注册窗口获得焦点监听
+        windowEventUnlisteners.focus = await mainWindow.listen('tauri://focus', () => {
+          isMainWindowFocused = true
+        })
 
-        (async () => {
-            try {
-                // 初始化窗口焦点状态
-                try {
-                    isMainWindowFocused = await mainWindow.isFocused();
-                } catch (error) {
-                    logger.error("Failed to get window focus state", error);
-                }
+        // 注册窗口失去焦点监听
+        windowEventUnlisteners.blur = await mainWindow.listen('tauri://blur', () => {
+          isMainWindowFocused = false
+        })
 
-                // 注册窗口尺寸变化监听
-                windowEventUnlisteners.resize = await mainWindow.onResized(({ payload }) => {
-                    handleMainWindowResize(payload ?? undefined);
-                });
+        // 注册窗口关闭请求监听
+        windowEventUnlisteners.close = await mainWindow.onCloseRequested(async () => {
+          await closeAllWebviews()
+        })
 
-                // 注册窗口移动监听
-                windowEventUnlisteners.move = await mainWindow.onMoved(() => {
-                    handleMainWindowMove();
-                });
+        // 注册来自 Rust 端的隐藏子 webview 事件（托盘/快捷键触发）
+        windowEventUnlisteners.hideWebviews = await mainWindow.listen('hideAllWebviews', () => {
+          void hideAllWebviews({ markForRestore: true })
+        })
 
-                // 注册缩放变化监听
-                windowEventUnlisteners.scale = await mainWindow.onScaleChanged(() => {
-                    handleMainWindowResize();
-                });
-
-                // 注册窗口获得焦点监听
-                windowEventUnlisteners.focus = await mainWindow.listen("tauri://focus", () => {
-                    isMainWindowFocused = true;
-                });
-
-                // 注册窗口失去焦点监听
-                windowEventUnlisteners.blur = await mainWindow.listen("tauri://blur", () => {
-                    isMainWindowFocused = false;
-                });
-
-                // 注册窗口关闭请求监听
-                windowEventUnlisteners.close = await mainWindow.onCloseRequested(async () => {
-                    await closeAllWebviews();
-                });
-
-                // 注册来自 Rust 端的隐藏子 webview 事件（托盘/快捷键触发）
-                windowEventUnlisteners.hideWebviews = await mainWindow.listen("hideAllWebviews", () => {
-                    void hideAllWebviews({ markForRestore: true });
-                });
-
-                // 注册窗口事件监听（最小化、隐藏等）
-                windowEventUnlisteners.windowEvent = await mainWindow.listen(
-                    "tauri://window-event",
-                    (event) => {
-                        const payload = event.payload as { event: string } | undefined;
-                        if (payload?.event === "minimized" || payload?.event === "hidden") {
-                            void hideAllWebviews({ markForRestore: true });
-                        }
-
-                        if (payload?.event === "restored" || payload?.event === "shown") {
-                            void restoreActiveWebview();
-                        }
-                    }
-                );
-
-                windowEventUnlisteners.restoreWebviews = await mainWindow.listen(
-                    "restoreWebviews",
-                    () => {
-                        void restoreActiveWebview();
-                    }
-                );
-
-                // 检查组件是否已经被销毁
-                if (isComponentDisposed) {
-                    cleanupAllWindowEvents();
-                    return;
-                }
-            } catch (error) {
-                logger.error("Failed to register Tauri window events", error);
+        // 注册窗口事件监听（最小化、隐藏等）
+        windowEventUnlisteners.windowEvent = await mainWindow.listen(
+          'tauri://window-event',
+          (event) => {
+            const payload = event.payload as { event: string } | undefined
+            if (payload?.event === 'minimized' || payload?.event === 'hidden') {
+              void hideAllWebviews({ markForRestore: true })
             }
-        })();
 
-        // 初始化 WebView 布局
-        scheduleWebviewReflow({ shouldEnsureActiveFront: true });
+            if (payload?.event === 'restored' || payload?.event === 'shown') {
+              void restoreActiveWebview()
+            }
+          },
+        )
 
-        // ========== 清理函数 ==========
-        
-        return () => {
-            isComponentDisposed = true;
+        windowEventUnlisteners.restoreWebviews = await mainWindow.listen(
+          'restoreWebviews',
+          () => {
+            void restoreActiveWebview()
+          },
+        )
 
-            // 清理 DOM 事件监听器
-            domEventHandlers.forEach(({ event, handler }) => {
-                window.removeEventListener(event, handler);
-            });
+        // 检查组件是否已经被销毁
+        if (isComponentDisposed) {
+          cleanupAllWindowEvents()
+        }
+      }
+      catch (error) {
+        logger.error('Failed to register Tauri window events', error)
+      }
+    })()
 
-            // 清理 Tauri 窗口事件监听器
-            cleanupAllWindowEvents();
-        };
-    });
+    // 初始化 WebView 布局
+    scheduleWebviewReflow({ shouldEnsureActiveFront: true })
 
-    onDestroy(async () => {
-        await closeAllWebviews();
-    });
+    // ========== 清理函数 ==========
+
+    return () => {
+      isComponentDisposed = true
+
+      // 清理 DOM 事件监听器
+      domEventHandlers.forEach(({ event, handler }) => {
+        window.removeEventListener(event, handler)
+      })
+
+      // 清理 Tauri 窗口事件监听器
+      cleanupAllWindowEvents()
+    }
+  })
+
+  onDestroy(async () => {
+    await closeAllWebviews()
+  })
 </script>
 
-<div class="chat-container">
-    {#if appState.selectedPlatform}
-        <!-- Webview 在独立窗口中，这里只显示加载状态 -->
-        {#if appState.webviewLoading}
-            <div class="loading-overlay">
-                <div class="loading-spinner">
-                    <svg class="spinner" viewBox="0 0 50 50">
-                        <circle
-                            class="path"
-                            cx="25"
-                            cy="25"
-                            r="20"
-                            fill="none"
-                            stroke-width="4"
-                        ></circle>
-                    </svg>
-                    <p class="loading-text">{t("chat.loading")}</p>
-                </div>
-            </div>
-        {/if}
-    {:else}
-        <div class="no-platform">
-            <p>{t("chat.selectPlatform")}</p>
+<div class='chat-container'>
+  {#if appState.selectedPlatform}
+    <!-- Webview 在独立窗口中，这里只显示加载状态 -->
+    {#if appState.webviewLoading}
+      <div class='loading-overlay'>
+        <div class='loading-spinner'>
+          <svg class='spinner' viewBox='0 0 50 50'>
+            <circle
+              class='path'
+              cx='25'
+              cy='25'
+              r='20'
+              fill='none'
+              stroke-width='4'
+            ></circle>
+          </svg>
+          <p class='loading-text'>{t('chat.loading')}</p>
         </div>
+      </div>
     {/if}
+  {:else}
+    <div class='no-platform'>
+      <p>{t('chat.selectPlatform')}</p>
+    </div>
+  {/if}
 </div>
 
 <style>
