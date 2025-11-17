@@ -20,6 +20,7 @@
     import { logger } from "$lib/utils/logger";
     import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
     import { onDestroy } from "svelte";
+    import { APP_INFO } from "$lib/utils/constants";
 
     const appWindow = getCurrentWebviewWindow();
 
@@ -288,12 +289,18 @@
                 } else {
                     logger.info("update check completed with no newer version");
                     bannerStatus = 'hidden';
-                    latestVersion = '';
+                    // 将全局更新信息设为当前版本，以便“关于”页面显示“已是最新版本”
+                    latestVersion = APP_INFO.version;
                     latestAssets = [];
                     latestReleaseNotes = '';
                     latestReleaseUrl = '';
                     latestPublishedAt = '';
-                    appState.clearUpdateInfo();
+                    appState.setUpdateInfo({
+                        version: APP_INFO.version,
+                        releaseNotes: null,
+                        releaseUrl: null,
+                        publishedAt: null,
+                    });
                 }
             } catch (error) {
                 logger.warn("register update listeners failed", error);
