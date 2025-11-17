@@ -74,14 +74,14 @@ vi.mock("$lib/utils/constants", () => ({
   BUILT_IN_TRANSLATION_PLATFORMS: builtInTranslation,
 }));
 
-let getConfig: typeof import("$lib/utils/storage")["getConfig"];
-let saveConfig: typeof import("$lib/utils/storage")["saveConfig"];
-let updateConfig: typeof import("$lib/utils/storage")["updateConfig"];
-let getAIPlatforms: typeof import("$lib/utils/storage")["getAIPlatforms"];
-let addCustomPlatform: typeof import("$lib/utils/storage")["addCustomPlatform"];
-let deleteAIPlatform: typeof import("$lib/utils/storage")["deleteAIPlatform"];
-let getTranslationPlatforms: typeof import("$lib/utils/storage")["getTranslationPlatforms"];
-let resetToDefaults: typeof import("$lib/utils/storage")["resetToDefaults"];
+let getConfig: (typeof import("$lib/utils/storage"))["getConfig"];
+let saveConfig: (typeof import("$lib/utils/storage"))["saveConfig"];
+let updateConfig: (typeof import("$lib/utils/storage"))["updateConfig"];
+let getAIPlatforms: (typeof import("$lib/utils/storage"))["getAIPlatforms"];
+let addCustomPlatform: (typeof import("$lib/utils/storage"))["addCustomPlatform"];
+let deleteAIPlatform: (typeof import("$lib/utils/storage"))["deleteAIPlatform"];
+let getTranslationPlatforms: (typeof import("$lib/utils/storage"))["getTranslationPlatforms"];
+let resetToDefaults: (typeof import("$lib/utils/storage"))["resetToDefaults"];
 
 beforeEach(async () => {
   storeData = {};
@@ -118,11 +118,7 @@ describe("storage utilities", () => {
 
     const config = await getConfig();
 
-    expect(config.selectionToolbarIgnoredApps).toEqual([
-      "notepad.exe",
-      "chrome.exe",
-      "Edge.exe",
-    ]);
+    expect(config.selectionToolbarIgnoredApps).toEqual(["notepad.exe", "chrome.exe", "Edge.exe"]);
     expect(saveSpy).toHaveBeenCalled();
   });
 
@@ -169,7 +165,9 @@ describe("storage utilities", () => {
     const claude = platforms.find((platform) => platform.id === "claude");
 
     expect(claude?.selectionToolbarAvailable).toBe(false);
-    expect((storeData[STORAGE_KEYS.AI_PLATFORMS] as AIPlatform[])[1].selectionToolbarAvailable).toBe(false);
+    expect(
+      (storeData[STORAGE_KEYS.AI_PLATFORMS] as AIPlatform[])[1].selectionToolbarAvailable,
+    ).toBe(false);
   });
 
   it("adds and deletes custom AI platforms", async () => {

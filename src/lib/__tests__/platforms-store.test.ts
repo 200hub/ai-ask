@@ -64,7 +64,7 @@ const storageMocks = {
 
 vi.mock("$lib/utils/storage", () => storageMocks);
 
-let platformsStore: typeof import("$lib/stores/platforms.svelte")["platformsStore"];
+let platformsStore: (typeof import("$lib/stores/platforms.svelte"))["platformsStore"];
 
 beforeEach(async () => {
   platformData = clone(initialPlatforms);
@@ -83,11 +83,7 @@ beforeEach(async () => {
 
 describe("PlatformsStore", () => {
   it("normalizes sort order during init", () => {
-    expect(platformsStore.platforms.map((p) => p.id)).toEqual([
-      "claude",
-      "chatgpt",
-      "bing",
-    ]);
+    expect(platformsStore.platforms.map((p) => p.id)).toEqual(["claude", "chatgpt", "bing"]);
     expect(platformsStore.platforms.map((p) => p.sortOrder)).toEqual([1, 2, 3]);
   });
 

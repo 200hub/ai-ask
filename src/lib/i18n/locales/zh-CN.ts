@@ -344,6 +344,7 @@ export const zhCN = {
       explanationFailed: "解释失败",
       noTranslatorConfigured: "请先启用翻译平台。",
       noAiPlatform: "请先启用 AI 平台。",
+      collectFailed: "复制到剪贴板失败，请稍后重试。",
     },
   },
 
@@ -357,6 +358,8 @@ export const zhCN = {
     messageToInject: "要注入的消息",
     messagePlaceholder: "输入要注入到 AI 平台的消息...",
     executeInjection: "执行注入",
+    testScript: "测试脚本",
+    diagnose: "诊断注入",
     success: "成功",
     failed: "失败",
     actionsExecuted: "已执行操作",

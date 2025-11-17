@@ -1,10 +1,10 @@
 /**
  * 应用配置状态管理 - 使用 Svelte 5 Runes
  */
-import type { AppConfig } from '../types/config';
-import { getConfig, saveConfig, updateConfig } from '../utils/storage';
-import { DEFAULT_CONFIG } from '../types/config';
-import { logger } from '../utils/logger';
+import type { AppConfig } from "../types/config";
+import { getConfig, saveConfig, updateConfig } from "../utils/storage";
+import { DEFAULT_CONFIG } from "../types/config";
+import { logger } from "../utils/logger";
 
 /**
  * 配置管理类
@@ -30,8 +30,8 @@ class ConfigStore {
       // 应用主题
       this.applyTheme();
 
-  await this.refreshSelectionToolbarTemporaryDisableIfExpired();
-  await this.syncSelectionToolbarPolicies();
+      await this.refreshSelectionToolbarTemporaryDisableIfExpired();
+      await this.syncSelectionToolbarPolicies();
 
       // 同步自启动状态
       await this.syncAutoLaunchStatus();
@@ -39,7 +39,7 @@ class ConfigStore {
       // 检查辅助功能权限
       await this.checkAccessibilityPermission();
     } catch (error) {
-      logger.error('Failed to initialize config', error);
+      logger.error("Failed to initialize config", error);
       this.config = DEFAULT_CONFIG;
     }
   }
@@ -49,19 +49,19 @@ class ConfigStore {
    */
   async syncAutoLaunchStatus() {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const isEnabled = await invoke<boolean>('is_auto_launch_enabled');
-      
+      const { invoke } = await import("@tauri-apps/api/core");
+      const isEnabled = await invoke<boolean>("is_auto_launch_enabled");
+
       // 如果配置与系统状态不一致，更新配置
       if (this.config.autoStart !== isEnabled) {
-        logger.info('Syncing auto launch status', { 
-          configValue: this.config.autoStart, 
-          systemValue: isEnabled 
+        logger.info("Syncing auto launch status", {
+          configValue: this.config.autoStart,
+          systemValue: isEnabled,
         });
         this.config = await updateConfig({ autoStart: isEnabled });
       }
     } catch (error) {
-      logger.error('Failed to sync auto launch status', error);
+      logger.error("Failed to sync auto launch status", error);
     }
   }
 
@@ -70,29 +70,29 @@ class ConfigStore {
    */
   async syncSelectionToolbarEnabled() {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('set_selection_toolbar_enabled', {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_selection_toolbar_enabled", {
         enabled: this.config.selectionToolbarEnabled,
       });
     } catch (error) {
-      logger.error('Failed to sync selection toolbar state', error);
+      logger.error("Failed to sync selection toolbar state", error);
     }
   }
 
   async syncSelectionToolbarPolicies() {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('set_selection_toolbar_enabled', {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_selection_toolbar_enabled", {
         enabled: this.config.selectionToolbarEnabled,
       });
-      await invoke('set_selection_toolbar_ignored_apps', {
+      await invoke("set_selection_toolbar_ignored_apps", {
         apps: this.buildIgnoredAppPayload(this.config.selectionToolbarIgnoredApps),
       });
-      await invoke('set_selection_toolbar_temporary_disabled_until', {
+      await invoke("set_selection_toolbar_temporary_disabled_until", {
         until: this.config.selectionToolbarTemporaryDisabledUntil,
       });
     } catch (error) {
-      logger.error('Failed to sync selection toolbar policies', error);
+      logger.error("Failed to sync selection toolbar policies", error);
     }
   }
 
@@ -101,9 +101,7 @@ class ConfigStore {
   }
 
   private buildIgnoredAppPayload(apps: string[]): string[] {
-    return this
-      .sanitizeIgnoredApps(apps)
-      .map((item) => item.toLowerCase());
+    return this.sanitizeIgnoredApps(apps).map((item) => item.toLowerCase());
   }
 
   async setSelectionToolbarIgnoredApps(apps: string[]) {
@@ -111,10 +109,10 @@ class ConfigStore {
     const payload = this.buildIgnoredAppPayload(sanitized);
 
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('set_selection_toolbar_ignored_apps', { apps: payload });
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_selection_toolbar_ignored_apps", { apps: payload });
     } catch (error) {
-      logger.error('Failed to update selection toolbar ignored apps in backend', error);
+      logger.error("Failed to update selection toolbar ignored apps in backend", error);
       throw error;
     }
 
@@ -123,10 +121,10 @@ class ConfigStore {
 
   async setSelectionToolbarTemporaryDisabledUntil(until: number | null) {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('set_selection_toolbar_temporary_disabled_until', { until });
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_selection_toolbar_temporary_disabled_until", { until });
     } catch (error) {
-      logger.error('Failed to update selection toolbar temporary disable state', error);
+      logger.error("Failed to update selection toolbar temporary disable state", error);
       throw error;
     }
 
@@ -148,14 +146,14 @@ class ConfigStore {
     }
 
     if (until <= Date.now()) {
-      logger.info('Selection toolbar temporary disable expired, restoring');
+      logger.info("Selection toolbar temporary disable expired, restoring");
       await this.setSelectionToolbarTemporaryDisabledUntil(null);
     }
   }
 
   /**
    * 更新配置
-   * 
+   *
    * @param updates - 要更新的配置字段
    */
   async update(updates: Partial<AppConfig>): Promise<void> {
@@ -167,7 +165,7 @@ class ConfigStore {
         this.applyTheme();
       }
     } catch (error) {
-      logger.error('Failed to update config', error);
+      logger.error("Failed to update config", error);
       throw error;
     }
   }
@@ -175,15 +173,15 @@ class ConfigStore {
   /**
    * 设置主题
    */
-  async setTheme(theme: 'system' | 'light' | 'dark') {
+  async setTheme(theme: "system" | "light" | "dark") {
     await this.update({ theme });
-    
+
     // 通知所有窗口主题已更改
     try {
-      const { emit } = await import('@tauri-apps/api/event');
-      await emit('theme-changed', { theme });
+      const { emit } = await import("@tauri-apps/api/event");
+      await emit("theme-changed", { theme });
     } catch (error) {
-      logger.error('Failed to emit theme-changed event', error);
+      logger.error("Failed to emit theme-changed event", error);
     }
   }
 
@@ -193,13 +191,13 @@ class ConfigStore {
   applyTheme() {
     const theme = this.config.theme;
     const isDark =
-      theme === 'dark' ||
-      (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      theme === "dark" ||
+      (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
     if (isDark) {
-      document.documentElement.classList.add('dark');
+      document.documentElement.classList.add("dark");
     } else {
-      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.remove("dark");
     }
   }
 
@@ -228,20 +226,20 @@ class ConfigStore {
    * 设置自动启动
    */
   async setAutoStart(autoStart: boolean) {
-    const { invoke } = await import('@tauri-apps/api/core');
-    
+    const { invoke } = await import("@tauri-apps/api/core");
+
     try {
       if (autoStart) {
-        await invoke('enable_auto_launch');
-        logger.info('Auto launch enabled');
+        await invoke("enable_auto_launch");
+        logger.info("Auto launch enabled");
       } else {
-        await invoke('disable_auto_launch');
-        logger.info('Auto launch disabled');
+        await invoke("disable_auto_launch");
+        logger.info("Auto launch disabled");
       }
-      
+
       await this.update({ autoStart });
     } catch (error) {
-      logger.error('Failed to set auto launch', error);
+      logger.error("Failed to set auto launch", error);
       throw error;
     }
   }
@@ -279,10 +277,10 @@ class ConfigStore {
    */
   async setSelectionToolbarEnabled(enabled: boolean) {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('set_selection_toolbar_enabled', { enabled });
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_selection_toolbar_enabled", { enabled });
     } catch (error) {
-      logger.error('Failed to update selection toolbar state in backend', error);
+      logger.error("Failed to update selection toolbar state in backend", error);
       throw error;
     }
 
@@ -308,7 +306,7 @@ class ConfigStore {
    */
   async setWindowSize(width: number, height: number) {
     await this.update({
-      windowSize: { width, height }
+      windowSize: { width, height },
     });
   }
 
@@ -317,7 +315,7 @@ class ConfigStore {
    */
   async setWindowPosition(x: number, y: number) {
     await this.update({
-      windowPosition: { x, y }
+      windowPosition: { x, y },
     });
   }
 
@@ -336,9 +334,9 @@ class ConfigStore {
       await saveConfig(DEFAULT_CONFIG);
       this.config = DEFAULT_CONFIG;
       this.applyTheme();
-  await this.syncSelectionToolbarPolicies();
+      await this.syncSelectionToolbarPolicies();
     } catch (error) {
-      logger.error('Failed to reset config', error);
+      logger.error("Failed to reset config", error);
       throw error;
     }
   }
@@ -355,19 +353,19 @@ class ConfigStore {
    */
   async checkAccessibilityPermission(): Promise<boolean> {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const granted = await invoke<boolean>('check_accessibility_permission');
+      const { invoke } = await import("@tauri-apps/api/core");
+      const granted = await invoke<boolean>("check_accessibility_permission");
       this.accessibilityPermissionGranted = granted;
 
       if (!granted) {
-        logger.warn('Accessibility permission not granted');
+        logger.warn("Accessibility permission not granted");
       } else {
-        logger.info('Accessibility permission verified');
+        logger.info("Accessibility permission verified");
       }
 
       return granted;
     } catch (error) {
-      logger.error('Failed to check accessibility permission', error);
+      logger.error("Failed to check accessibility permission", error);
       return true; // 假设已授权，避免在不支持的平台上显示警告
     }
   }
@@ -377,19 +375,19 @@ class ConfigStore {
    */
   async requestAccessibilityPermission(): Promise<boolean> {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const granted = await invoke<boolean>('request_accessibility_permission');
+      const { invoke } = await import("@tauri-apps/api/core");
+      const granted = await invoke<boolean>("request_accessibility_permission");
       this.accessibilityPermissionGranted = granted;
 
       if (granted) {
-        logger.info('Accessibility permission granted after request');
+        logger.info("Accessibility permission granted after request");
       } else {
-        logger.warn('Accessibility permission denied or prompt shown');
+        logger.warn("Accessibility permission denied or prompt shown");
       }
 
       return granted;
     } catch (error) {
-      logger.error('Failed to request accessibility permission', error);
+      logger.error("Failed to request accessibility permission", error);
       throw error;
     }
   }
@@ -403,10 +401,10 @@ export const configStore = new ConfigStore();
 /**
  * 监听系统主题变化
  */
-if (typeof window !== 'undefined') {
-  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-  mediaQuery.addEventListener('change', () => {
-    if (configStore.config.theme === 'system') {
+if (typeof window !== "undefined") {
+  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  mediaQuery.addEventListener("change", () => {
+    if (configStore.config.theme === "system") {
       configStore.applyTheme();
     }
   });

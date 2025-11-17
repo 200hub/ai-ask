@@ -66,9 +66,7 @@ export async function downloadUpdate(
 /**
  * Query download task status.
  */
-export async function getDownloadStatus(
-  taskId: string,
-): Promise<DownloadTask | null> {
+export async function getDownloadStatus(taskId: string): Promise<DownloadTask | null> {
   try {
     return await invoke<DownloadTask>("get_download_status", { taskId });
   } catch (error) {
@@ -150,19 +148,14 @@ export function selectAssetForUserAgent(
     return null;
   }
 
-  const ua =
-    userAgent ??
-    (typeof navigator !== "undefined" ? navigator.userAgent : "");
+  const ua = userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : "");
   const lowerUA = ua.toLowerCase();
 
   const isWindows = lowerUA.includes("windows");
   const isMac = lowerUA.includes("mac");
   const isLinux = lowerUA.includes("linux");
   const isAndroid = lowerUA.includes("android");
-  const isIos =
-    lowerUA.includes("iphone") ||
-    lowerUA.includes("ipad") ||
-    lowerUA.includes("ios");
+  const isIos = lowerUA.includes("iphone") || lowerUA.includes("ipad") || lowerUA.includes("ios");
   const isArm64 = lowerUA.includes("arm64") || lowerUA.includes("aarch64");
   const isX64 =
     lowerUA.includes("x86_64") ||
@@ -218,9 +211,8 @@ export async function onUpdateAvailable(
     return () => {};
   }
 
-  const unlisten = await listen<UpdateAvailableEvent>(
-    UPDATE_EVENTS.available,
-    (event) => handler(event.payload),
+  const unlisten = await listen<UpdateAvailableEvent>(UPDATE_EVENTS.available, (event) =>
+    handler(event.payload),
   );
 
   return unlisten;
@@ -236,9 +228,8 @@ export async function onUpdateDownloaded(
     return () => {};
   }
 
-  const unlisten = await listen<UpdateDownloadedEvent>(
-    UPDATE_EVENTS.downloaded,
-    (event) => handler(event.payload),
+  const unlisten = await listen<UpdateDownloadedEvent>(UPDATE_EVENTS.downloaded, (event) =>
+    handler(event.payload),
   );
 
   return unlisten;

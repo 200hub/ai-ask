@@ -1,45 +1,42 @@
 /**
  * 平台预加载模块
- * 
+ *
  * 在应用启动时预加载默认的翻译平台和 AI 平台，
  * 提升首次使用时的响应速度
  */
 
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { configStore } from '$lib/stores/config.svelte';
-import { translationStore } from '$lib/stores/translation.svelte';
-import { platformsStore } from '$lib/stores/platforms.svelte';
-import { ChildWebviewProxy, calculateChildWebviewBounds } from '$lib/utils/childWebview';
-import { resolveProxyUrl } from '$lib/utils/proxy';
-import { logger } from '$lib/utils/logger';
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { configStore } from "$lib/stores/config.svelte";
+import { translationStore } from "$lib/stores/translation.svelte";
+import { platformsStore } from "$lib/stores/platforms.svelte";
+import { ChildWebviewProxy, calculateChildWebviewBounds } from "$lib/utils/childWebview";
+import { resolveProxyUrl } from "$lib/utils/proxy";
+import { logger } from "$lib/utils/logger";
 
 /**
  * 预加载默认平台
- * 
+ *
  * 在后台静默创建默认翻译平台和 AI 平台的 WebView，
  * 但不显示它们，等用户需要时可以立即使用
  */
 export async function preloadDefaultPlatforms(): Promise<void> {
   // 检查是否启用预加载
   if (!configStore.config.preloadDefaultPlatforms) {
-    logger.info('Platform preloading is disabled');
+    logger.info("Platform preloading is disabled");
     return;
   }
 
   // 等待一小段时间，避免影响应用启动速度
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  logger.info('Starting platform preloading');
+  logger.info("Starting platform preloading");
 
   try {
-    await Promise.all([
-      preloadTranslationPlatform(),
-      preloadAIPlatform(),
-    ]);
+    await Promise.all([preloadTranslationPlatform(), preloadAIPlatform()]);
 
-    logger.info('Platform preloading completed successfully');
+    logger.info("Platform preloading completed successfully");
   } catch (error) {
-    logger.warn('Platform preloading failed (non-critical)', error);
+    logger.warn("Platform preloading failed (non-critical)", error);
   }
 }
 
@@ -49,13 +46,15 @@ export async function preloadDefaultPlatforms(): Promise<void> {
 async function preloadTranslationPlatform(): Promise<void> {
   const currentTranslatorId = configStore.config.currentTranslator;
   if (!currentTranslatorId) {
-    logger.debug('No default translator configured, skipping preload');
+    logger.debug("No default translator configured, skipping preload");
     return;
   }
 
   const translator = translationStore.getPlatformById(currentTranslatorId);
   if (!translator || !translator.enabled) {
-    logger.debug('Default translator not available or disabled', { translatorId: currentTranslatorId });
+    logger.debug("Default translator not available or disabled", {
+      translatorId: currentTranslatorId,
+    });
     return;
   }
 
@@ -70,16 +69,16 @@ async function preloadTranslationPlatform(): Promise<void> {
 
     // 创建但不显示 WebView
     await proxy.ensure(bounds);
-    
+
     // 等待页面加载完成，确保预加载真正有效
     await proxy.waitForLoadFinished();
 
-    logger.info('Translation platform preloaded', { 
+    logger.info("Translation platform preloaded", {
       translatorId: translator.id,
       webviewId,
     });
   } catch (error) {
-    logger.warn('Failed to preload translation platform', {
+    logger.warn("Failed to preload translation platform", {
       translatorId: translator.id,
       error,
     });
@@ -113,7 +112,7 @@ async function preloadAIPlatform(): Promise<void> {
   }
 
   if (!platform) {
-    logger.debug('No AI platform available for preload');
+    logger.debug("No AI platform available for preload");
     return;
   }
 
@@ -128,16 +127,16 @@ async function preloadAIPlatform(): Promise<void> {
 
     // 创建但不显示 WebView
     await proxy.ensure(bounds);
-    
+
     // 等待页面加载完成，确保预加载真正有效
     await proxy.waitForLoadFinished();
 
-    logger.info('AI platform preloaded', {
+    logger.info("AI platform preloaded", {
       platformId: platform.id,
       webviewId,
     });
   } catch (error) {
-    logger.warn('Failed to preload AI platform', {
+    logger.warn("Failed to preload AI platform", {
       platformId: platform.id,
       error,
     });

@@ -5,10 +5,7 @@ import { Store } from "@tauri-apps/plugin-store";
 import type { AppConfig, ProxyConfig } from "../types/config";
 import type { AIPlatform, TranslationPlatform } from "../types/platform";
 import { DEFAULT_CONFIG } from "../types/config";
-import {
-  BUILT_IN_AI_PLATFORMS,
-  BUILT_IN_TRANSLATION_PLATFORMS,
-} from "./constants";
+import { BUILT_IN_AI_PLATFORMS, BUILT_IN_TRANSLATION_PLATFORMS } from "./constants";
 import { logger } from "./logger";
 
 /**
@@ -154,8 +151,8 @@ export async function getConfig(): Promise<AppConfig> {
     }
 
     // 合并默认配置（防止新增配置项时出现undefined）
-  const merged: AppConfig = { ...DEFAULT_CONFIG, ...config };
-  const rawConfig = config as unknown as Record<string, unknown>;
+    const merged: AppConfig = { ...DEFAULT_CONFIG, ...config };
+    const rawConfig = config as unknown as Record<string, unknown>;
 
     merged.proxy = normalizeProxyConfig(config?.proxy ?? merged.proxy);
 
@@ -214,9 +211,7 @@ export async function saveConfig(config: AppConfig): Promise<void> {
 /**
  * 更新配置的部分字段
  */
-export async function updateConfig(
-  updates: Partial<AppConfig>,
-): Promise<AppConfig> {
+export async function updateConfig(updates: Partial<AppConfig>): Promise<AppConfig> {
   try {
     const currentConfig = await getConfig();
 
@@ -247,9 +242,7 @@ export async function updateConfig(
 export async function getAIPlatforms(): Promise<AIPlatform[]> {
   try {
     const storeInstance = await initStore();
-    const platforms = await storeInstance.get<AIPlatform[]>(
-      STORAGE_KEYS.AI_PLATFORMS,
-    );
+    const platforms = await storeInstance.get<AIPlatform[]>(STORAGE_KEYS.AI_PLATFORMS);
 
     if (!platforms) {
       // 首次运行，返回内置平台
@@ -257,9 +250,7 @@ export async function getAIPlatforms(): Promise<AIPlatform[]> {
       return [...BUILT_IN_AI_PLATFORMS];
     }
 
-    const defaultsById = new Map(
-      BUILT_IN_AI_PLATFORMS.map((platform) => [platform.id, platform]),
-    );
+    const defaultsById = new Map(BUILT_IN_AI_PLATFORMS.map((platform) => [platform.id, platform]));
     const defaultIds = new Set(defaultsById.keys());
 
     let hasUpdates = false;
@@ -381,10 +372,7 @@ export async function addCustomPlatform(
 /**
  * 更新AI平台
  */
-export async function updateAIPlatform(
-  id: string,
-  updates: Partial<AIPlatform>,
-): Promise<void> {
+export async function updateAIPlatform(id: string, updates: Partial<AIPlatform>): Promise<void> {
   try {
     const platforms = await getAIPlatforms();
     const index = platforms.findIndex((p) => p.id === id);
@@ -420,9 +408,7 @@ export async function deleteAIPlatform(id: string): Promise<void> {
 /**
  * 获取翻译平台列表
  */
-export async function getTranslationPlatforms(): Promise<
-  TranslationPlatform[]
-> {
+export async function getTranslationPlatforms(): Promise<TranslationPlatform[]> {
   try {
     const storeInstance = await initStore();
     const platforms = await storeInstance.get<TranslationPlatform[]>(
@@ -457,8 +443,7 @@ export async function getTranslationPlatforms(): Promise<
         platform.name !== defaults.name ||
         platform.url !== defaults.url ||
         platform.icon !== defaults.icon ||
-        JSON.stringify(platform.supportLanguages) !==
-          JSON.stringify(defaults.supportLanguages)
+        JSON.stringify(platform.supportLanguages) !== JSON.stringify(defaults.supportLanguages)
       ) {
         hasUpdates = true;
       }
@@ -488,9 +473,7 @@ export async function getTranslationPlatforms(): Promise<
 /**
  * 保存翻译平台列表
  */
-export async function saveTranslationPlatforms(
-  platforms: TranslationPlatform[],
-): Promise<void> {
+export async function saveTranslationPlatforms(platforms: TranslationPlatform[]): Promise<void> {
   try {
     const storeInstance = await initStore();
     await storeInstance.set(STORAGE_KEYS.TRANSLATION_PLATFORMS, platforms);

@@ -59,7 +59,7 @@ const configMock = {
 vi.mock("$lib/utils/storage", () => storageMocks);
 vi.mock("$lib/stores/config.svelte", () => ({ configStore: configMock }));
 
-let translationStore: typeof import("$lib/stores/translation.svelte")["translationStore"];
+let translationStore: (typeof import("$lib/stores/translation.svelte"))["translationStore"];
 
 beforeEach(async () => {
   translationData = clone(initialTranslations);

@@ -3,9 +3,12 @@ import tseslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import sveltePlugin from "eslint-plugin-svelte";
 import svelteParser from "svelte-eslint-parser";
+import prettierRecommended from "eslint-plugin-prettier/recommended";
+import prettierConfig from "eslint-config-prettier";
 
 export default [
   js.configs.recommended,
+  prettierConfig,
   {
     files: ["**/*.ts", "**/*.js"],
     languageOptions: {
@@ -126,6 +129,7 @@ export default [
       "svelte/no-at-html-tags": "warn",
     },
   },
+  prettierRecommended,
   {
     ignores: [
       "build/",

@@ -103,12 +103,7 @@ export const DEFAULT_CONFIG: AppConfig = {
 /**
  * 设置标签页类型
  */
-export type SettingsTab =
-  | "general"
-  | "platforms"
-  | "proxy"
-  | "translation"
-  | "about";
+export type SettingsTab = "general" | "platforms" | "proxy" | "translation" | "about";
 
 /**
  * 视图类型

@@ -701,12 +701,12 @@
 
 			<div class="control-divider"></div>
 
-			<button class="control-btn" onclick={testSimpleScript} disabled={loading} title="Test Script">
-				🧪 Test
+			<button class="control-btn" onclick={testSimpleScript} disabled={loading} title={t('debug.testScript')}>
+				🧪 {t('debug.testScript')}
 			</button>
 
-			<button class="control-btn" onclick={diagnoseInjection} disabled={loading} title="Diagnose Injection">
-				🔍 诊断
+			<button class="control-btn" onclick={diagnoseInjection} disabled={loading} title={t('debug.diagnose')}>
+				🔍 {t('debug.diagnose')}
 			</button>
 
 			<input

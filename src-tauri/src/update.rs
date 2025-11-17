@@ -1,6 +1,10 @@
-//! Application update module
+//! 应用更新模块 (Application update module)
 //!
-//! Handles GitHub release checks, asset selection, downloads, and scheduling installations.
+//! 负责检查 GitHub Release、筛选适合当前平台的安装包、下载更新并调度安装时机。
+//!
+//! - 与前端通过 `update:available` / `update:downloaded` 等事件进行通信
+//! - 支持自动更新与手动更新两种模式
+//! - 通过缓存结构避免重复解析同一版本的 Release 元数据
 
 use std::{
     collections::HashMap,
@@ -25,12 +29,12 @@ const STORE_FILE: &str = "config.json";
 const STORE_KEY_CONFIG: &str = "app_config";
 const PENDING_UPDATE_FILE: &str = "pending-update.json";
 
-/// Update event: new version available
+/// 更新事件：检测到新版本可用（会推送给前端显示更新 Banner）
 pub const EVENT_UPDATE_AVAILABLE: &str = "update:available";
-/// Update event: download completed
+/// 更新事件：更新安装包下载完成（用于提示用户安装或下次启动时自动安装）
 pub const EVENT_UPDATE_DOWNLOADED: &str = "update:downloaded";
 
-/// Download status
+/// 下载任务状态
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum DownloadStatus {
@@ -39,7 +43,7 @@ pub enum DownloadStatus {
     Failed,
 }
 
-/// Release asset exposed to frontend
+/// 暴露给前端的 Release 资源信息
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReleaseAsset {
@@ -54,7 +58,7 @@ pub struct ReleaseAsset {
     pub checksum: Option<Checksum>,
 }
 
-/// Asset checksum placeholder
+/// 资源校验信息占位结构（目前没有实际计算，预留扩展）
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Checksum {
@@ -62,7 +66,7 @@ pub struct Checksum {
     pub value: String,
 }
 
-/// Download task info for frontend
+/// 暴露给前端的下载任务信息
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadTask {
@@ -80,7 +84,7 @@ pub struct DownloadTask {
     pub bytes_downloaded: Option<u64>,
 }
 
-/// Response returned when checking updates
+/// `check_update` 命令返回给前端的响应结构
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckUpdateResponse {
@@ -98,7 +102,7 @@ pub struct CheckUpdateResponse {
     pub assets: Vec<ReleaseAsset>,
 }
 
-/// Payload for update:available event
+/// 触发 `update:available` 事件时携带的负载结构
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateAvailablePayload {
@@ -112,7 +116,7 @@ struct UpdateAvailablePayload {
     release_url: Option<String>,
 }
 
-/// Payload for update:downloaded event
+/// 触发 `update:downloaded` 事件时携带的负载结构
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateDownloadedPayload {
@@ -122,14 +126,14 @@ struct UpdateDownloadedPayload {
     file_path: Option<String>,
 }
 
-/// Internal cached asset data
+/// 内部缓存的单个资源数据，用于避免重复解析 GitHub API 响应
 #[derive(Debug, Clone)]
 struct CachedAsset {
     id: u64,
     meta: ReleaseAsset,
 }
 
-/// Cached release metadata
+/// 内部缓存的 Release 元数据
 #[derive(Debug, Clone)]
 struct CachedRelease {
     version: String,
@@ -140,7 +144,7 @@ struct CachedRelease {
     assets: Vec<CachedAsset>,
 }
 
-/// Internal download task state
+/// 内部下载任务状态，包含暴露给前端的部分以及仅 Rust 侧使用的字段
 #[derive(Debug, Clone)]
 struct DownloadTaskInternal {
     task: DownloadTask,

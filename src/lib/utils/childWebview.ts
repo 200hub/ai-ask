@@ -1,17 +1,40 @@
+/**
+ * 子 WebView 管理工具
+ * 
+ * 提供子 WebView 的创建、显示、隐藏和边界计算等核心功能。
+ * 子 WebView 用于嵌入 AI 平台和翻译服务的网页内容。
+ */
+
 import { invoke } from "@tauri-apps/api/core";
 import type { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { logger } from "$lib/utils/logger";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { EVENTS } from "$lib/utils/constants";
 
+/**
+ * 子 WebView 边界信息接口
+ */
 export interface ChildWebviewBounds {
+    /** 逻辑坐标位置 */
     positionLogical: { x: number; y: number };
+    /** 逻辑尺寸 */
     sizeLogical: { width: number; height: number };
+    /** DPI 缩放因子 */
     scaleFactor: number;
 }
 
+/**
+ * 边界比较的浮点误差容限（像素）
+ */
 export const BOUNDS_EPSILON = 0.5;
 
+/**
+ * 比较两个边界是否相等（考虑浮点误差）
+ * 
+ * @param a - 边界 A
+ * @param b - 边界 B
+ * @returns 是否相等
+ */
 export function boundsEqual(a: ChildWebviewBounds, b: ChildWebviewBounds): boolean {
     return (
         Math.abs(a.positionLogical.x - b.positionLogical.x) < BOUNDS_EPSILON &&
@@ -21,6 +44,15 @@ export function boundsEqual(a: ChildWebviewBounds, b: ChildWebviewBounds): boole
     );
 }
 
+/**
+ * 计算子 WebView 的边界位置和尺寸
+ * 
+ * 根据主窗口的布局元素（侧边栏、头部、主内容区）计算子 WebView 应该占据的区域。
+ * 考虑了 DPI 缩放因子，确保在不同显示器上显示正确。
+ * 
+ * @param mainWindow - 主窗口对象
+ * @returns 计算得到的边界信息
+ */
 export async function calculateChildWebviewBounds(
     mainWindow: WebviewWindow,
 ): Promise<ChildWebviewBounds> {
@@ -66,11 +98,27 @@ export async function calculateChildWebviewBounds(
     }
 }
 
+/**
+ * 子 WebView 代理类
+ * 
+ * 提供对 Rust 后端管理的子 WebView 的前端抽象接口。
+ * 负责协调创建、显示、隐藏、更新边界等操作，并维护本地状态。
+ */
 export class ChildWebviewProxy {
+    /** 上次设置的边界信息，用于避免重复更新 */
     #lastBounds: ChildWebviewBounds | null = null;
+    /** 当前可见性状态 */
     #isVisible = false;
+    /** WebView 标签（与 id 相同） */
     #label: string;
 
+    /**
+     * 创建子 WebView 代理实例
+     * 
+     * @param id - WebView 唯一标识符
+     * @param url - 要加载的 URL
+     * @param proxyUrl - 代理服务器 URL（可选）
+     */
     constructor(
         private readonly id: string,
         private readonly url: string,

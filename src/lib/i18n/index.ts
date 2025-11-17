@@ -80,10 +80,7 @@ const currentLocale = writable<Locale>(DEFAULT_LOCALE);
 /**
  * 获取嵌套对象的值
  */
-function getNestedValue(
-  obj: TranslationDict,
-  path: string,
-): string | undefined {
+function getNestedValue(obj: TranslationDict, path: string): string | undefined {
   const keys = path.split(".");
   let current: unknown = obj;
 
@@ -116,10 +113,7 @@ function createTranslator(): Translator {
     // 尝试使用默认语言
     if (locale !== DEFAULT_LOCALE) {
       const defaultData = translationData[DEFAULT_LOCALE];
-      const defaultTranslation = getNestedValue(
-        defaultData ?? zhCN,
-        key,
-      );
+      const defaultTranslation = getNestedValue(defaultData ?? zhCN, key);
       if (defaultTranslation) {
         return defaultTranslation;
       }
@@ -212,9 +206,7 @@ export const i18n = {
 
     // 部分匹配（例如 en 匹配 en-US）
     const langCode = browserLang.split("-")[0];
-    const partialMatch = SUPPORTED_LOCALES.find((l) =>
-      l.code.startsWith(langCode),
-    );
+    const partialMatch = SUPPORTED_LOCALES.find((l) => l.code.startsWith(langCode));
     if (partialMatch) {
       return partialMatch.code;
     }

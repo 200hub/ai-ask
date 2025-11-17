@@ -1,7 +1,7 @@
 /**
  * Selection Toolbar State Management - 使用 Svelte 5 Runes
  */
-import { logger } from '../utils/logger';
+import { logger } from "../utils/logger";
 
 /**
  * 工具栏位置接口
@@ -16,7 +16,7 @@ export interface ToolbarPosition {
  */
 class ToolbarStore {
   /** 选中的文本 */
-  selectedText = $state<string>('');
+  selectedText = $state<string>("");
 
   /** 工具栏是否可见 */
   visible = $state<boolean>(false);
@@ -29,23 +29,23 @@ class ToolbarStore {
 
   /**
    * 显示工具栏
-   * 
+   *
    * @param text - 选中的文本
    * @param position - 光标位置
    */
   show(text: string, position: ToolbarPosition) {
     if (!text || text.trim().length === 0) {
-      logger.warn('Selection toolbar: Empty text, not showing');
+      logger.warn("Selection toolbar: Empty text, not showing");
       return;
     }
 
     this.selectedText = text.trim();
     this.position = position;
     this.visible = true;
-    
-    logger.info('Selection toolbar shown', { 
-      textLength: this.selectedText.length, 
-      position 
+
+    logger.info("Selection toolbar shown", {
+      textLength: this.selectedText.length,
+      position,
     });
   }
 
@@ -54,10 +54,10 @@ class ToolbarStore {
    */
   hide() {
     this.visible = false;
-    this.selectedText = '';
+    this.selectedText = "";
     this.isProcessing = false;
-    
-    logger.info('Selection toolbar hidden');
+
+    logger.info("Selection toolbar hidden");
   }
 
   /**
@@ -71,7 +71,7 @@ class ToolbarStore {
    * 清空状态
    */
   reset() {
-    this.selectedText = '';
+    this.selectedText = "";
     this.visible = false;
     this.position = { x: 0, y: 0 };
     this.isProcessing = false;

@@ -1,10 +1,16 @@
 /**
  * AI平台状态管理 - 使用 Svelte 5 Runes
  */
-import type { AIPlatform } from '../types/platform';
-import { getAIPlatforms, saveAIPlatforms, addCustomPlatform, updateAIPlatform, deleteAIPlatform } from '../utils/storage';
-import { logger } from '../utils/logger';
-import { i18n } from '$lib/i18n';
+import type { AIPlatform } from "../types/platform";
+import {
+  getAIPlatforms,
+  saveAIPlatforms,
+  addCustomPlatform,
+  updateAIPlatform,
+  deleteAIPlatform,
+} from "../utils/storage";
+import { logger } from "../utils/logger";
+import { i18n } from "$lib/i18n";
 
 /**
  * AI平台管理类
@@ -29,26 +35,22 @@ class PlatformsStore {
 
   // 已启用的平台列表
   get enabledPlatforms(): AIPlatform[] {
-    return this.platforms
-      .filter(p => p.enabled)
-      .sort((a, b) => a.sortOrder - b.sortOrder);
+    return this.platforms.filter((p) => p.enabled).sort((a, b) => a.sortOrder - b.sortOrder);
   }
 
   // 可用于划词工具栏的平台列表（需启用且允许）
   get selectionToolbarPlatforms(): AIPlatform[] {
-    return this.enabledPlatforms.filter(
-      (platform) => platform.selectionToolbarAvailable ?? true,
-    );
+    return this.enabledPlatforms.filter((platform) => platform.selectionToolbarAvailable ?? true);
   }
 
   // 自定义平台列表
   get customPlatforms(): AIPlatform[] {
-    return this.platforms.filter(p => p.isCustom);
+    return this.platforms.filter((p) => p.isCustom);
   }
 
   // 内置平台列表
   get builtInPlatforms(): AIPlatform[] {
-    return this.platforms.filter(p => !p.isCustom);
+    return this.platforms.filter((p) => !p.isCustom);
   }
 
   /**
@@ -59,7 +61,7 @@ class PlatformsStore {
       const platforms = await getAIPlatforms();
       this.platforms = this.normalizeOrder(platforms);
     } catch (error) {
-      logger.error('Failed to initialize platforms', error);
+      logger.error("Failed to initialize platforms", error);
     }
   }
 
@@ -67,7 +69,7 @@ class PlatformsStore {
    * 获取平台by ID
    */
   getPlatformById(id: string): AIPlatform | undefined {
-    return this.platforms.find(p => p.id === id);
+    return this.platforms.find((p) => p.id === id);
   }
 
   /**
@@ -81,7 +83,7 @@ class PlatformsStore {
       await updateAIPlatform(id, { enabled: !platform.enabled });
       platform.enabled = !platform.enabled;
     } catch (error) {
-      logger.error('Failed to toggle platform', error);
+      logger.error("Failed to toggle platform", error);
       throw error;
     }
   }
@@ -89,13 +91,13 @@ class PlatformsStore {
   /**
    * 添加自定义平台
    */
-  async addPlatform(platform: Omit<AIPlatform, 'id' | 'isCustom' | 'sortOrder'>) {
+  async addPlatform(platform: Omit<AIPlatform, "id" | "isCustom" | "sortOrder">) {
     try {
       const newPlatform = await addCustomPlatform(platform);
       this.platforms = this.normalizeOrder([...this.platforms, newPlatform]);
       return newPlatform;
     } catch (error) {
-      logger.error('Failed to add platform', error);
+      logger.error("Failed to add platform", error);
       throw error;
     }
   }
@@ -106,12 +108,12 @@ class PlatformsStore {
   async updatePlatform(id: string, updates: Partial<AIPlatform>) {
     try {
       await updateAIPlatform(id, updates);
-      const index = this.platforms.findIndex(p => p.id === id);
+      const index = this.platforms.findIndex((p) => p.id === id);
       if (index !== -1) {
         this.platforms[index] = { ...this.platforms[index], ...updates };
       }
     } catch (error) {
-      logger.error('Failed to update platform', error);
+      logger.error("Failed to update platform", error);
       throw error;
     }
   }
@@ -123,14 +125,14 @@ class PlatformsStore {
     const platform = this.getPlatformById(id);
     if (!platform || !platform.isCustom) {
       const t = i18n.t;
-      throw new Error(t('platforms.onlyCustomDeletable'));
+      throw new Error(t("platforms.onlyCustomDeletable"));
     }
 
     try {
       await deleteAIPlatform(id);
-      this.platforms = this.platforms.filter(p => p.id !== id);
+      this.platforms = this.platforms.filter((p) => p.id !== id);
     } catch (error) {
-      logger.error('Failed to remove platform', error);
+      logger.error("Failed to remove platform", error);
       throw error;
     }
   }
@@ -144,40 +146,41 @@ class PlatformsStore {
       this.platforms = normalized;
       await saveAIPlatforms(normalized);
     } catch (error) {
-      logger.error('Failed to reorder platforms', error);
+      logger.error("Failed to reorder platforms", error);
       throw error;
     }
   }
 
   /**
    * 移动平台顺序
-   * 
+   *
    * @param id - 平台ID
    * @param direction - 移动方向（'up' 向上, 'down' 向下）
    */
-  async movePlatform(id: string, direction: 'up' | 'down'): Promise<void> {
-    const { log } = await import('$lib/utils/logger');
-    
-    log.debug('[PlatformsStore] Start moving platform', { id, direction });
-    log.debug('[PlatformsStore] Current platform list', 
-      this.platforms.map(p => ({ id: p.id, name: p.name, sortOrder: p.sortOrder }))
+  async movePlatform(id: string, direction: "up" | "down"): Promise<void> {
+    const { log } = await import("$lib/utils/logger");
+
+    log.debug("[PlatformsStore] Start moving platform", { id, direction });
+    log.debug(
+      "[PlatformsStore] Current platform list",
+      this.platforms.map((p) => ({ id: p.id, name: p.name, sortOrder: p.sortOrder })),
     );
 
-    const platform = this.platforms.find(p => p.id === id);
+    const platform = this.platforms.find((p) => p.id === id);
     if (!platform) {
-      log.error('[PlatformsStore] Platform not found', { id });
+      log.error("[PlatformsStore] Platform not found", { id });
       return;
     }
 
     // 按 sortOrder 排序获取所有平台
     const sorted = [...this.platforms].sort((a, b) => a.sortOrder - b.sortOrder);
-    const currentIndex = sorted.findIndex(p => p.id === id);
-    
-  log.debug('[PlatformsStore] Current position', { currentIndex, total: sorted.length });
+    const currentIndex = sorted.findIndex((p) => p.id === id);
 
-    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    log.debug("[PlatformsStore] Current position", { currentIndex, total: sorted.length });
+
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
     if (targetIndex < 0 || targetIndex >= sorted.length) {
-      log.debug('[PlatformsStore] Cannot move - out of bounds', { currentIndex, targetIndex });
+      log.debug("[PlatformsStore] Cannot move - out of bounds", { currentIndex, targetIndex });
       return;
     }
 
@@ -187,23 +190,28 @@ class PlatformsStore {
     platform.sortOrder = targetPlatform.sortOrder;
     targetPlatform.sortOrder = tempOrder;
 
-    log.debug('[PlatformsStore] Swapped sortOrder', {
+    log.debug("[PlatformsStore] Swapped sortOrder", {
       platform: { id: platform.id, name: platform.name, sortOrder: platform.sortOrder },
-      target: { id: targetPlatform.id, name: targetPlatform.name, sortOrder: targetPlatform.sortOrder }
+      target: {
+        id: targetPlatform.id,
+        name: targetPlatform.name,
+        sortOrder: targetPlatform.sortOrder,
+      },
     });
 
     // 触发响应式更新
     this.platforms = [...this.platforms];
-    
-    log.debug('[PlatformsStore] Updated platform list', 
-      this.platforms.map(p => ({ id: p.id, name: p.name, sortOrder: p.sortOrder }))
+
+    log.debug(
+      "[PlatformsStore] Updated platform list",
+      this.platforms.map((p) => ({ id: p.id, name: p.name, sortOrder: p.sortOrder })),
     );
 
     try {
       await saveAIPlatforms(this.platforms);
-      log.info('[PlatformsStore] Platform order saved successfully');
+      log.info("[PlatformsStore] Platform order saved successfully");
     } catch (error) {
-      log.error('[PlatformsStore] Failed to save platform order', { error });
+      log.error("[PlatformsStore] Failed to save platform order", { error });
       throw error;
     }
   }

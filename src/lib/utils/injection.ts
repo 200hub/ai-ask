@@ -4,7 +4,7 @@
  * 1. Fill  —— 向输入组件填充文本（支持 input / textarea / contenteditable）
  * 2. Click —— 以全事件序列模拟真实点击（pointer & mouse）
  * 3. Extract —— 轮询提取最新响应内容（由模板的 extractScript 控制 DOM 提取策略）
- * 
+ *
  * 特性：
  * - 每个动作生成独立 Promise 脚本，被包裹在统一的注入 IIFE 中顺序执行
  * - 提取脚本返回 { text, html } 结构，后续由 injection-format.ts 做 Markdown 转换
@@ -12,29 +12,29 @@
  * - 日志打印使用英文（跨团队调试一致性），代码注释中文便于维护
  */
 
-import { logger } from './logger';
+import { logger } from "./logger";
 import type {
-	FillTextAction,
-	ClickAction,
-	ExtractAction,
-	InjectionAction,
-	ExtractOutputFormat
-} from '$lib/types/injection';
-import { DEFAULT_EXTRACT_OUTPUT_FORMAT, DEFAULT_INJECTION_TIMEOUT } from './constants';
+  FillTextAction,
+  ClickAction,
+  ExtractAction,
+  InjectionAction,
+  ExtractOutputFormat,
+} from "$lib/types/injection";
+import { DEFAULT_EXTRACT_OUTPUT_FORMAT, DEFAULT_INJECTION_TIMEOUT } from "./constants";
 
 /**
  * Escape string for safe embedding in JavaScript template literals
  */
 // 安全转义文本以嵌入模板字符串，避免引号 / 换行 / 特殊 Unicode 破坏脚本文法
 function escapeJs(value: string): string {
-	return value
-		.replace(/\\/g, '\\\\')
-		.replace(/`/g, '\\`')
-		.replace(/'/g, "\\'")
-		.replace(/\r/g, '\\r')
-		.replace(/\n/g, '\\n')
-		.replace(/\u2028/g, '\\u2028')
-		.replace(/\u2029/g, '\\u2029');
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/`/g, "\\`")
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }
 
 /**
@@ -43,10 +43,10 @@ function escapeJs(value: string): string {
  */
 // 生成元素查找脚本：轮询 querySelector，直到找到或超时（用于后续动作引用）
 function generateFinderScript(selector: string, timeout?: number): string {
-	const timeoutMs = timeout || DEFAULT_INJECTION_TIMEOUT;
-	const escapedSelector = escapeJs(selector);
+  const timeoutMs = timeout || DEFAULT_INJECTION_TIMEOUT;
+  const escapedSelector = escapeJs(selector);
 
-	return `
+  return `
 (new Promise((resolve, reject) => {
 	console.log('[FINDER] Looking for element:', '${escapedSelector}');
 	const startTime = Date.now();
@@ -89,12 +89,12 @@ function generateFinderScript(selector: string, timeout?: number): string {
  */
 // 生成填充脚本：尝试属性 setter，兼容触发 input/change 事件（可选）
 export function generateFillScript(action: FillTextAction): string {
-	const content = escapeJs(action.content);
-	const triggerEvents = action.triggerEvents ?? true;
+  const content = escapeJs(action.content);
+  const triggerEvents = action.triggerEvents ?? true;
 
-	const finderScript = generateFinderScript(action.selector, action.timeout);
+  const finderScript = generateFinderScript(action.selector, action.timeout);
 
-	return `
+  return `
 ${finderScript}.then(element => {
 	console.log('[FILL] Starting fill operation');
 	if (!element) throw new Error('Element not found');
@@ -124,12 +124,16 @@ ${finderScript}.then(element => {
 	}
 	
 	// Trigger events if needed
-	${triggerEvents ? `
+	${
+    triggerEvents
+      ? `
 	try { element.focus(); } catch(e) {}
 	element.dispatchEvent(new Event('input', { bubbles: true }));
 	element.dispatchEvent(new Event('change', { bubbles: true }));
 	console.log('[FILL] Events triggered');
-	` : ''}
+	`
+      : ""
+  }
 	
 	console.log('[FILL] Fill completed successfully');
 	return { success: true, message: 'Text filled' };
@@ -143,9 +147,9 @@ ${finderScript}.then(element => {
  */
 // 生成点击脚本：派发 pointer 与 mouse 事件，确保框架/库能捕获到完整序列
 export function generateClickScript(action: ClickAction): string {
-	const finderScript = generateFinderScript(action.selector, action.timeout);
+  const finderScript = generateFinderScript(action.selector, action.timeout);
 
-	return `
+  return `
 ${finderScript}.then(element => {
 	console.log('[CLICK] Starting click operation');
 	if (!element) throw new Error('Element not found');
@@ -194,12 +198,12 @@ ${finderScript}.then(element => {
  */
 // 生成提取脚本：轮询执行用户提供的 extractScript，直到有内容或超时
 export function generateExtractScript(action: ExtractAction): string {
-	const timeout = action.timeout || 10000; // 默认 10 秒
-	const pollInterval = action.pollInterval || 500; // 默认 500ms 轮询
-	const extractScript = action.extractScript || '';
-	const outputFormat: ExtractOutputFormat = action.outputFormat ?? DEFAULT_EXTRACT_OUTPUT_FORMAT;
+  const timeout = action.timeout || 10000; // 默认 10 秒
+  const pollInterval = action.pollInterval || 500; // 默认 500ms 轮询
+  const extractScript = action.extractScript || "";
+  const outputFormat: ExtractOutputFormat = action.outputFormat ?? DEFAULT_EXTRACT_OUTPUT_FORMAT;
 
-	return `
+  return `
 (new Promise((resolve, reject) => {
 	const startTime = Date.now();
 	const timeout = ${timeout};
@@ -267,37 +271,39 @@ export function generateExtractScript(action: ExtractAction): string {
  */
 // 聚合多个动作生成最终注入脚本：顺序执行并分片回传结果
 export function generateInjectionScript(actions: InjectionAction[]): string {
-	const scriptParts: string[] = [];
+  const scriptParts: string[] = [];
 
-	actions.forEach((action, index) => {
-		let actionScript = '';
+  actions.forEach((action, index) => {
+    let actionScript = "";
 
-		switch (action.type) {
-			case 'fill':
-				actionScript = generateFillScript(action);
-				break;
-			case 'click':
-				actionScript = generateClickScript(action);
-				break;
-			case 'extract':
-				actionScript = generateExtractScript(action);
-				break;
-			default:
-				logger.warn('Unknown action type');
-				return;
-		}
+    switch (action.type) {
+      case "fill":
+        actionScript = generateFillScript(action);
+        break;
+      case "click":
+        actionScript = generateClickScript(action);
+        break;
+      case "extract":
+        actionScript = generateExtractScript(action);
+        break;
+      default:
+        logger.warn("Unknown action type");
+        return;
+    }
 
-		// Add delay if specified
-		const delay = 'delay' in action ? action.delay : 0;
-		if (delay && delay > 0) {
-			scriptParts.push(`await new Promise(r => setTimeout(r, ${delay}));`);
-		}
+    // Add delay if specified
+    const delay = "delay" in action ? action.delay : 0;
+    if (delay && delay > 0) {
+      scriptParts.push(`await new Promise(r => setTimeout(r, ${delay}));`);
+    }
 
-		scriptParts.push(`const result${index} = await (${actionScript});`);
-		scriptParts.push(`results.push({ index: ${index}, type: '${action.type}', result: result${index} });`);
-	});
+    scriptParts.push(`const result${index} = await (${actionScript});`);
+    scriptParts.push(
+      `results.push({ index: ${index}, type: '${action.type}', result: result${index} });`,
+    );
+  });
 
-	return `
+  return `
 (async function() {
 	// =============================================================================
 	// AI-Ask Auto Injection Script
@@ -362,7 +368,7 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
 	}
     
 	try {
-		${scriptParts.join('\n\t\t')}
+		${scriptParts.join("\n\t\t")}
         
 		const duration = Date.now() - startTime;
 		console.log('[INJECTION] All actions completed', { duration, results });
@@ -402,114 +408,116 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
  */
 // 注入管理器：负责模板注册与脚本生成的统一入口
 export class InjectionManager {
-	private templates: Map<string, import('$lib/types/injection').InjectionTemplate> = new Map();
+  private templates: Map<string, import("$lib/types/injection").InjectionTemplate> = new Map();
 
-	/**
-	 * Register an injection template
-	 */
-	// 注册模板：按 platformId + name 组合键存储
-	registerTemplate(template: import('$lib/types/injection').InjectionTemplate): void {
-		const key = `${template.platformId}-${template.name}`;
-		this.templates.set(key, template);
-		logger.debug('[InjectionManager] Template registered', { platformId: template.platformId, name: template.name });
-	}
+  /**
+   * Register an injection template
+   */
+  // 注册模板：按 platformId + name 组合键存储
+  registerTemplate(template: import("$lib/types/injection").InjectionTemplate): void {
+    const key = `${template.platformId}-${template.name}`;
+    this.templates.set(key, template);
+    logger.debug("[InjectionManager] Template registered", {
+      platformId: template.platformId,
+      name: template.name,
+    });
+  }
 
-	/**
-	 * Get template by platform and name
-	 */
-	// 获取单个模板
-	getTemplate(platformId: string, name: string): import('$lib/types/injection').InjectionTemplate | undefined {
-		const key = `${platformId}-${name}`;
-		return this.templates.get(key);
-	}
+  /**
+   * Get template by platform and name
+   */
+  // 获取单个模板
+  getTemplate(
+    platformId: string,
+    name: string,
+  ): import("$lib/types/injection").InjectionTemplate | undefined {
+    const key = `${platformId}-${name}`;
+    return this.templates.get(key);
+  }
 
-	/**
-	 * Get all templates for a platform
-	 */
-	// 获取某平台所有模板
-	getTemplatesForPlatform(platformId: string): import('$lib/types/injection').InjectionTemplate[] {
-		return Array.from(this.templates.values()).filter(t => t.platformId === platformId);
-	}
+  /**
+   * Get all templates for a platform
+   */
+  // 获取某平台所有模板
+  getTemplatesForPlatform(platformId: string): import("$lib/types/injection").InjectionTemplate[] {
+    return Array.from(this.templates.values()).filter((t) => t.platformId === platformId);
+  }
 
-	/**
-	 * Generate script from template, injecting content
-	 */
-	// 根据模板生成注入脚本：自动把传入的 content 注入所有 fill 动作
-	generateFromTemplate(
-		platformId: string,
-		templateName: string,
-		content: string
-	): string | null {
-		const template = this.getTemplate(platformId, templateName);
-		if (!template) {
-			logger.error('[InjectionManager] Template not found', { platformId, templateName });
-			return null;
-		}
+  /**
+   * Generate script from template, injecting content
+   */
+  // 根据模板生成注入脚本：自动把传入的 content 注入所有 fill 动作
+  generateFromTemplate(platformId: string, templateName: string, content: string): string | null {
+    const template = this.getTemplate(platformId, templateName);
+    if (!template) {
+      logger.error("[InjectionManager] Template not found", { platformId, templateName });
+      return null;
+    }
 
-		// Clone actions and inject content into fill actions
-		const actions = template.actions.map(action => {
-			if (action.type === 'fill') {
-				return { ...action, content };
-			}
-			return action;
-		});
+    // Clone actions and inject content into fill actions
+    const actions = template.actions.map((action) => {
+      if (action.type === "fill") {
+        return { ...action, content };
+      }
+      return action;
+    });
 
-		logger.info('[InjectionManager] Generating from template', { 
-			platformId, 
-			name: templateName, 
-			actionCount: actions.length 
-		});
+    logger.info("[InjectionManager] Generating from template", {
+      platformId,
+      name: templateName,
+      actionCount: actions.length,
+    });
 
-		return generateInjectionScript(actions);
-	}
+    return generateInjectionScript(actions);
+  }
 
-	/**
-	 * Generate standalone fill script
-	 */
-	// 生成单次填充脚本（无需模板体系）
-	generateFill(selector: string, content: string, triggerEvents = true, timeout?: number): string {
-		const action: FillTextAction = {
-			type: 'fill',
-			selector,
-			content,
-			triggerEvents,
-			timeout
-		};
-		return `(async function() { return await (${generateFillScript(action)}); })();`;
-	}
+  /**
+   * Generate standalone fill script
+   */
+  // 生成单次填充脚本（无需模板体系）
+  generateFill(selector: string, content: string, triggerEvents = true, timeout?: number): string {
+    const action: FillTextAction = {
+      type: "fill",
+      selector,
+      content,
+      triggerEvents,
+      timeout,
+    };
+    return `(async function() { return await (${generateFillScript(action)}); })();`;
+  }
 
-	/**
-	 * Generate standalone click script
-	 */
-	// 生成单次点击脚本
-	generateClick(selector: string, timeout?: number): string {
-		const action: ClickAction = {
-			type: 'click',
-			selector,
-			timeout
-		};
-		return `(async function() { return await (${generateClickScript(action)}); })();`;
-	}
+  /**
+   * Generate standalone click script
+   */
+  // 生成单次点击脚本
+  generateClick(selector: string, timeout?: number): string {
+    const action: ClickAction = {
+      type: "click",
+      selector,
+      timeout,
+    };
+    return `(async function() { return await (${generateClickScript(action)}); })();`;
+  }
 
-	/**
-	 * Generate standalone extract script
-	 */
-	// 生成单次提取脚本：可指定轮询参数与输出格式
-	generateExtract(
-		extractScript: string,
-		timeout = 10000,
-		pollInterval = 500,
-		outputFormat?: ExtractOutputFormat
-	): string {
-		const action: ExtractAction = {
-			type: 'extract',
-			extractScript,
-			timeout,
-			pollInterval,
-			outputFormat
-		};
-		return `(async function() { return await (${generateExtractScript(action)}); })();`;
-	}
+  /**
+   * Generate standalone extract script
+   */
+  // 生成单次提取脚本：可指定轮询参数与输出格式
+  generateExtract(
+    extractScript: string,
+    timeout = 10000,
+    pollInterval = 500,
+    outputFormat?: ExtractOutputFormat,
+  ): string {
+    const action: ExtractAction = {
+      type: "extract",
+      extractScript,
+      timeout,
+      pollInterval,
+      outputFormat,
+    };
+    return `(async function() { return await (${generateExtractScript(action)}); })();`;
+  }
 }
 
 /**

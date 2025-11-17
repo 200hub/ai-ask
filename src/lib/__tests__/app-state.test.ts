@@ -11,7 +11,7 @@ const createPlatform = (id: string): AIPlatform => ({
   sortOrder: 1,
 });
 
-let appState: typeof import("$lib/stores/app.svelte")["appState"];
+let appState: (typeof import("$lib/stores/app.svelte"))["appState"];
 
 beforeEach(async () => {
   vi.resetModules();

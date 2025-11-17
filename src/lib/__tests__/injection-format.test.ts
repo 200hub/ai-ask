@@ -5,54 +5,54 @@
 // 3. 代码块围栏化与语言检测（多平台结构）
 // 4. 回退策略（HTML 缺失时使用文本）
 // 5. 交互元素（按钮）清理是否生效
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from "vitest";
 
-vi.mock('$lib/utils/logger', () => ({
-	logger: {
-		warn: vi.fn(),
-		info: vi.fn(),
-		error: vi.fn()
-	}
+vi.mock("$lib/utils/logger", () => ({
+  logger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+  },
 }));
 
-import { formatExtractedContent, getExtractedDisplayText } from '$lib/utils/injection-format';
+import { formatExtractedContent, getExtractedDisplayText } from "$lib/utils/injection-format";
 
-describe('injection-format helpers', () => {
-	it('keeps plain text when no markdown requested', () => {
-		const formatted = formatExtractedContent({
-			success: true,
-			content: 'hello world',
-			format: 'text'
-		});
+describe("injection-format helpers", () => {
+  it("keeps plain text when no markdown requested", () => {
+    const formatted = formatExtractedContent({
+      success: true,
+      content: "hello world",
+      format: "text",
+    });
 
-		expect(formatted).toEqual({
-			format: 'text',
-			text: 'hello world',
-			markdown: undefined,
-			html: undefined
-		});
-	});
+    expect(formatted).toEqual({
+      format: "text",
+      text: "hello world",
+      markdown: undefined,
+      html: undefined,
+    });
+  });
 
-	it('converts html to markdown when requested', () => {
-		const formatted = formatExtractedContent({
-			success: true,
-			content: '',
-			html: '<p><strong>bold</strong> text</p>',
-			format: 'markdown'
-		});
+  it("converts html to markdown when requested", () => {
+    const formatted = formatExtractedContent({
+      success: true,
+      content: "",
+      html: "<p><strong>bold</strong> text</p>",
+      format: "markdown",
+    });
 
-		expect(formatted?.markdown).toBe('**bold** text');
-		expect(formatted?.text).toBe('');
-		const output = getExtractedDisplayText({
-			format: 'markdown',
-			content: '',
-			html: '<h1>Title</h1><p>Body</p>'
-		});
-		expect(output).toContain('# Title');
-	});
+    expect(formatted?.markdown).toBe("**bold** text");
+    expect(formatted?.text).toBe("");
+    const output = getExtractedDisplayText({
+      format: "markdown",
+      content: "",
+      html: "<h1>Title</h1><p>Body</p>",
+    });
+    expect(output).toContain("# Title");
+  });
 
-	it('converts html tables to pipe-style markdown', () => {
-		const html = `
+  it("converts html tables to pipe-style markdown", () => {
+    const html = `
 			<table>
 				<thead>
 					<tr><th>Name</th><th>Score</th></tr>
@@ -64,21 +64,21 @@ describe('injection-format helpers', () => {
 			</table>
 		`;
 
-		const display = getExtractedDisplayText({
-			format: 'markdown',
-			content: '',
-			html
-		});
+    const display = getExtractedDisplayText({
+      format: "markdown",
+      content: "",
+      html,
+    });
 
-		expect(display).toContain('| Name | Score |');
-		expect(display).toContain('| Alice | 95 |');
-		// Ensure divider row inserted
-		expect(display).toMatch(/\|\s*-{3,}\s*\|/);
-	});
+    expect(display).toContain("| Name | Score |");
+    expect(display).toContain("| Alice | 95 |");
+    // Ensure divider row inserted
+    expect(display).toMatch(/\|\s*-{3,}\s*\|/);
+  });
 
-	it('converts nested pre/code blocks with language to fenced markdown', () => {
-		const codeBody = 'def greet(name):\n    print(f"Hello, {name}!")';
-		const html = `
+  it("converts nested pre/code blocks with language to fenced markdown", () => {
+    const codeBody = 'def greet(name):\n    print(f"Hello, {name}!")';
+    const html = `
 			<pre class="overflow-visible!" data-start="359" data-end="418">
 				<div class="contain-inline-size rounded-2xl relative bg-token-sidebar-surface-primary">
 					<div class="flex items-center text-token-text-secondary px-4 py-2 text-xs font-sans justify-between h-9 bg-token-sidebar-surface-primary select-none rounded-t-2xl">python</div>
@@ -98,20 +98,20 @@ describe('injection-format helpers', () => {
 			</pre>
 		`;
 
-		const output = getExtractedDisplayText({
-			format: 'markdown',
-			content: '',
-			html
-		});
+    const output = getExtractedDisplayText({
+      format: "markdown",
+      content: "",
+      html,
+    });
 
-		expect(output).toContain('```python');
-		expect(output).toContain('def greet(name):');
-		expect(output).toContain('print(f"Hello, {name}!")');
-		expect(output.trim().endsWith('```')).toBe(true);
-	});
+    expect(output).toContain("```python");
+    expect(output).toContain("def greet(name):");
+    expect(output).toContain('print(f"Hello, {name}!")');
+    expect(output.trim().endsWith("```")).toBe(true);
+  });
 
-	it('extracts language labels from Gemini style components', () => {
-		const html = `
+  it("extracts language labels from Gemini style components", () => {
+    const html = `
 			<code-block class="ng-star-inserted">
 				<div class="code-block-decoration header-formatted gds-title-s">
 					<span>Java</span>
@@ -136,19 +136,19 @@ describe('injection-format helpers', () => {
 			</code-block>
 		`;
 
-		const output = getExtractedDisplayText({
-			format: 'markdown',
-			content: '',
-			html
-		});
+    const output = getExtractedDisplayText({
+      format: "markdown",
+      content: "",
+      html,
+    });
 
-		expect(output).toContain('```java');
-		expect(output).toContain('public class HelloWorld');
-		expect(output.trim().endsWith('```')).toBe(true);
-	});
+    expect(output).toContain("```java");
+    expect(output).toContain("public class HelloWorld");
+    expect(output.trim().endsWith("```")).toBe(true);
+  });
 
-	it('handles md-code-block containers without nested code elements', () => {
-		const html = `
+  it("handles md-code-block containers without nested code elements", () => {
+    const html = `
 			<div class="md-code-block md-code-block-dark">
 				<div class="md-code-block-banner-wrap">
 					<div class="md-code-block-banner md-code-block-banner-lite">
@@ -167,19 +167,19 @@ describe('injection-format helpers', () => {
 			</div>
 		`;
 
-		const output = getExtractedDisplayText({
-			format: 'markdown',
-			content: '',
-			html
-		});
+    const output = getExtractedDisplayText({
+      format: "markdown",
+      content: "",
+      html,
+    });
 
-		expect(output).toContain('```java');
-		expect(output).toContain('System.out.println("Hello, World!");');
-		expect(output.trim().endsWith('```')).toBe(true);
-	});
+    expect(output).toContain("```java");
+    expect(output).toContain('System.out.println("Hello, World!");');
+    expect(output.trim().endsWith("```")).toBe(true);
+  });
 
-	it('ignores button-only labels when detecting language', () => {
-		const html = `
+  it("ignores button-only labels when detecting language", () => {
+    const html = `
 			<div class="code-block">
 				<div class="header">
 					<button>java</button>
@@ -190,18 +190,18 @@ describe('injection-format helpers', () => {
 			</div>
 		`;
 
-		const output = getExtractedDisplayText({
-			format: 'markdown',
-			content: '',
-			html
-		});
+    const output = getExtractedDisplayText({
+      format: "markdown",
+      content: "",
+      html,
+    });
 
-		expect(output).toContain('```');
-		expect(output).not.toContain('```java');
-	});
+    expect(output).toContain("```");
+    expect(output).not.toContain("```java");
+  });
 
-	it('removes interactive buttons from markdown output', () => {
-		const html = `
+  it("removes interactive buttons from markdown output", () => {
+    const html = `
 			<div class="md-code-block md-code-block-dark">
 				<div class="md-code-block-banner-wrap">
 					<div class="md-code-block-banner md-code-block-banner-lite">
@@ -228,22 +228,22 @@ describe('injection-format helpers', () => {
 			</div>
 		`;
 
-		const output = getExtractedDisplayText({
-			format: 'markdown',
-			content: '',
-			html
-		});
+    const output = getExtractedDisplayText({
+      format: "markdown",
+      content: "",
+      html,
+    });
 
-		expect(output).toContain('```rust');
-		expect(output).not.toMatch(/复制|下载/);
-	});
+    expect(output).toContain("```rust");
+    expect(output).not.toMatch(/复制|下载/);
+  });
 
-	it('falls back to text when html missing for markdown format', () => {
-		const display = getExtractedDisplayText({
-			format: 'markdown',
-			content: 'fallback text'
-		});
+  it("falls back to text when html missing for markdown format", () => {
+    const display = getExtractedDisplayText({
+      format: "markdown",
+      content: "fallback text",
+    });
 
-		expect(display).toBe('fallback text');
-	});
+    expect(display).toBe("fallback text");
+  });
 });

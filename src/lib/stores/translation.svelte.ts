@@ -22,7 +22,7 @@ class TranslationStore {
 
   // 已启用的平台列表
   get enabledPlatforms(): TranslationPlatform[] {
-    return this.platforms.filter(p => p.enabled);
+    return this.platforms.filter((p) => p.enabled);
   }
 
   /**
@@ -71,7 +71,7 @@ class TranslationStore {
    * 获取平台by ID
    */
   getPlatformById(id: string): TranslationPlatform | undefined {
-    return this.platforms.find(p => p.id === id);
+    return this.platforms.find((p) => p.id === id);
   }
 
   /**
@@ -133,7 +133,7 @@ class TranslationStore {
   async updatePlatform(id: string, updates: Partial<TranslationPlatform>) {
     try {
       await updateTranslationPlatform(id, updates);
-      const index = this.platforms.findIndex(p => p.id === id);
+      const index = this.platforms.findIndex((p) => p.id === id);
       if (index !== -1) {
         this.platforms[index] = { ...this.platforms[index], ...updates };
       }

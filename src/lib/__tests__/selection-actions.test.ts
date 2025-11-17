@@ -154,9 +154,12 @@ describe("selection-actions", () => {
     emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: "translator-google" });
 
     // 等待异步注入完成
-    await vi.waitFor(() => {
-      expect(generateInjectionScriptMock).toHaveBeenCalledOnce();
-    }, { timeout: 1000 });
+    await vi.waitFor(
+      () => {
+        expect(generateInjectionScriptMock).toHaveBeenCalledOnce();
+      },
+      { timeout: 1000 },
+    );
 
     const lastCall = generateInjectionScriptMock.mock.calls.at(-1);
     expect(lastCall).toBeDefined();
@@ -208,11 +211,14 @@ describe("selection-actions", () => {
     emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: "translator-google" });
 
     // 等待异步错误处理完成
-    await vi.waitFor(() => {
-      expect(appStateMock.setError).toHaveBeenCalledWith(
-        "errors.selectionToolbar.translationFailed",
-      );
-    }, { timeout: 1000 });
+    await vi.waitFor(
+      () => {
+        expect(appStateMock.setError).toHaveBeenCalledWith(
+          "errors.selectionToolbar.translationFailed",
+        );
+      },
+      { timeout: 1000 },
+    );
   });
 
   it("AI 解释时复用聊天模板并注入提示词", async () => {
@@ -229,9 +235,12 @@ describe("selection-actions", () => {
     emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: "ai-chat-chatgpt" });
 
     // 等待异步注入完成
-    await vi.waitFor(() => {
-      expect(generateInjectionScriptMock).toHaveBeenCalledOnce();
-    }, { timeout: 1000 });
+    await vi.waitFor(
+      () => {
+        expect(generateInjectionScriptMock).toHaveBeenCalledOnce();
+      },
+      { timeout: 1000 },
+    );
 
     const lastCall = generateInjectionScriptMock.mock.calls.at(-1);
     expect(lastCall).toBeDefined();
@@ -277,9 +286,7 @@ describe("selection-actions", () => {
 
     expect(appStateMock.switchToChatView).not.toHaveBeenCalled();
     expect(generateInjectionScriptMock).not.toHaveBeenCalled();
-    expect(appStateMock.setError).toHaveBeenCalledWith(
-      "errors.selectionToolbar.noAiPlatform",
-    );
+    expect(appStateMock.setError).toHaveBeenCalledWith("errors.selectionToolbar.noAiPlatform");
   });
 
   it("忽略不支持划词的 AI 平台并回退到可用平台", async () => {
@@ -335,10 +342,13 @@ describe("selection-actions", () => {
     emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: "ai-chat-chatgpt" });
 
     // 等待异步错误处理完成
-    await vi.waitFor(() => {
-      expect(appStateMock.setError).toHaveBeenCalledWith(
-        "errors.selectionToolbar.explanationFailed",
-      );
-    }, { timeout: 1000 });
+    await vi.waitFor(
+      () => {
+        expect(appStateMock.setError).toHaveBeenCalledWith(
+          "errors.selectionToolbar.explanationFailed",
+        );
+      },
+      { timeout: 1000 },
+    );
   });
 });

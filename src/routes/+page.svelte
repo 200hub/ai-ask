@@ -11,12 +11,16 @@
     import GlobalSelectionMonitor from "$lib/components/common/GlobalSelectionMonitor.svelte";
     import { executeTranslation, executeExplanation } from "$lib/utils/selection-actions";
     import { preloadDefaultPlatforms } from "$lib/utils/preload";
+    import { copyTextToClipboard } from "$lib/utils/clipboard";
     import { appState } from "$lib/stores/app.svelte";
     import { configStore } from "$lib/stores/config.svelte";
     import { platformsStore } from "$lib/stores/platforms.svelte";
     import { translationStore } from "$lib/stores/translation.svelte";
     import { logger } from "$lib/utils/logger";
+    import { i18n } from "$lib/i18n";
     import "$lib/styles/base.css";
+    const t = i18n.t;
+
 
     let openSettingsUnlisten: UnlistenFn | null = null;
     let translationHotkeyUnlisten: UnlistenFn | null = null;
@@ -86,14 +90,22 @@
         }
     }
 
-    function handleSelectionToolbarCollect(payload: SelectionToolbarEventPayload | null) {
+    async function handleSelectionToolbarCollect(payload: SelectionToolbarEventPayload | null) {
         const text = extractSelectionText(payload);
         if (!text) {
             logger.debug("Selection toolbar collect request skipped: empty payload");
             return;
         }
 
-        logger.warn("Selection toolbar collect request is not implemented", { textLength: text.length });
+        try {
+            await copyTextToClipboard(text);
+            logger.info("Selection toolbar collect request copied to clipboard", {
+                textLength: text.length,
+            });
+        } catch (error) {
+            logger.error("Failed to handle selection toolbar collect request", error);
+            appState.setError(t("errors.selectionToolbar.collectFailed"));
+        }
     }
 
     async function registerSelectionToolbarListeners() {
@@ -123,7 +135,7 @@
             selectionCollectUnlisten = await listen<SelectionToolbarEventPayload>(
                 "selection-toolbar:collect",
                 (event) => {
-                    handleSelectionToolbarCollect(event.payload ?? null);
+                    void handleSelectionToolbarCollect(event.payload ?? null);
                 }
             );
         } catch (error) {

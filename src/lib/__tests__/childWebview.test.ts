@@ -171,9 +171,9 @@ describe("ChildWebviewProxy", () => {
     await proxy.ensure(bounds);
 
     // get the mocked window to emit event
-  const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  type MockWin = { __emit: (event: string, payload?: unknown) => void };
-  const win = getCurrentWebviewWindow() as unknown as MockWin;
+    const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    type MockWin = { __emit: (event: string, payload?: unknown) => void };
+    const win = getCurrentWebviewWindow() as unknown as MockWin;
 
     const p = proxy.waitForLoadFinished(1000);
     // not resolved yet
