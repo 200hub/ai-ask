@@ -1,18 +1,39 @@
-//! Global selection monitor
+//! 全局划词监听器（Global selection monitor）
 //!
-//! Listens to system-wide selection gestures and triggers the selection toolbar
-//! when the user finishes selecting text outside the main webview.
+//! 职责：监听主窗口 WebView 之外的系统级划词手势，在用户结束选择时显示工具栏。
+//!
+//! 本次变更说明：
+//! - 移除键盘事件处理，完全避免对输入法/打字的干扰；
+//! - Windows 改用 Win32 低级鼠标钩子，仅分发鼠标移动与左键抬起事件；
+//! - 精简事件分支与状态（删除按下状态等不必要逻辑）；
+//! - macOS 继续使用 rdev 监听，但在回调中忽略键盘事件；
+//! - 按项目规范保留英文日志，注释改为中文便于维护。
 
 use arboard::Clipboard;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 // removed unused time imports after provider refactor
 
 #[cfg(target_os = "macos")]
 use rdev::ListenError;
+#[cfg(target_os = "macos")]
 use rdev::{listen, Button, Event, EventType};
+#[cfg(target_os = "windows")]
+use rdev::{Button, Event, EventType};
 use tauri::{AppHandle, Manager};
+
+#[cfg(target_os = "windows")]
+use std::ptr::null_mut;
+#[cfg(target_os = "windows")]
+use std::sync::atomic::{AtomicPtr, Ordering};
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
+    UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_LBUTTONUP, WM_MOUSEMOVE,
+};
 
 use crate::selection_toolbar::{
     hide_selection_toolbar_with_manager, platform_cursor_position, resolve_active_app_identifiers,
@@ -30,17 +51,20 @@ use core_foundation::dictionary::CFDictionary;
 #[cfg(target_os = "macos")]
 use core_foundation::string::CFString;
 
-/// Minimum number of non-whitespace characters required for valid selection
+/// 有效划词所需的最少非空白字符数量
 const MIN_TEXT_LENGTH: usize = 2;
 
-/// Debounce time in milliseconds to prevent rapid-fire triggers
+/// 触发去抖时间（毫秒），用于避免快速重复触发
 const TRIGGER_DEBOUNCE_MS: u64 = 200;
 
-/// macOS listener retry delay when accessibility permissions fail
+/// 预留节流时间窗口（当前未使用）
+const _RESERVED_SUPPRESS_MS: u64 = 0;
+
+/// macOS：当无辅助功能权限时的重试间隔（毫秒）
 #[cfg(target_os = "macos")]
 const LISTENER_RETRY_DELAY_MS: u64 = 2_000;
 
-/// Check if macOS accessibility permissions are granted
+/// 检查 macOS 辅助功能权限是否已授予
 #[cfg(target_os = "macos")]
 fn check_macos_accessibility_permission() -> bool {
     #[link(name = "ApplicationServices", kind = "framework")]
@@ -51,7 +75,7 @@ fn check_macos_accessibility_permission() -> bool {
     unsafe { AXIsProcessTrusted() }
 }
 
-/// Request macOS accessibility permissions with prompt
+/// 请求 macOS 辅助功能权限（会弹出系统提示）
 #[cfg(target_os = "macos")]
 fn request_macos_accessibility_permission() -> bool {
     use core_foundation::base::ToVoid;
@@ -70,7 +94,7 @@ fn request_macos_accessibility_permission() -> bool {
     unsafe { AXIsProcessTrustedWithOptions(options.to_void()) }
 }
 
-/// Tauri command to check accessibility permission status
+/// Tauri 命令：检查辅助功能权限状态
 #[tauri::command]
 pub async fn check_accessibility_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
@@ -90,7 +114,7 @@ pub async fn check_accessibility_permission() -> Result<bool, String> {
     }
 }
 
-/// Tauri command to request accessibility permission
+/// Tauri 命令：请求辅助功能权限
 #[tauri::command]
 pub async fn request_accessibility_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
@@ -115,28 +139,26 @@ pub async fn request_accessibility_permission() -> Result<bool, String> {
     }
 }
 
-/// Platform-agnostic trait for capturing selected text from the system
+/// 平台无关的系统选中文本捕获接口
 trait GlobalSelectionProvider: Send + Sync {
-    /// Returns the provider's name for logging purposes
+    /// 返回 provider 名称（用于日志）
     fn name(&self) -> &'static str;
 
-    /// Attempts to capture selected text from the active window
-    /// Returns None if no selection is available or capture fails
+    /// 尝试从活动窗口捕获选中文本；若无选区或失败则返回 None
     fn capture(&self, app: &AppHandle) -> Option<String>;
 }
 
 type ProviderList = Vec<Box<dyn GlobalSelectionProvider>>;
 
-/// Constructs the list of available selection providers for the current platform
-/// Providers are ordered by priority (first match wins)
+/// 构造当前平台可用的 provider 列表（按优先级匹配，先成功先返回）
 fn build_providers() -> ProviderList {
     let mut list: ProviderList = Vec::new();
 
     #[cfg(target_os = "windows")]
     {
-        // Windows UI Automation provider has highest priority (works with most modern apps)
+        // Windows：UI Automation 优先（兼容现代应用）
         list.push(Box::new(WindowsUIAutomationProvider::new()));
-        // Win32 Edit control fallback for legacy applications
+        // 传统应用回退：Win32 Edit 控件
         list.push(Box::new(WindowsWin32EditProvider::new()));
     }
 
@@ -148,8 +170,7 @@ fn build_providers() -> ProviderList {
     list
 }
 
-/// Normalizes and validates captured text
-/// Returns None if text is too short or contains only whitespace
+/// 规范化与校验捕获文本；过短或为空白时返回 None
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn normalize_selection(text: &str) -> Option<String> {
     let trimmed = text.trim();
@@ -166,7 +187,7 @@ fn normalize_selection(text: &str) -> Option<String> {
 }
 
 // -----------------------------------------------------------------------------
-// Windows UI Automation Provider (Phase 2)
+// Windows UI Automation Provider（阶段 2）
 // -----------------------------------------------------------------------------
 #[cfg(target_os = "windows")]
 mod windows_uia {
@@ -185,21 +206,20 @@ mod windows_uia {
     };
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-    /// Attempts to obtain a TextPattern from an element or its descendants
-    /// First tries the element directly, then searches subtree for text-capable descendants
+    /// 从元素或其子树尝试获取 TextPattern：先尝试自身，失败后搜索子树
     fn obtain_text_pattern(
         ui: &IUIAutomation,
         element: &IUIAutomationElement,
     ) -> Option<IUIAutomationTextPattern> {
         unsafe {
-            // Try to get TextPattern directly from the element
+            // 先直接从当前元素获取 TextPattern
             if let Ok(pattern) =
                 element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
             {
                 return Some(pattern);
             }
 
-            // Search for descendants that support TextPattern
+            // 搜索支持 TextPattern 的后代元素
             let value = VARIANT::from(true);
             if let Ok(condition) =
                 ui.CreatePropertyCondition(UIA_IsTextPatternAvailablePropertyId, &value)
@@ -226,8 +246,7 @@ mod windows_uia {
 
         fn capture_impl(&self) -> Option<String> {
             unsafe {
-                // Initialize COM for the current thread
-                // CoInitializeEx returns S_OK if initialized, S_FALSE if already initialized
+                // 初始化线程 COM；已初始化返回 S_FALSE，首次成功返回 S_OK
                 let init_hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
                 if init_hr.is_err() {
                     log::debug!("Windows UIA provider COM init error: {:?}", init_hr);
@@ -253,10 +272,10 @@ mod windows_uia {
                         return Ok(None);
                     }
 
-                    // Collect candidate elements: focused element and window root
+                    // 候选元素：焦点元素 + 前台窗口根元素
                     let mut candidates: Vec<(&'static str, IUIAutomationElement)> = Vec::new();
 
-                    // Try to get the currently focused UI element
+                    // 尝试获取当前焦点元素
                     match ui.GetFocusedElement() {
                         Ok(focus) => {
                             candidates.push(("focus", focus));
@@ -269,7 +288,7 @@ mod windows_uia {
                         }
                     }
 
-                    // Get the root element of the foreground window as fallback
+                    // 获取前台窗口根元素作为回退
                     match ui.ElementFromHandle(hwnd) {
                         Ok(root) => {
                             candidates.push(("window", root));
@@ -289,7 +308,7 @@ mod windows_uia {
                         return Ok(None);
                     }
 
-                    // Search for TextPattern in candidate elements (focus first, then window)
+                    // 在候选元素上查找 TextPattern（先焦点，再窗口）
                     let mut pattern: Option<IUIAutomationTextPattern> = None;
                     for (label, element) in &candidates {
                         if let Some(found) = obtain_text_pattern(&ui, element) {
@@ -388,11 +407,11 @@ mod windows_uia {
 use windows_uia::WindowsUIAutomationProvider;
 
 // -----------------------------------------------------------------------------
-// Windows Win32 Edit Control Fallback Provider
+// Windows Win32 Edit 控件回退 Provider
 // -----------------------------------------------------------------------------
 #[cfg(target_os = "windows")]
 mod windows_win32 {
-    // Agent fallback provider: proxy classic Win32 edit controls when UIA cannot supply text.
+    // 当 UIA 无法提供文本时，回退从经典 Win32 Edit 控件读取。
     use super::{normalize_selection, GlobalSelectionProvider};
     use std::collections::HashSet;
     use std::sync::OnceLock;
@@ -468,13 +487,12 @@ mod windows_win32 {
         Some(String::from_utf16_lossy(&buffer[..trimmed_length]))
     }
 
-    /// Extracts selected text from a Win32 Edit control
-    /// Returns None if no selection or extraction fails
+    /// 从 Win32 Edit 控件提取选中文本；若无选区或失败则返回 None
     unsafe fn extract_selection_from_edit(hwnd: HWND) -> Option<String> {
         let mut start: u32 = 0;
         let mut end: u32 = 0;
 
-        // EM_GETSEL returns selection start/end positions in UTF-16 code units
+        // EM_GETSEL 以 UTF-16 code unit 返回选区起止索引
         let _ = SendMessageW(
             hwnd,
             EM_GETSEL,
@@ -519,7 +537,7 @@ mod windows_win32 {
 use windows_win32::WindowsWin32EditProvider;
 
 // -----------------------------------------------------------------------------
-// macOS Accessibility Provider (Phase 2)
+// macOS Accessibility Provider（阶段 2）
 // -----------------------------------------------------------------------------
 #[cfg(target_os = "macos")]
 mod macos_accessibility {
@@ -627,23 +645,80 @@ mod macos_accessibility {
 #[cfg(target_os = "macos")]
 use macos_accessibility::MacosAccessibilityProvider;
 
-/// Shared state for the global selection monitor
+/// 全局划词监听共享状态
 #[derive(Default)]
 struct MonitorState {
-    /// Timestamp of last trigger for debouncing
+    /// 最近一次触发时间（去抖）
     last_trigger_at: Option<Instant>,
-    /// Last captured text to detect duplicates
+    /// 最近一次捕获文本（用于重复检测）
     last_text: Option<String>,
-    /// Last recorded mouse position (x, y)
+    /// 最近记录的鼠标坐标 (x, y)
     last_mouse_position: (f64, f64),
-    /// Flag to prevent concurrent capture operations
+    /// 并发保护标记（避免同时进行多次捕获）
     capture_in_progress: bool,
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsMouseHookContext {
+    app_handle: AppHandle,
+    toolbar_manager: ToolbarManager,
+    monitor_state: Arc<Mutex<MonitorState>>,
+    providers: Arc<ProviderList>,
+}
+
+#[cfg(target_os = "windows")]
+static WINDOWS_MOUSE_CONTEXT: AtomicPtr<WindowsMouseHookContext> = AtomicPtr::new(null_mut());
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn windows_mouse_hook_proc(
+    code: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    // Windows 低级鼠标钩子：仅转发鼠标移动与左键抬起至统一事件处理函数
+    if code < 0 {
+        return CallNextHookEx(None, code, wparam, lparam);
+    }
+
+    let context_ptr = WINDOWS_MOUSE_CONTEXT.load(Ordering::SeqCst);
+    if context_ptr.is_null() {
+        return CallNextHookEx(None, code, wparam, lparam);
+    }
+
+    let mouse_info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+    let event_type = match wparam.0 as u32 {
+        WM_MOUSEMOVE => Some(EventType::MouseMove {
+            x: mouse_info.pt.x as f64,
+            y: mouse_info.pt.y as f64,
+        }),
+        WM_LBUTTONUP => Some(EventType::ButtonRelease(Button::Left)),
+        _ => None,
+    };
+
+    if let Some(event_type) = event_type {
+        let event = Event {
+            event_type,
+            name: None,
+            time: SystemTime::now(),
+        };
+
+        let context = &*context_ptr;
+        handle_event(
+            event,
+            &context.app_handle,
+            &context.toolbar_manager,
+            &context.monitor_state,
+            &context.providers,
+        );
+    }
+
+    CallNextHookEx(None, code, wparam, lparam)
 }
 
 pub fn start_global_selection_monitor(app: AppHandle) {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        // Check accessibility permission on macOS
+        // macOS：检测辅助功能权限（未授权时仍会启动监听并周期重试）
         #[cfg(target_os = "macos")]
         {
             if !check_macos_accessibility_permission() {
@@ -722,7 +797,7 @@ fn spawn_macos_selection_listener(
         }
     });
 
-    log::info!("Global selection monitor worker spawned");
+    log::info!("Global selection monitor worker spawned"); // 启动监听线程（macOS）
 }
 
 #[cfg(target_os = "windows")]
@@ -732,21 +807,45 @@ fn spawn_windows_selection_listener(
     providers: Arc<ProviderList>,
     shared_state: Arc<Mutex<MonitorState>>,
 ) {
-    thread::spawn(move || {
-        if let Err(error) = listen(move |event| {
-            handle_event(
-                event,
-                &app_handle,
-                &toolbar_manager,
-                &shared_state,
-                &providers,
-            );
-        }) {
-            log::error!("Global selection monitor stopped: {:?}", error);
-        }
-    });
+    thread::spawn(move || unsafe {
+        let context = Box::new(WindowsMouseHookContext {
+            app_handle,
+            toolbar_manager,
+            monitor_state: shared_state,
+            providers,
+        });
+        let context_ptr = Box::into_raw(context);
+        WINDOWS_MOUSE_CONTEXT.store(context_ptr, Ordering::SeqCst);
 
-    log::info!("Global selection monitor started");
+        let hook = match SetWindowsHookExW(
+            WH_MOUSE_LL,
+            Some(windows_mouse_hook_proc),
+            Some(HINSTANCE(null_mut())),
+            0,
+        ) {
+            Ok(handle) => handle,
+            Err(error) => {
+                log::error!("Failed to install Windows mouse hook: {:?}", error);
+                WINDOWS_MOUSE_CONTEXT.store(null_mut(), Ordering::SeqCst);
+                drop(Box::from_raw(context_ptr));
+                return;
+            }
+        };
+
+        log::info!("Global selection monitor started (Windows mouse hook)"); // 启动监听线程（Windows）
+
+        let mut message = MSG::default();
+        while GetMessageW(&mut message, None, 0, 0).into() {
+            let _ = TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+
+        if let Err(error) = UnhookWindowsHookEx(hook) {
+            log::error!("Failed to unhook Windows mouse hook: {:?}", error);
+        }
+        WINDOWS_MOUSE_CONTEXT.store(null_mut(), Ordering::SeqCst);
+        drop(Box::from_raw(context_ptr));
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -776,8 +875,7 @@ fn log_listener_error(error: &ListenError) {
     }
 }
 
-/// RAII guard to reset capture_in_progress flag when async task completes
-/// This ensures the flag is always reset, even if the task exits early
+/// RAII 守卫：在异步任务结束时重置 capture_in_progress，确保异常退出也能复位
 struct CaptureResetGuard {
     state: Arc<Mutex<MonitorState>>,
 }
@@ -790,8 +888,10 @@ impl Drop for CaptureResetGuard {
     }
 }
 
-/// Core event handler for mouse events
-/// Triggers selection capture when left mouse button is released
+/// 事件核心处理：
+/// - 鼠标移动：只更新坐标并返回；
+/// - 左键抬起：触发一次捕获流程；
+/// - 键盘事件（macOS）：直接忽略，避免输入干扰。
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn handle_event(
     event: Event,
@@ -800,7 +900,14 @@ fn handle_event(
     monitor_state: &Arc<Mutex<MonitorState>>,
     providers: &Arc<ProviderList>,
 ) {
-    // Continuously track mouse position for toolbar positioning
+    #[cfg(target_os = "macos")]
+    if matches!(
+        event.event_type,
+        EventType::KeyPress(_) | EventType::KeyRelease(_)
+    ) {
+        return;
+    }
+
     if let EventType::MouseMove { x, y } = event.event_type {
         if let Ok(mut state) = monitor_state.lock() {
             state.last_mouse_position = (x, y);
@@ -808,12 +915,11 @@ fn handle_event(
         return;
     }
 
-    // Only process left mouse button release events
     if !matches!(event.event_type, EventType::ButtonRelease(Button::Left)) {
         return;
     }
 
-    // Check if the feature is enabled
+    // 检查功能开关（未开启则隐藏工具栏并返回）
     let feature_enabled = match toolbar_manager.lock() {
         Ok(state) => state.is_enabled(),
         Err(err) => {
@@ -827,7 +933,7 @@ fn handle_event(
         return;
     }
 
-    // Apply debounce to prevent rapid-fire triggers
+    // 去抖处理：防止短时间内重复触发
     {
         let mut state = match monitor_state.lock() {
             Ok(guard) => guard,
@@ -838,23 +944,25 @@ fn handle_event(
         };
 
         let now = Instant::now();
+
+        // 若与上次触发间隔小于阈值则跳过
         if let Some(last) = state.last_trigger_at {
             if now.duration_since(last) < Duration::from_millis(TRIGGER_DEBOUNCE_MS) {
                 return;
             }
         }
+
         state.last_trigger_at = Some(now);
     }
 
-    // Ignore selections in the main window itself
+    // 忽略主窗口自身的选中（仅响应外部应用）
     if let Some(window) = resolve_main_window(app) {
         if window.is_focused().unwrap_or(false) {
             return;
         }
     }
 
-    // Check and set capture_in_progress flag to prevent concurrent captures
-    // This avoids blocking the input hook with slow UIA/Win32 operations
+    // 并发保护：避免在慢速 UIA/Win32 操作期间再次进入捕获
     {
         let mut state = match monitor_state.lock() {
             Ok(guard) => guard,
@@ -872,20 +980,20 @@ fn handle_event(
         state.capture_in_progress = true;
     }
 
-    // Clone handles for async task
+    // 克隆句柄：用于后续异步任务
     let app_task = app.clone();
     let toolbar_task = toolbar_manager.clone();
     let state_task = Arc::clone(monitor_state);
     let providers_task = Arc::clone(providers);
 
-    // Spawn async task to avoid blocking the input hook
+    // 启动异步任务：避免阻塞输入钩子线程
     tauri::async_runtime::spawn(async move {
-        // Guard ensures capture_in_progress is reset when task completes
+        // 守卫：确保任务结束后复位并发标记
         let _reset_guard = CaptureResetGuard {
             state: Arc::clone(&state_task),
         };
 
-        // Run capture in blocking thread pool to avoid blocking async runtime
+        // 在线程池中执行捕获（阻塞型），避免阻塞异步运行时
         let capture_app = app_task.clone();
         let capture_providers = Arc::clone(&providers_task);
         let capture_result = tauri::async_runtime::spawn_blocking(move || {
@@ -893,7 +1001,7 @@ fn handle_event(
         })
         .await;
 
-        // Handle capture result
+        // 处理捕获结果
         let selected_text = match capture_result {
             Ok(text) => text,
             Err(error) => {
@@ -902,7 +1010,7 @@ fn handle_event(
             }
         };
 
-        // If no text captured, hide toolbar and exit
+        // 如未获取到文本：隐藏工具栏并返回
         let Some(selected_text) = selected_text else {
             schedule_hide_toolbar(&app_task, toolbar_task.clone());
             return;
@@ -919,8 +1027,7 @@ fn handle_event(
                 .replace('\r', "")
         );
 
-        // Check for duplicate text and get cursor position
-        // Scope ensures mutex is not held across async await
+        // 避免重复：与上次文本相同则跳过；否则使用最近记录的鼠标坐标
         let maybe_position = {
             let mut state = match state_task.lock() {
                 Ok(guard) => guard,
@@ -963,8 +1070,7 @@ fn handle_event(
     });
 }
 
-/// Attempts to capture text using available providers in priority order
-/// Returns the first successful capture or None if all providers fail
+/// 依优先级顺序使用各 provider 尝试捕获文本；第一个成功即返回，否则 None
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn capture_with_providers(app: &AppHandle, providers: &ProviderList) -> Option<String> {
     for provider in providers.iter() {
@@ -1070,7 +1176,7 @@ fn read_clipboard_text() -> Option<String> {
     }
 }
 
-/// Schedules toolbar hide operation in async task
+/// 异步隐藏工具栏（不阻塞当前线程）
 fn schedule_hide_toolbar(app: &AppHandle, toolbar_manager: ToolbarManager) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
