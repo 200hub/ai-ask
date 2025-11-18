@@ -12,7 +12,7 @@ function mockNavigator(writeTextImpl: ReturnType<typeof vi.fn>): void {
       clipboard: {
         writeText: writeTextImpl,
       },
-    } as Navigator,
+    } as unknown as Navigator,
   })
 }
 

@@ -63,7 +63,7 @@ const translationPlatform: TranslationPlatform = {
 }
 
 const translationStoreMock = {
-  getPlatformById: vi.fn<[string], TranslationPlatform | null>(),
+  getPlatformById: vi.fn<(id: string) => TranslationPlatform | null>(),
 }
 
 vi.mock('$lib/stores/translation.svelte', () => ({
@@ -82,7 +82,7 @@ const aiPlatform: AIPlatform = {
 }
 
 const platformsStoreMock = {
-  getPlatformById: vi.fn<[string], AIPlatform | null>(),
+  getPlatformById: vi.fn<(id: string) => AIPlatform | null>(),
   enabledPlatforms: [aiPlatform],
   selectionToolbarPlatforms: [aiPlatform],
 }
@@ -91,7 +91,7 @@ vi.mock('$lib/stores/platforms.svelte', () => ({
   platformsStore: platformsStoreMock,
 }))
 
-const generateInjectionScriptMock = vi.fn<[InjectionAction[]], string>()
+const generateInjectionScriptMock = vi.fn<(actions: InjectionAction[]) => string>()
 
 vi.mock('$lib/utils/injection', () => ({
   generateInjectionScript: generateInjectionScriptMock,
