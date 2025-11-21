@@ -7,6 +7,8 @@
 //! - Windows 改用 Win32 低级鼠标钩子，仅分发鼠标移动与左键抬起事件；
 //! - 精简事件分支与状态（删除按下状态等不必要逻辑）；
 //! - macOS 继续使用 rdev 监听，但在回调中忽略键盘事件；
+//! - Windows UIA 文本捕获策略升级：先尝试焦点元素/窗口根元素的 TextPattern，若失败再进行“受限”子树搜索（有深度与节点数量上限），
+//!   以避免 Electron/Chromium（如 draw.io Desktop）在可访问树上大范围遍历导致的卡顿，同时保持对普通应用的兼容；
 //! - 按项目规范保留英文日志，注释改为中文便于维护。
 
 use arboard::Clipboard;
@@ -191,50 +193,121 @@ fn normalize_selection(text: &str) -> Option<String> {
 // -----------------------------------------------------------------------------
 #[cfg(target_os = "windows")]
 mod windows_uia {
+    //! Windows UI Automation Provider
+    //!
+    //! 设计目标：
+    //! - 尽可能利用 UIA 的 TextPattern 直接读取外部应用的选中文本；
+    //! - 保持对现代浏览器/编辑器的良好兼容；
+    //! - 避免在 Electron/Chromium 应用（例如 draw.io Desktop）上触发昂贵的深度遍历，导致主线程卡顿与交互受阻。
+    //!
+    //! 实现策略：
+    //! 1) 候选元素：优先从“焦点元素”和“前台窗口根元素”两类候选中尝试；
+    //! 2) 直接尝试：对候选元素调用 `GetCurrentPattern(UIA_TextPattern)`，成功则立即返回；
+    //! 3) 受限搜索：若直接尝试失败，则使用 RawView walker 进行“有界广度搜索”：
+    //!    - 最大深度 `UIA_MAX_DESCENDANT_DEPTH`（默认 3）
+    //!    - 最大访问节点上限 `UIA_MAX_DESCENDANT_NODES`（默认 400）
+    //!    - 达到任一阈值即中止搜索，确保最坏情况下的开销受控；
+    //! 4) 失败回退：若依旧失败，交由 Win32 Edit Provider 兜底。
+    //!
+    //! 权衡说明：
+    //! - 仅直接尝试会导致部分应用无法捕获（因为 TextPattern 暴露在后代节点中）；
+    //! - 不加限制的子树查找会严重卡顿（draw.io Desktop 就属于此类场景）；
+    //! - 因此选择“受限搜索”以在“功能性”和“性能”之间取得平衡。相关阈值可按需微调。
     use super::{normalize_selection, GlobalSelectionProvider};
+    use std::collections::VecDeque;
     use tauri::AppHandle;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
         COINIT_APARTMENTTHREADED,
     };
-    use windows::Win32::System::Variant::VARIANT;
     use windows::Win32::UI::Accessibility::{
         CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
-        IUIAutomationTextRangeArray, TreeScope_Subtree, UIA_IsTextPatternAvailablePropertyId,
-        UIA_TextPatternId,
+        IUIAutomationTextRangeArray, IUIAutomationTreeWalker, UIA_TextPatternId,
     };
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-    /// 从元素或其子树尝试获取 TextPattern：先尝试自身，失败后搜索子树
-    fn obtain_text_pattern(
+    /// UIA 受限搜索的最大深度（根的直接子节点深度为 1）
+    const UIA_MAX_DESCENDANT_DEPTH: u32 = 3;
+    /// UIA 受限搜索的最大访问节点数（防止在复杂可访问树上遍历过多节点）
+    const UIA_MAX_DESCENDANT_NODES: usize = 400;
+
+    /// 尝试直接从元素本身获取 TextPattern；若元素未声明该模式则快速返回
+    fn try_text_pattern(element: &IUIAutomationElement) -> Option<IUIAutomationTextPattern> {
+        unsafe {
+            element
+                .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+                .ok()
+        }
+    }
+
+    /// 在受限范围内搜索后代节点上的 TextPattern（广度优先）
+    ///
+    /// 注意：使用 RawView walker 可避免属性条件创建的额外成本；但必须控制深度与节点数以确保性能可预期。
+    fn search_descendants_for_text_pattern(
         ui: &IUIAutomation,
         element: &IUIAutomationElement,
     ) -> Option<IUIAutomationTextPattern> {
         unsafe {
-            // 先直接从当前元素获取 TextPattern
-            if let Ok(pattern) =
-                element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
-            {
-                return Some(pattern);
-            }
+            let walker: IUIAutomationTreeWalker = match ui.RawViewWalker() {
+                Ok(walker) => walker,
+                Err(err) => {
+                    log::debug!(
+                        "Windows UIA provider: failed to create RawView walker: {:?}",
+                        err
+                    );
+                    return None;
+                }
+            };
 
-            // 搜索支持 TextPattern 的后代元素
-            let value = VARIANT::from(true);
-            if let Ok(condition) =
-                ui.CreatePropertyCondition(UIA_IsTextPatternAvailablePropertyId, &value)
-            {
-                if let Ok(descendant) = element.FindFirst(TreeScope_Subtree, &condition) {
-                    if let Ok(pattern) = descendant
-                        .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
-                    {
+            let mut queue: VecDeque<(IUIAutomationElement, u32)> = VecDeque::new();
+            queue.push_back((element.clone(), 0));
+            let mut visited: usize = 0;
+
+            while let Some((current, depth)) = queue.pop_front() {
+                if depth >= UIA_MAX_DESCENDANT_DEPTH {
+                    continue;
+                }
+
+                let mut child = walker.GetFirstChildElement(&current).ok();
+                while let Some(node) = child {
+                    visited += 1;
+                    if visited > UIA_MAX_DESCENDANT_NODES {
+                        log::debug!(
+                            "Windows UIA provider: descendant search aborted after {} nodes",
+                            visited
+                        );
+                        return None;
+                    }
+
+                    if let Some(pattern) = try_text_pattern(&node) {
                         return Some(pattern);
                     }
+
+                    if depth + 1 < UIA_MAX_DESCENDANT_DEPTH {
+                        queue.push_back((node.clone(), depth + 1));
+                    }
+
+                    child = walker.GetNextSiblingElement(&node).ok();
                 }
             }
 
             None
         }
+    }
+
+    /// 获取元素本身或其受限后代上的 TextPattern：
+    /// 1) 先直接尝试当前元素；
+    /// 2) 失败则在限定范围内尝试其后代；
+    fn obtain_text_pattern(
+        ui: &IUIAutomation,
+        element: &IUIAutomationElement,
+    ) -> Option<IUIAutomationTextPattern> {
+        if let Some(pattern) = try_text_pattern(element) {
+            return Some(pattern);
+        }
+
+        search_descendants_for_text_pattern(ui, element)
     }
 
     pub struct WindowsUIAutomationProvider;
@@ -308,7 +381,7 @@ mod windows_uia {
                         return Ok(None);
                     }
 
-                    // 在候选元素上查找 TextPattern（先焦点，再窗口）
+                    // 在候选元素上查找 TextPattern（仅检测元素本身，避免深层遍历）
                     let mut pattern: Option<IUIAutomationTextPattern> = None;
                     for (label, element) in &candidates {
                         if let Some(found) = obtain_text_pattern(&ui, element) {
@@ -316,7 +389,7 @@ mod windows_uia {
                             break;
                         } else {
                             log::debug!(
-                                "Windows UIA provider: {} element lacks TextPattern after search",
+                                "Windows UIA provider: {} element does not expose TextPattern",
                                 label
                             );
                         }
