@@ -172,8 +172,9 @@ function updateConstantsTs(version) {
     const constantsPath = resolve(rootDir, 'src/lib/utils/constants.ts');
     let constants = readFileSync(constantsPath, 'utf8');
     
-    // 匹配 APP_INFO 对象中的 version 属性
-    const versionRegex = /(export\s+const\s+APP_INFO\s*=\s*\{[^}]*version:\s*)"([^"]*)"/s;
+    // 匹配 APP_INFO 对象中的 version 属性 (支持单引号和双引号)
+    // 使用 [\s\S]*? 非贪婪匹配直到遇到 version:
+    const versionRegex = /(export\s+const\s+APP_INFO\s*=\s*\{[\s\S]*?version:\s*)['"]([^'"]*)['"]/;
     const match = constants.match(versionRegex);
     
     if (!match) {
@@ -187,7 +188,8 @@ function updateConstantsTs(version) {
       return false;
     }
     
-    constants = constants.replace(versionRegex, `$1"${version}"`);
+    // 保持使用单引号
+    constants = constants.replace(versionRegex, `$1'${version}'`);
     writeFileSync(constantsPath, constants, 'utf8');
     logSuccess(`Updated constants.ts: ${currentVersion} -> ${version}`);
     return true;
