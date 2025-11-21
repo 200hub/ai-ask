@@ -315,8 +315,8 @@
   }
 </script>
 
-<header class='header'>
-  <div class='header-left' data-tauri-drag-region>
+<header class='header' data-tauri-drag-region>
+  <div class='header-left'>
     {#if appState.selectedPlatform}
       <img
         src={appState.selectedPlatform.icon}
@@ -372,6 +372,8 @@
         flex-shrink: 0;
         user-select: none;
         -webkit-user-select: none;
+        /* Enable window dragging for the entire header */
+        -webkit-app-region: drag;
     }
 
     .header-left {
@@ -380,8 +382,6 @@
         gap: 0.625rem;
         flex: 1;
         min-width: 0;
-        /* Enable window dragging only on left side */
-        -webkit-app-region: drag;
     }
 
     .platform-icon {
