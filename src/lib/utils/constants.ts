@@ -453,7 +453,7 @@ export const SELECTION_TOOLBAR = {
   /** 触发工具栏显示所需的最小选中文本长度 */
   MIN_SELECTION_LENGTH: 2,
   /** 工具栏显示后在无操作时自动隐藏的时间（毫秒） */
-  AUTO_HIDE_DELAY_MS: 10000,
+  AUTO_HIDE_DELAY_MS: 2000,
   /** 文本选择事件的防抖时间（毫秒） */
   SELECTION_DEBOUNCE_MS: 300,
   /** 选区清空后隐藏工具栏前的防抖时间（毫秒） */
