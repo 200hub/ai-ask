@@ -475,10 +475,8 @@ async fn show_toolbar_internal(
         toolbar_y = 0.0;
     }
 
-    if let Err(error) = window.set_always_on_top(true) {
-        log::warn!("Failed to set toolbar always-on-top: {}", error);
-    }
-
+    // 性能优化：批量执行窗口操作，减少闪烁
+    // 1. 先设置位置（窗口可能不可见，此操作开销小）
     let toolbar_x_i32 = toolbar_x.round() as i32;
     let toolbar_y_i32 = toolbar_y.round() as i32;
 
@@ -489,18 +487,25 @@ async fn show_toolbar_internal(
         log::warn!("Failed to position toolbar window: {}", error);
     }
 
-    // 先隐藏再显示，确保位置更新立即生效
-    if window.is_visible().unwrap_or(false) {
-        let _ = window.hide();
+    // 2. 设置置顶（仅在需要时）
+    if let Err(error) = window.set_always_on_top(true) {
+        log::warn!("Failed to set toolbar always-on-top: {}", error);
     }
 
+    // 3. 发送文本事件并显示窗口
+    // 优化：移除不必要的 50ms 延迟和先隐藏再显示的逻辑
+    // 原因：位置更新是同步的，无需等待；先隐藏会导致闪烁
     let text_payload = trimmed_text.to_string();
-    let window_for_emit = window.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        let _ = window_for_emit.emit("toolbar-text-selected", text_payload);
-        let _ = window_for_emit.show();
-    });
+    if let Err(error) = window.emit("toolbar-text-selected", text_payload) {
+        log::warn!("Failed to emit toolbar text event: {}", error);
+    }
+
+    // 仅在窗口不可见时才调用 show，避免不必要的窗口操作
+    if !window.is_visible().unwrap_or(true) {
+        if let Err(error) = window.show() {
+            log::warn!("Failed to show toolbar window: {}", error);
+        }
+    }
 
     Ok(())
 }

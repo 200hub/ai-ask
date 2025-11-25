@@ -29,6 +29,7 @@ interface WebviewReadyEntry {
 
 const webviewReadyState = new Map<string, WebviewReadyEntry>()
 let webviewEventListenersRegistered = false
+let webviewEventListenersPromise: Promise<void> | null = null
 const t = i18n.t
 
 function getOrCreateReadyEntry(id: string): WebviewReadyEntry {
@@ -58,58 +59,97 @@ function markWebviewReady(id: string): void {
   resolvers.forEach(resolver => resolver())
 }
 
+/**
+ * 确保事件监听器已注册（单例模式，避免重复注册）
+ *
+ * 性能优化：使用 Promise 缓存避免并发调用时的重复注册
+ */
 async function ensureWebviewEventListeners(): Promise<void> {
-  if (webviewEventListenersRegistered || typeof window === 'undefined') {
+  if (webviewEventListenersRegistered) {
     return
   }
 
-  try {
-    const mainWindow = getCurrentWebviewWindow()
-
-    await Promise.all([
-      mainWindow.listen(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, (event) => {
-        const payload = event.payload as { id?: string } | undefined
-        if (!payload?.id) {
-          return
-        }
-
-        markWebviewLoading(payload.id)
-      }),
-      mainWindow.listen(EVENTS.CHILD_WEBVIEW_READY, (event) => {
-        const payload = event.payload as { id?: string } | undefined
-        if (!payload?.id) {
-          return
-        }
-
-        markWebviewReady(payload.id)
-      }),
-    ])
-
-    webviewEventListenersRegistered = true
+  if (typeof window === 'undefined') {
+    return
   }
-  catch (error) {
-    logger.warn('Failed to register child webview readiness listeners', error)
+
+  // 避免并发调用时的重复注册
+  if (webviewEventListenersPromise) {
+    return webviewEventListenersPromise
   }
+
+  webviewEventListenersPromise = (async () => {
+    try {
+      const mainWindow = getCurrentWebviewWindow()
+
+      await Promise.all([
+        mainWindow.listen(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, (event) => {
+          const payload = event.payload as { id?: string } | undefined
+          if (!payload?.id) {
+            return
+          }
+
+          markWebviewLoading(payload.id)
+        }),
+        mainWindow.listen(EVENTS.CHILD_WEBVIEW_READY, (event) => {
+          const payload = event.payload as { id?: string } | undefined
+          if (!payload?.id) {
+            return
+          }
+
+          markWebviewReady(payload.id)
+        }),
+      ])
+
+      webviewEventListenersRegistered = true
+    }
+    catch (error) {
+      logger.warn('Failed to register child webview readiness listeners', error)
+      // 重置 promise 以便下次重试
+      webviewEventListenersPromise = null
+    }
+  })()
+
+  return webviewEventListenersPromise
 }
 
 /**
  * 智能等待 WebView 就绪
  *
- * 自动检测 WebView 是否已存在，并使用相应的超时策略：
- * - 已存在: 2秒超时（只需等待页面加载）
- * - 新创建: 8秒超时（需要创建窗口+加载页面）
+ * 性能优化版本：
+ * - 使用缓存的 ready 状态快速返回
+ * - 减少不必要的 IPC 调用
+ * - 合并事件监听器注册为单次操作
+ *
+ * 超时策略：
+ * - 已存在的 WebView: 2秒超时（只需等待页面加载）
+ * - 新创建的 WebView: 8秒超时（需要创建窗口+加载页面）
  *
  * 注意：超时时间只是保护上限，如果页面提前加载完成，会立即继续执行
  */
 async function waitForWebviewReady(id: string): Promise<void> {
-  await ensureWebviewEventListeners()
+  // 快速路径：如果已经 ready，直接返回
+  const cachedEntry = webviewReadyState.get(id)
+  if (cachedEntry?.ready) {
+    logger.debug('Webview already ready (cached), skipping wait', { webviewId: id })
+    return
+  }
+
+  // 确保事件监听器已注册（不等待，因为可能已经注册）
+  void ensureWebviewEventListeners()
 
   // 检查 WebView 是否已存在，自动选择合适的超时时间
+  // 优化：使用 Promise.race 添加快速超时，避免 IPC 卡顿影响整体流程
   let alreadyExists = false
   try {
-    alreadyExists = await invoke<boolean>('check_child_webview_exists', {
+    const checkPromise = invoke<boolean>('check_child_webview_exists', {
       payload: { id },
     })
+    // 添加 500ms 快速超时，IPC 通常很快，如果卡住就假设不存在
+    const timeoutPromise = new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), 500)
+    })
+    alreadyExists = await Promise.race([checkPromise, timeoutPromise])
   }
   catch (error) {
     logger.warn('Failed to check webview existence, assuming new', { webviewId: id, error })
@@ -120,23 +160,30 @@ async function waitForWebviewReady(id: string): Promise<void> {
     : TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS
 
   const startTime = Date.now()
-  logger.info('Waiting for webview ready (smart timeout)', {
+  logger.debug('Waiting for webview ready', {
     webviewId: id,
     alreadyExists,
     timeoutMs,
   })
 
+  // 再次检查（可能在上面的 IPC 期间变为 ready）
   const entry = webviewReadyState.get(id)
   if (entry?.ready) {
-    logger.info('Webview already ready, skipping wait', { webviewId: id })
+    logger.debug('Webview became ready during check', { webviewId: id })
     return
   }
 
   await new Promise<void>((resolve) => {
     const targetEntry = entry ?? getOrCreateReadyEntry(id)
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+    let resolved = false
 
     const wrappedResolve = (): void => {
+      if (resolved) {
+        return
+      }
+      resolved = true
+
       if (timeoutHandle) {
         clearTimeout(timeoutHandle)
         timeoutHandle = undefined
@@ -151,16 +198,19 @@ async function waitForWebviewReady(id: string): Promise<void> {
       }
 
       const actualWaitTime = Date.now() - startTime
-      logger.info('Webview ready event received', {
+      logger.debug('Webview ready event received', {
         webviewId: id,
         actualWaitMs: actualWaitTime,
-        wasTimeout: false,
       })
 
       resolve()
     }
 
     timeoutHandle = setTimeout(() => {
+      if (resolved) {
+        return
+      }
+
       const currentEntry = webviewReadyState.get(id)
       if (currentEntry) {
         currentEntry.resolvers = currentEntry.resolvers.filter(
@@ -174,8 +224,8 @@ async function waitForWebviewReady(id: string): Promise<void> {
         timeoutMs,
         actualWaitMs: actualWaitTime,
         alreadyExists,
-        wasTimeout: true,
       })
+      resolved = true
       resolve()
     }, timeoutMs)
 

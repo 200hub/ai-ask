@@ -59,6 +59,10 @@ const MIN_TEXT_LENGTH: usize = 2;
 /// 触发去抖时间（毫秒），用于避免快速重复触发
 const TRIGGER_DEBOUNCE_MS: u64 = 200;
 
+/// 文本捕获的最大超时时间（毫秒）
+/// 用于防止 UIA/Accessibility API 卡死导致整个应用无响应
+const CAPTURE_TIMEOUT_MS: u64 = 2000;
+
 /// 预留节流时间窗口（当前未使用）
 const _RESERVED_SUPPRESS_MS: u64 = 0;
 
@@ -965,6 +969,11 @@ impl Drop for CaptureResetGuard {
 /// - 鼠标移动：只更新坐标并返回；
 /// - 左键抬起：触发一次捕获流程；
 /// - 键盘事件（macOS）：直接忽略，避免输入干扰。
+///
+/// 性能优化说明：
+/// - 鼠标移动使用 try_lock 避免阻塞；
+/// - 左键抬起时合并多次锁获取为单次，减少锁竞争；
+/// - 所有状态检查在单次锁内完成后立即释放。
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn handle_event(
     event: Event,
@@ -981,8 +990,9 @@ fn handle_event(
         return;
     }
 
+    // 鼠标移动：使用 try_lock 避免阻塞，失败则丢弃（高频事件可容忍丢失）
     if let EventType::MouseMove { x, y } = event.event_type {
-        if let Ok(mut state) = monitor_state.lock() {
+        if let Ok(mut state) = monitor_state.try_lock() {
             state.last_mouse_position = (x, y);
         }
         return;
@@ -993,10 +1003,11 @@ fn handle_event(
     }
 
     // 检查功能开关（未开启则隐藏工具栏并返回）
-    let feature_enabled = match toolbar_manager.lock() {
+    let feature_enabled = match toolbar_manager.try_lock() {
         Ok(state) => state.is_enabled(),
-        Err(err) => {
-            log::error!("Failed to lock toolbar state: {}", err);
+        Err(_) => {
+            // 锁被占用时跳过本次触发，避免阻塞
+            log::debug!("Toolbar state lock busy, skipping this trigger");
             return;
         }
     };
@@ -1006,50 +1017,42 @@ fn handle_event(
         return;
     }
 
-    // 去抖处理：防止短时间内重复触发
-    {
-        let mut state = match monitor_state.lock() {
-            Ok(guard) => guard,
-            Err(err) => {
-                log::error!("Failed to lock global selection state: {}", err);
-                return;
-            }
-        };
-
-        let now = Instant::now();
-
-        // 若与上次触发间隔小于阈值则跳过
-        if let Some(last) = state.last_trigger_at {
-            if now.duration_since(last) < Duration::from_millis(TRIGGER_DEBOUNCE_MS) {
-                return;
-            }
-        }
-
-        state.last_trigger_at = Some(now);
-    }
-
     // 忽略主窗口自身的选中（仅响应外部应用）
+    // 注意：此检查放在锁操作之前，因为 is_focused 可能有一定开销
     if let Some(window) = resolve_main_window(app) {
         if window.is_focused().unwrap_or(false) {
             return;
         }
     }
 
-    // 并发保护：避免在慢速 UIA/Win32 操作期间再次进入捕获
+    // 合并去抖检查和并发保护为单次锁获取，减少锁竞争
     {
-        let mut state = match monitor_state.lock() {
+        let mut state = match monitor_state.try_lock() {
             Ok(guard) => guard,
-            Err(err) => {
-                log::error!("Failed to lock global selection state: {}", err);
+            Err(_) => {
+                // 锁被占用，说明有其他操作正在进行，跳过本次触发
+                log::debug!("Monitor state lock busy, skipping this trigger");
                 return;
             }
         };
 
+        let now = Instant::now();
+
+        // 去抖处理：若与上次触发间隔小于阈值则跳过
+        if let Some(last) = state.last_trigger_at {
+            if now.duration_since(last) < Duration::from_millis(TRIGGER_DEBOUNCE_MS) {
+                return;
+            }
+        }
+
+        // 并发保护：避免在慢速 UIA/Win32 操作期间再次进入捕获
         if state.capture_in_progress {
             log::debug!("Global selection capture skipped: previous capture still running");
             return;
         }
 
+        // 所有检查通过，更新状态
+        state.last_trigger_at = Some(now);
         state.capture_in_progress = true;
     }
 
@@ -1066,19 +1069,32 @@ fn handle_event(
             state: Arc::clone(&state_task),
         };
 
-        // 在线程池中执行捕获（阻塞型），避免阻塞异步运行时
+        // 在线程池中执行捕获（阻塞型），添加超时保护
+        // 防止 UIA/Accessibility API 卡死导致整个应用无响应
         let capture_app = app_task.clone();
         let capture_providers = Arc::clone(&providers_task);
-        let capture_result = tauri::async_runtime::spawn_blocking(move || {
+        let capture_task = tauri::async_runtime::spawn_blocking(move || {
             capture_with_providers(&capture_app, &capture_providers)
-        })
-        .await;
+        });
 
-        // 处理捕获结果
+        // 使用 tokio::time::timeout 添加超时保护
+        let capture_result =
+            tokio::time::timeout(Duration::from_millis(CAPTURE_TIMEOUT_MS), capture_task).await;
+
+        // 处理捕获结果（包括超时情况）
         let selected_text = match capture_result {
-            Ok(text) => text,
-            Err(error) => {
-                log::error!("Global selection capture task failed: {}", error);
+            Ok(Ok(text)) => text,
+            Ok(Err(error)) => {
+                log::error!("Global selection capture task panicked: {}", error);
+                None
+            }
+            Err(_) => {
+                // 捕获超时，这通常意味着 UIA/Accessibility API 卡住了
+                // 记录警告但不阻塞后续操作
+                log::warn!(
+                    "Global selection capture timed out after {} ms, skipping",
+                    CAPTURE_TIMEOUT_MS
+                );
                 None
             }
         };
@@ -1346,25 +1362,37 @@ pub fn trigger_toolbar_from_hotkey(app: AppHandle, toolbar_manager: ToolbarManag
         let capture_app = app_clone.clone();
         let toolbar_for_hide = toolbar_manager_clone.clone();
 
-        // 步骤 5.1: 在阻塞线程池中执行文本捕获
+        // 步骤 5.1: 在阻塞线程池中执行文本捕获，添加超时保护
         // 原因：Windows UIA / macOS Accessibility API 可能耗时较长
         // 使用 spawn_blocking 避免阻塞异步运行时
-        let capture_result =
-            tauri::async_runtime::spawn_blocking(move || capture_text_for_hotkey(&capture_app))
-                .await;
+        let capture_task =
+            tauri::async_runtime::spawn_blocking(move || capture_text_for_hotkey(&capture_app));
 
-        // 步骤 5.2: 处理捕获结果
+        // 添加超时保护，防止 API 卡死
+        let capture_result =
+            tokio::time::timeout(Duration::from_millis(CAPTURE_TIMEOUT_MS), capture_task).await;
+
+        // 步骤 5.2: 处理捕获结果（包括超时情况）
         let selected_text = match capture_result {
-            Ok(Some(text)) => text,
-            Ok(None) => {
+            Ok(Ok(Some(text))) => text,
+            Ok(Ok(None)) => {
                 // 系统 provider 和剪贴板都没有可用文本，隐藏工具栏
                 log::debug!("Hotkey trigger skipped: no provider or clipboard text available");
                 schedule_hide_toolbar(&app_clone, toolbar_for_hide);
                 return;
             }
-            Err(error) => {
+            Ok(Err(error)) => {
                 // 捕获任务本身失败（极少见），记录错误并隐藏工具栏
-                log::error!("Selection toolbar hotkey capture task failed: {}", error);
+                log::error!("Selection toolbar hotkey capture task panicked: {}", error);
+                schedule_hide_toolbar(&app_clone, toolbar_manager_clone.clone());
+                return;
+            }
+            Err(_) => {
+                // 捕获超时
+                log::warn!(
+                    "Selection toolbar hotkey capture timed out after {} ms",
+                    CAPTURE_TIMEOUT_MS
+                );
                 schedule_hide_toolbar(&app_clone, toolbar_manager_clone.clone());
                 return;
             }
