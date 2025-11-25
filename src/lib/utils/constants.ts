@@ -3,7 +3,6 @@
  */
 import type { AIPlatform, TranslationPlatform } from '../types/platform'
 
-import tongyiIcon from '$lib/assets/platform-icons/alibabacloud.svg'
 import anthropicIcon from '$lib/assets/platform-icons/anthropic.svg'
 import wenxinIcon from '$lib/assets/platform-icons/baidu.svg'
 import doubaoIcon from '$lib/assets/platform-icons/bytedance.svg'
@@ -14,6 +13,7 @@ import deepseekIcon from '$lib/assets/platform-icons/deepseek.svg'
 import geminiIcon from '$lib/assets/platform-icons/gemini.svg'
 import grokIcon from '$lib/assets/platform-icons/grok.svg'
 import kimiIcon from '$lib/assets/platform-icons/kimi.svg'
+import qianwenIcon from '$lib/assets/platform-icons/qianwen.svg'
 import yuanbaoIcon from '$lib/assets/platform-icons/tencent.svg'
 
 /**
@@ -93,16 +93,6 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     selectionToolbarAvailable: false,
   },
   {
-    id: 'tongyi',
-    name: '通义千问',
-    icon: tongyiIcon,
-    url: 'https://tongyi.aliyun.com/qianwen',
-    enabled: true,
-    isCustom: false,
-    sortOrder: 9,
-    selectionToolbarAvailable: false,
-  },
-  {
     id: 'wenxin',
     name: '文心一言',
     icon: wenxinIcon,
@@ -130,6 +120,16 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 12,
+    selectionToolbarAvailable: false,
+  },
+  {
+    id: 'qianwen',
+    name: '千问',
+    icon: qianwenIcon,
+    url: 'https://qianwen.com',
+    enabled: true,
+    isCustom: false,
+    sortOrder: 13,
     selectionToolbarAvailable: false,
   },
 ]
