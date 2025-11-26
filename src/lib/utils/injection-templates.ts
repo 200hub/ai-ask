@@ -372,18 +372,18 @@ export const COPILOT_TEMPLATES: InjectionTemplate[] = [
 ]
 
 /**
- * 通义千问 (Tongyi Qianwen) injection templates
+ * 千问 (Qianwen) injection templates - qianwen.com
  */
-export const TONGYI_TEMPLATES: InjectionTemplate[] = [
+export const QIANWEN_TEMPLATES: InjectionTemplate[] = [
   {
-    platformId: 'tongyi',
+    platformId: 'qianwen',
     name: 'Send Message',
-    description: '向通义千问发送消息',
-    urlPattern: 'https://www\\.tongyi\\.com.*',
+    description: '向千问发送消息并提取回复',
+    urlPattern: 'https://(www\\.)?qianwen\\.com.*',
     actions: [
       {
         type: 'fill',
-        selector: 'textarea[placeholder*="向千问提问"]',
+        selector: 'div[class*="chatInput-"] textarea',
         content: '',
         triggerEvents: true,
         delay: 300,
@@ -391,16 +391,33 @@ export const TONGYI_TEMPLATES: InjectionTemplate[] = [
       },
       {
         type: 'click',
-        selector: '.operateBtn-JsB9e2',
+        selector: 'button[class*="send"], button[class*="submit"], [class*="send-btn"], [class*="operateBtn"]',
         timeout: 3000,
       },
       {
         type: 'extract',
         timeout: 30000,
         pollInterval: 1000,
+        outputFormat: 'markdown',
         extractScript: `() => {
-                    // TODO: 后续补充生成完成标记的检测与内容提取
-                    return '_';
+                    if (document.querySelector('div[class*="answerToolsContent-"]')==null) {
+                      return '';
+                    }
+                    
+                    const messages = document.querySelector('div[class*="answerToolsContent-"]')
+                      .closest('div[class*="containerWrap-"]')
+                      .querySelector('.tongyi-markdown');
+                    if (!messages) {
+                        return '';
+                    }
+                    
+                    const text = messages.textContent?.trim() || '';
+                    const html = messages.innerHTML || '';
+
+                    if (text || html) {
+                        return { text, html };
+                    }
+                    return '';
                 }`,
       },
     ],
@@ -851,7 +868,7 @@ export const ALL_TEMPLATES: InjectionTemplate[] = [
   ...DEEPSEEK_TEMPLATES,
   ...KIMI_TEMPLATES,
   ...COPILOT_TEMPLATES,
-  ...TONGYI_TEMPLATES,
+  ...QIANWEN_TEMPLATES,
   ...WENXIN_TEMPLATES,
   ...DOUBAO_TEMPLATES,
   ...YUANBAO_TEMPLATES,
@@ -871,7 +888,7 @@ const CHAT_TEMPLATE_REGISTRY = new Map<string, InjectionTemplate[]>([
   ['deepseek', DEEPSEEK_TEMPLATES],
   ['kimi', KIMI_TEMPLATES],
   ['copilot', COPILOT_TEMPLATES],
-  ['tongyi', TONGYI_TEMPLATES],
+  ['qianwen', QIANWEN_TEMPLATES],
   ['wenxin', WENXIN_TEMPLATES],
   ['doubao', DOUBAO_TEMPLATES],
   ['yuanbao', YUANBAO_TEMPLATES],

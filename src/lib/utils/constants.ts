@@ -130,7 +130,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 13,
-    selectionToolbarAvailable: false,
+    selectionToolbarAvailable: true,
   },
 ]
 
