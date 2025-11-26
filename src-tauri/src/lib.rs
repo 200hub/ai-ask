@@ -34,9 +34,10 @@ use update::{
     schedule_install,
 };
 use webview::{
-    check_child_webview_exists, close_child_webview, ensure_child_webview,
-    evaluate_child_webview_script, focus_child_webview, hide_all_child_webviews,
-    hide_child_webview, set_child_webview_bounds, show_child_webview, ChildWebviewManager,
+    check_child_webview_exists, clear_child_webview_cache, close_child_webview,
+    ensure_child_webview, evaluate_child_webview_script, focus_child_webview,
+    hide_all_child_webviews, hide_child_webview, set_child_webview_bounds, show_child_webview,
+    ChildWebviewManager,
 };
 use window_control::{
     hide_main_window, hide_window, resolve_main_window, show_main_window,
@@ -289,6 +290,7 @@ pub fn run() {
             show_child_webview,
             hide_child_webview,
             close_child_webview,
+            clear_child_webview_cache,
             focus_child_webview,
             check_child_webview_exists,
             hide_all_child_webviews,

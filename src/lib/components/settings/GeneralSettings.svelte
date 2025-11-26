@@ -3,6 +3,8 @@
   import { i18n, SUPPORTED_LOCALES } from '$lib/i18n'
   import { configStore } from '$lib/stores/config.svelte'
   import { platformsStore } from '$lib/stores/platforms.svelte'
+  import { translationStore } from '$lib/stores/translation.svelte'
+  import { clearChildWebviewCache } from '$lib/utils/childWebview'
   import {
     AVAILABLE_SHORTCUTS,
     SELECTION_TOOLBAR_SHORTCUTS,
@@ -35,6 +37,39 @@
   const isTemporaryDisabled = $derived(
     typeof temporaryDisableUntil === 'number' && temporaryDisableUntil > Date.now(),
   )
+
+  // 缓存清理状态
+  let isClearingCache = $state(false)
+  let showCacheModal = $state(false)
+
+  // 可清理缓存的平台列表（AI平台 + 翻译平台）
+  interface CacheablePlatform {
+    id: string
+    name: string
+    type: 'ai' | 'translation'
+    selected: boolean
+  }
+  let cacheablePlatforms = $state<CacheablePlatform[]>([])
+
+  // 初始化可清理平台列表
+  function initCacheablePlatforms() {
+    const aiPlatforms: CacheablePlatform[] = platformsStore.platforms.map(p => ({
+      id: p.id,
+      name: p.name,
+      type: 'ai' as const,
+      selected: false,
+    }))
+    const translationPlatforms: CacheablePlatform[] = translationStore.platforms.map(p => ({
+      id: p.id,
+      name: p.name,
+      type: 'translation' as const,
+      selected: false,
+    }))
+    cacheablePlatforms = [...aiPlatforms, ...translationPlatforms]
+  }
+
+  // 计算已选择的平台数量
+  const selectedCount = $derived(cacheablePlatforms.filter(p => p.selected).length)
 
   /**
    * 主题选项
@@ -398,15 +433,90 @@
   }
 
   /**
-   * 清理缓存（占位功能，子 webview 模式下暂无实际操作）
+   * 打开缓存清理模态框
    */
-  function handleClearCache() {
-    // TODO
-    // eslint-disable-next-line no-alert
-    if (window.confirm(t('general.clearCacheConfirm'))) {
-      // TODO
+  function handleOpenCacheModal() {
+    initCacheablePlatforms()
+    showCacheModal = true
+  }
+
+  /**
+   * 关闭缓存清理模态框
+   */
+  function handleCloseCacheModal() {
+    showCacheModal = false
+  }
+
+  /**
+   * 切换平台选择状态
+   */
+  function togglePlatformSelection(id: string) {
+    const platform = cacheablePlatforms.find(p => p.id === id)
+    if (platform) {
+      platform.selected = !platform.selected
+    }
+  }
+
+  /**
+   * 全选/取消全选
+   */
+  function toggleSelectAll() {
+    const allSelected = cacheablePlatforms.every(p => p.selected)
+    cacheablePlatforms.forEach((p) => {
+      p.selected = !allSelected
+    })
+  }
+
+  /**
+   * 执行缓存清理
+   */
+  async function handleClearCache() {
+    const selectedPlatforms = cacheablePlatforms.filter(p => p.selected)
+    if (selectedPlatforms.length === 0) {
+      return
+    }
+
+    isClearingCache = true
+    let successCount = 0
+    let failCount = 0
+
+    try {
+      for (const platform of selectedPlatforms) {
+        try {
+          await clearChildWebviewCache(platform.id)
+          successCount++
+          logger.info('Cache cleared for platform', { id: platform.id, name: platform.name })
+        }
+        catch (error) {
+          failCount++
+          logger.error('Failed to clear cache for platform', { id: platform.id, error })
+        }
+      }
+
+      // 显示结果通知
+      if (failCount === 0) {
+        // eslint-disable-next-line no-alert
+        window.alert(t('general.clearCacheSuccess'))
+      }
+      else {
+        // eslint-disable-next-line no-alert
+        window.alert(
+          formatTranslation('general.clearCachePartialSuccess', {
+            success: successCount,
+            fail: failCount,
+          }),
+        )
+      }
+
+      showCacheModal = false
+    }
+    catch (error) {
+      logger.error('Failed to clear cache', error)
       // eslint-disable-next-line no-alert
-      window.alert(t('general.clearCacheSuccess'))
+      window.alert(t('general.clearCacheFailed'))
+    }
+    finally {
+      isClearingCache = false
     }
   }
 </script>
@@ -704,11 +814,97 @@
           {t('general.clearCacheDescription')}
         </span>
       </div>
-      <button class='btn-clear-cache' onclick={handleClearCache}>
+      <button class='btn-clear-cache' onclick={handleOpenCacheModal}>
         {t('general.clearCache')}
       </button>
     </div>
   </div>
+
+  <!-- 缓存清理模态框 -->
+  {#if showCacheModal}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class='modal-overlay' onclick={handleCloseCacheModal}>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class='modal-content' onclick={e => e.stopPropagation()}>
+        <div class='modal-header'>
+          <h3>{t('general.clearCacheTitle')}</h3>
+          <button class='modal-close' onclick={handleCloseCacheModal} aria-label={t('common.close')}>
+            <svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>
+              <line x1='18' y1='6' x2='6' y2='18'></line>
+              <line x1='6' y1='6' x2='18' y2='18'></line>
+            </svg>
+          </button>
+        </div>
+
+        <p class='modal-description'>{t('general.clearCacheModalDescription')}</p>
+
+        <div class='platform-list-header'>
+          <label class='select-all-label'>
+            <input
+              type='checkbox'
+              checked={cacheablePlatforms.length > 0 && cacheablePlatforms.every(p => p.selected)}
+              onchange={toggleSelectAll}
+            />
+            <span>{t('general.selectAll')}</span>
+          </label>
+          <span class='selected-count'>
+            {formatTranslation('general.selectedCount', { count: selectedCount })}
+          </span>
+        </div>
+
+        <div class='platform-list'>
+          <!-- AI 平台 -->
+          {#if cacheablePlatforms.some(p => p.type === 'ai')}
+            <div class='platform-group-title'>{t('general.aiPlatforms')}</div>
+            {#each cacheablePlatforms.filter(p => p.type === 'ai') as platform (platform.id)}
+              <label class='platform-item'>
+                <input
+                  type='checkbox'
+                  checked={platform.selected}
+                  onchange={() => togglePlatformSelection(platform.id)}
+                />
+                <span class='platform-name'>{platform.name}</span>
+              </label>
+            {/each}
+          {/if}
+
+          <!-- 翻译平台 -->
+          {#if cacheablePlatforms.some(p => p.type === 'translation')}
+            <div class='platform-group-title'>{t('general.translationPlatforms')}</div>
+            {#each cacheablePlatforms.filter(p => p.type === 'translation') as platform (platform.id)}
+              <label class='platform-item'>
+                <input
+                  type='checkbox'
+                  checked={platform.selected}
+                  onchange={() => togglePlatformSelection(platform.id)}
+                />
+                <span class='platform-name'>{platform.name}</span>
+              </label>
+            {/each}
+          {/if}
+        </div>
+
+        <div class='modal-actions'>
+          <button class='btn-secondary' onclick={handleCloseCacheModal}>
+            {t('common.cancel')}
+          </button>
+          <button
+            class='btn-primary'
+            onclick={handleClearCache}
+            disabled={selectedCount === 0 || isClearingCache}
+          >
+            {#if isClearingCache}
+              {t('general.clearingCache')}
+            {:else}
+              {t('general.confirmClearCache')}
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <!-- 提示信息 -->
   <div class='info-box'>
@@ -1007,6 +1203,171 @@
 
     .btn-secondary:active {
         transform: scale(0.98);
+    }
+
+    /* 模态框样式 */
+    .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background-color: var(--bg-primary);
+        border-radius: 0.5rem;
+        width: 90%;
+        max-width: 28rem;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+
+    .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .modal-header h3 {
+        margin: 0;
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .modal-close {
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.25rem;
+        transition: all 0.2s ease;
+    }
+
+    .modal-close:hover {
+        background-color: var(--bg-secondary);
+        color: var(--text-primary);
+    }
+
+    .modal-description {
+        padding: 1rem 1.25rem 0.5rem;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        margin: 0;
+    }
+
+    .platform-list-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 1.25rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .select-all-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        font-size: 0.875rem;
+        color: var(--text-primary);
+    }
+
+    .select-all-label input[type='checkbox'] {
+        width: 1rem;
+        height: 1rem;
+        accent-color: var(--accent-color);
+    }
+
+    .selected-count {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+
+    .platform-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0.5rem 0;
+        max-height: 20rem;
+    }
+
+    .platform-group-title {
+        padding: 0.5rem 1.25rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        background-color: var(--bg-secondary);
+    }
+
+    .platform-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.625rem 1.25rem;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+    }
+
+    .platform-item:hover {
+        background-color: var(--bg-secondary);
+    }
+
+    .platform-item input[type='checkbox'] {
+        width: 1rem;
+        height: 1rem;
+        accent-color: var(--accent-color);
+        flex-shrink: 0;
+    }
+
+    .platform-name {
+        font-size: 0.875rem;
+        color: var(--text-primary);
+    }
+
+    .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        padding: 1rem 1.25rem;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .btn-primary {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: white;
+        background-color: var(--accent-color);
+        border: none;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        opacity: 0.9;
+    }
+
+    .btn-primary:active:not(:disabled) {
+        transform: scale(0.98);
+    }
+
+    .btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 
     .ignore-editor {

@@ -45,6 +45,28 @@ export function boundsEqual(a: ChildWebviewBounds, b: ChildWebviewBounds): boole
 }
 
 /**
+ * 清理指定 ID 的子 WebView 缓存
+ *
+ * 此操作会清除 WebView 的所有浏览数据（缓存、Cookie、LocalStorage 等），
+ * 并关闭该 WebView。下次访问时将重新创建。
+ *
+ * @param id - WebView 唯一标识符
+ * @returns Promise 完成时表示缓存已清理
+ */
+export async function clearChildWebviewCache(id: string): Promise<void> {
+  try {
+    await invoke('clear_child_webview_cache', {
+      payload: { id },
+    })
+    logger.info('Child webview cache cleared', { id })
+  }
+  catch (error) {
+    logger.error('Failed to clear child webview cache', { id, error })
+    throw error
+  }
+}
+
+/**
  * 计算子 WebView 的边界位置和尺寸
  *
  * 根据主窗口的布局元素（侧边栏、头部、主内容区）计算子 WebView 应该占据的区域。
@@ -273,6 +295,28 @@ export class ChildWebviewProxy {
     }
     catch (error) {
       logger.error('Failed to close child webview', { id: this.id, error })
+      throw error
+    }
+    finally {
+      this.#isVisible = false
+      this.#lastBounds = null
+    }
+  }
+
+  /**
+   * 清理子 WebView 的所有浏览数据（缓存、Cookie、LocalStorage 等）
+   *
+   * 此操作会关闭并移除 WebView，下次访问时将重新创建
+   */
+  async clearCache() {
+    try {
+      await invoke('clear_child_webview_cache', {
+        payload: { id: this.id },
+      })
+      logger.info('Child webview cache cleared', { id: this.id })
+    }
+    catch (error) {
+      logger.error('Failed to clear child webview cache', { id: this.id, error })
       throw error
     }
     finally {

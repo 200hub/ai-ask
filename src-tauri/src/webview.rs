@@ -508,6 +508,90 @@ pub(crate) async fn close_child_webview(
     Ok(())
 }
 
+/// 清理指定子 WebView 的浏览数据（缓存、Cookie、LocalStorage 等）
+///
+/// 此操作会：
+/// 1. 如果 WebView 存在：清除其浏览数据并关闭
+/// 2. 如果 WebView 不存在：创建临时 WebView 来清理该 ID 对应的数据
+///
+/// 注意：在 Windows WebView2 上，所有共享同一用户数据目录的 WebView 会共享浏览数据。
+/// `clear_all_browsing_data()` 会清除整个用户数据目录的数据。
+///
+/// 下次访问时会重新创建干净的 WebView
+#[tauri::command]
+pub(crate) async fn clear_child_webview_cache(
+    window: Window,
+    state: State<'_, ChildWebviewManager>,
+    payload: ChildWebviewIdPayload,
+) -> Result<(), String> {
+    log::info!("Clearing cache for child webview: {}", payload.id);
+
+    let mut webviews = state
+        .webviews
+        .lock()
+        .map_err(|err| format!("failed to lock webview map: {err}"))?;
+
+    if let Some(entry) = webviews.remove(&payload.id) {
+        // WebView 存在，直接清理
+        log::info!("WebView exists, clearing browsing data: {}", payload.id);
+        entry
+            .webview
+            .clear_all_browsing_data()
+            .map_err(|err| format!("failed to clear browsing data: {err}"))?;
+
+        entry
+            .webview
+            .close()
+            .map_err(|err| format!("failed to close webview: {err}"))?;
+
+        log::info!("Child webview cache cleared and closed: {}", payload.id);
+    } else {
+        // WebView 不存在，需要创建临时 WebView 来清理数据
+        // 因为 clear_all_browsing_data() 需要一个 WebView 实例来调用
+        log::info!(
+            "WebView not loaded, creating temporary webview to clear data: {}",
+            payload.id
+        );
+
+        // 释放锁，因为创建 WebView 可能需要一些时间
+        drop(webviews);
+
+        // 创建一个临时的 WebView 来清理数据
+        // 使用 about:blank 作为 URL，这样不会加载任何内容
+        let temp_label = format!("{}_temp_clear", payload.id);
+        let temp_webview =
+            WebviewBuilder::new(&temp_label, WebviewUrl::App("about:blank".into())).auto_resize();
+
+        match window.add_child(
+            temp_webview,
+            LogicalPosition::new(-9999.0, -9999.0), // 放在屏幕外
+            LogicalSize::new(1.0, 1.0),
+        ) {
+            Ok(webview) => {
+                // 清理浏览数据
+                if let Err(e) = webview.clear_all_browsing_data() {
+                    log::error!("Failed to clear browsing data: {}", e);
+                } else {
+                    log::info!("Browsing data cleared successfully");
+                }
+
+                // 关闭临时 WebView
+                if let Err(e) = webview.close() {
+                    log::error!("Failed to close temporary webview: {}", e);
+                }
+
+                log::info!("Temporary webview created and cleared for: {}", payload.id);
+            }
+            Err(e) => {
+                log::error!("Failed to create temporary webview for clearing: {}", e);
+                return Err(format!("Failed to create temporary webview: {e}"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// 聚焦指定子 WebView
 #[tauri::command]
 pub(crate) async fn focus_child_webview(
