@@ -53,6 +53,8 @@ export const jaJP = {
     refresh: '更新',
     openInBrowser: 'ブラウザで開く',
     minimize: '最小化',
+    maximize: '最大化',
+    restore: '元に戻す',
     close: '閉じる',
   },
   settings: {

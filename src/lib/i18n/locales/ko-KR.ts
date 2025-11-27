@@ -43,6 +43,8 @@ export const koKR = {
     refresh: '새로고침',
     openInBrowser: '브라우저에서 열기',
     minimize: '최소화',
+    maximize: '최대화',
+    restore: '복원',
     close: '닫기',
   },
 

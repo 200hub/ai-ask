@@ -43,6 +43,8 @@ export const enUS = {
     refresh: 'Refresh',
     openInBrowser: 'Open in Browser',
     minimize: 'Minimize',
+    maximize: 'Maximize',
+    restore: 'Restore',
     close: 'Close',
   },
 

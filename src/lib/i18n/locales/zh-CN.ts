@@ -43,6 +43,8 @@ export const zhCN = {
     refresh: '刷新',
     openInBrowser: '在浏览器中打开',
     minimize: '最小化',
+    maximize: '最大化',
+    restore: '还原',
     close: '关闭',
   },
 

@@ -19,8 +19,11 @@
   /**
    * 头部栏组件
    */
-  import { X } from 'lucide-svelte'
+  import { Maximize2, Minimize2, Minus, X } from 'lucide-svelte'
   import { onDestroy } from 'svelte'
+
+  // 窗口最大化状态
+  let isMaximized = $state(false)
 
   const appWindow = getCurrentWebviewWindow()
 
@@ -44,6 +47,68 @@
       logger.error('Failed to hide window', error)
     }
   }
+
+  /**
+   * 最小化到任务栏
+   */
+  async function handleMinimize() {
+    try {
+      await appWindow.minimize()
+    }
+    catch (error) {
+      logger.error('Failed to minimize window', error)
+    }
+  }
+
+  /**
+   * 切换最大化状态
+   */
+  async function toggleMaximize() {
+    try {
+      await appWindow.toggleMaximize()
+      isMaximized = await appWindow.isMaximized()
+    }
+    catch (error) {
+      logger.error('Failed to toggle maximize window', error)
+    }
+  }
+
+  /**
+   * 双击标题栏切换最大化
+   */
+  function handleDoubleClick(event: MouseEvent) {
+    // 确保不是在按钮区域双击
+    const target = event.target as HTMLElement
+    if (target.closest('.header-right') || target.closest('button')) {
+      return
+    }
+    toggleMaximize()
+  }
+
+  // 监听窗口大小变化更新最大化状态
+  $effect(() => {
+    // 初始化时检查最大化状态
+    appWindow.isMaximized().then((maximized) => {
+      isMaximized = maximized
+    }).catch(() => {
+    // 忽略错误
+    })
+
+    // 监听窗口 resize 事件来更新状态
+    const handleResize = async () => {
+      try {
+        isMaximized = await appWindow.isMaximized()
+      }
+      catch {
+      // 忽略错误
+      }
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+    }
+  })
 
   const t = i18n.t
   let bannerStatus = $state<'hidden' | 'available' | 'downloading' | 'ready' | 'failed'>('hidden')
@@ -315,7 +380,7 @@
   }
 </script>
 
-<header class='header' data-tauri-drag-region>
+<header class='header' data-tauri-drag-region ondblclick={handleDoubleClick} role='presentation'>
   <div class='header-left'>
     {#if appState.selectedPlatform}
       <img
@@ -349,6 +414,29 @@
         onRestart={bannerStatus === 'ready' ? handleRestart : null}
       />
     {/if}
+    <!-- 最小化按钮 -->
+    <button
+      class='icon-btn'
+      onclick={handleMinimize}
+      type='button'
+      aria-label={t('header.minimize')}
+    >
+      <Minus size={16} />
+    </button>
+    <!-- 最大化/还原按钮 -->
+    <button
+      class='icon-btn'
+      onclick={toggleMaximize}
+      type='button'
+      aria-label={isMaximized ? t('header.restore') : t('header.maximize')}
+    >
+      {#if isMaximized}
+        <Minimize2 size={14} />
+      {:else}
+        <Maximize2 size={14} />
+      {/if}
+    </button>
+    <!-- 关闭按钮 -->
     <button
       class='icon-btn hover-close'
       onclick={handleClose}
