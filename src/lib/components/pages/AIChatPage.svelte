@@ -1,13 +1,4 @@
 <script lang='ts'>
-  import type { AIPlatform } from '$lib/types/platform'
-  import { i18n } from '$lib/i18n'
-  import { appState } from '$lib/stores/app.svelte'
-  import { configStore } from '$lib/stores/config.svelte'
-  import { calculateChildWebviewBounds, ChildWebviewProxy } from '$lib/utils/childWebview'
-  import { TIMING } from '$lib/utils/constants'
-  import { logger } from '$lib/utils/logger'
-  import { createProxySignature, resolveProxyUrl } from '$lib/utils/proxy'
-  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
   /**
    * AI对话组件 - 子 Webview 管理器
    *
@@ -17,6 +8,16 @@
    * 3. 同步主窗口和子 webview 的状态（位置、尺寸）
    * 4. 响应窗口事件和用户交互
    */
+  import type { AIPlatform } from '$lib/types/platform'
+  import { i18n } from '$lib/i18n'
+  import { appState } from '$lib/stores/app.svelte'
+  import { configStore } from '$lib/stores/config.svelte'
+  import { calculateChildWebviewBounds, ChildWebviewProxy } from '$lib/utils/childWebview'
+  import { TIMING } from '$lib/utils/constants'
+  import { logger } from '$lib/utils/logger'
+  import { createProxySignature, resolveProxyUrl } from '$lib/utils/proxy'
+  import { WebviewReflowScheduler, WebviewWindowEventManager } from '$lib/utils/webview-events'
+  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
   import { onDestroy, onMount } from 'svelte'
 
   type ManagedWebview = ChildWebviewProxy
@@ -24,8 +25,14 @@
 
   // ========== 核心状态变量 ==========
 
-    /** 主窗口实例 */
+  /** 主窗口实例 */
   const mainWindow = getCurrentWebviewWindow()
+
+  /** 窗口事件管理器 */
+  const eventManager = new WebviewWindowEventManager('AIChatPage')
+
+  /** 重排调度器 */
+  const reflowScheduler = new WebviewReflowScheduler()
 
   /** 子 webview 映射表: platformId -> 子 webview 代理 */
   let webviewWindows = $state<Map<string, ManagedWebview>>(new Map())
@@ -41,29 +48,6 @@
 
   /** 平台切换序列号，用于识别并取消过期的异步操作 */
   let platformSwitchSequence = 0
-
-  // ========== 重新布局相关状态 ==========
-
-    /** 是否有待处理的重新布局请求 */
-  let isPendingReflow = false
-
-  /** 是否需要确保激活窗口在前台 */
-  let shouldEnsureActiveFront = false
-
-  // ========== 事件监听器清理函数 ==========
-
-    /** Tauri 窗口事件监听器清理函数集合 */
-  const windowEventUnlisteners = {
-    resize: null as (() => void) | null,
-    move: null as (() => void) | null,
-    scale: null as (() => void) | null,
-    focus: null as (() => void) | null,
-    blur: null as (() => void) | null,
-    close: null as (() => void) | null,
-    windowEvent: null as (() => void) | null,
-    hideWebviews: null as (() => void) | null,
-    restoreWebviews: null as (() => void) | null,
-  }
 
   /** 标记是否需要在恢复主窗口时恢复 WebView */
   let shouldRestoreWebviews = false
@@ -312,9 +296,6 @@
 
   /**
    * 为指定平台创建新的子 webview
-   *
-   * @param platform - AI平台配置
-   * @returns Promise<ManagedWebview> - 创建的子 webview 代理实例
    */
   async function createWebviewForPlatform(platform: AIPlatform): Promise<ManagedWebview> {
     const bounds = await calculateChildWebviewBounds(mainWindow)
@@ -324,37 +305,12 @@
     return webview
   }
 
-  // ========== WebView 定位计算 ==========
-
-    /**
-     * 计算子 webview 的精确边界信息
-     *
-     * @returns 子 webview 的位置、尺寸和缩放信息
-     */
-
-    // ========== 子 webview 定位和布局管理 ==========
-
-    /** 重排配置选项 */
-  interface WebviewReflowOptions {
-    /** 是否确保激活窗口显示在前台 */
-    shouldEnsureActiveFront?: boolean
-    /** 是否立即执行，不进行防抖 */
-    immediate?: boolean
-  }
-
-  /** 批量定位配置选项 */
-  interface BatchPositionOptions {
-    /** 是否确保激活窗口显示在前台 */
-    shouldEnsureActiveFront?: boolean
-  }
+  // ========== 子 webview 定位和布局管理 ==========
 
   /**
    * 批量调整所有子 webview 的位置和状态
-   *
-   * @param options - 批量定位选项
-   * @param options.shouldEnsureActiveFront - 是否确保激活的窗口在前台
    */
-  async function positionAllWebviews({ shouldEnsureActiveFront = false }: BatchPositionOptions = {}): Promise<void> {
+  async function positionAllWebviews({ shouldEnsureActiveFront = false } = {}): Promise<void> {
     if (webviewWindows.size === 0) {
       return
     }
@@ -391,71 +347,21 @@
 
   /**
    * 调度子 webview 重排操作（支持防抖）
-   *
-   * @param options - 重排配置选项
-   * @param options.shouldEnsureActiveFront - 是否确保激活的窗口在前台
-   * @param options.immediate - 是否立即执行重排
    */
-  function scheduleWebviewReflow({
-    shouldEnsureActiveFront: requestActiveFront = false,
-    immediate = false,
-  }: WebviewReflowOptions = {}) {
-    // 累积需要确保激活窗口在前台的标志
-    shouldEnsureActiveFront ||= requestActiveFront
-
-    /** 执行实际的重排操作 */
-    const executeReflow = () => {
-      const needsActiveFront = shouldEnsureActiveFront
-      shouldEnsureActiveFront = false
-
-      // 异步执行，避免阻塞
-      positionAllWebviews({ shouldEnsureActiveFront: needsActiveFront })
-        .catch((error) => {
-          logger.error('WebView batch reflow failed', error)
-        })
-    }
-
-    // 立即执行模式
-    if (immediate) {
-      if (isPendingReflow) {
-        isPendingReflow = false // 取消之前的防抖操作
-      }
-      executeReflow()
-      return
-    }
-
-    // 防抖模式：如果已有待处理的操作，直接返回
-    if (isPendingReflow) {
-      return
-    }
-
-    isPendingReflow = true
-
-    /** 防抖执行包装器 */
-    const debouncedExecute = () => {
-      isPendingReflow = false
-      executeReflow()
-    }
-
-    // 优先使用 requestAnimationFrame 进行调度
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(debouncedExecute)
-    }
-    else {
-      setTimeout(debouncedExecute, 16) // 约60FPS的降级方案
-    }
+  function scheduleWebviewReflow(options: { shouldEnsureActiveFront?: boolean, immediate?: boolean } = {}) {
+    reflowScheduler.schedule(options, (shouldEnsureActiveFront) => {
+      positionAllWebviews({ shouldEnsureActiveFront }).catch((error) => {
+        logger.error('WebView batch reflow failed', error)
+      })
+    })
   }
 
   // ========== 子 webview 生命周期管理 ==========
 
-    /**
-     * 隐藏所有子 webview
-     */
-  interface HideAllOptions {
-    markForRestore?: boolean
-  }
-
-  async function hideAllWebviews({ markForRestore = false }: HideAllOptions = {}) {
+  /**
+   * 隐藏所有子 webview
+   */
+  async function hideAllWebviews({ markForRestore = false } = {}) {
     shouldRestoreWebviews = markForRestore
 
     const hideTasks = Array.from(webviewWindows.values()).map(webview =>
@@ -591,31 +497,8 @@
 
   // ========== 组件生命周期 ==========
 
-    /**
-     * 清理单个事件监听器的工具函数
-     */
-  function cleanupEventListener(
-    key: keyof typeof windowEventUnlisteners,
-    unlisten: (() => void) | null,
-  ) {
-    if (unlisten) {
-      unlisten()
-      windowEventUnlisteners[key] = null
-    }
-  }
-
-  /**
-   * 清理所有 Tauri 窗口事件监听器
-   */
-  function cleanupAllWindowEvents() {
-    Object.entries(windowEventUnlisteners).forEach(([key, unlisten]) => {
-      cleanupEventListener(key as keyof typeof windowEventUnlisteners, unlisten)
-    })
-  }
-
   onMount(() => {
-    // ========== DOM 事件监听器 ==========
-
+    // DOM 事件监听器配置
     const domEventHandlers = [
       { event: 'refreshWebview', handler: handleRefreshEvent as (e: Event) => void },
       { event: 'hideAllWebviews', handler: handleHideAllWebviewsEvent as (e: Event) => void },
@@ -627,102 +510,33 @@
       window.addEventListener(event, handler)
     })
 
-    // ========== Tauri 窗口事件监听器 ==========
-
-    let isComponentDisposed = false;
-
-    (async () => {
-      try {
-        // 初始化窗口焦点状态
-        try {
-          isMainWindowFocused = await mainWindow.isFocused()
-        }
-        catch (error) {
-          logger.error('Failed to get window focus state', error)
-        }
-
-        // 注册窗口尺寸变化监听
-        windowEventUnlisteners.resize = await mainWindow.onResized(({ payload }) => {
-          handleMainWindowResize(payload ?? undefined)
-        })
-
-        // 注册窗口移动监听
-        windowEventUnlisteners.move = await mainWindow.onMoved(() => {
-          handleMainWindowMove()
-        })
-
-        // 注册缩放变化监听
-        windowEventUnlisteners.scale = await mainWindow.onScaleChanged(() => {
-          handleMainWindowResize()
-        })
-
-        // 注册窗口获得焦点监听
-        windowEventUnlisteners.focus = await mainWindow.listen('tauri://focus', () => {
-          isMainWindowFocused = true
-        })
-
-        // 注册窗口失去焦点监听
-        windowEventUnlisteners.blur = await mainWindow.listen('tauri://blur', () => {
-          isMainWindowFocused = false
-        })
-
-        // 注册窗口关闭请求监听
-        windowEventUnlisteners.close = await mainWindow.onCloseRequested(async () => {
-          await closeAllWebviews()
-        })
-
-        // 注册来自 Rust 端的隐藏子 webview 事件（托盘/快捷键触发）
-        windowEventUnlisteners.hideWebviews = await mainWindow.listen('hideAllWebviews', () => {
-          void hideAllWebviews({ markForRestore: true })
-        })
-
-        // 注册窗口事件监听（最小化、隐藏等）
-        windowEventUnlisteners.windowEvent = await mainWindow.listen(
-          'tauri://window-event',
-          (event) => {
-            const payload = event.payload as { event: string } | undefined
-            if (payload?.event === 'minimized' || payload?.event === 'hidden') {
-              void hideAllWebviews({ markForRestore: true })
-            }
-
-            if (payload?.event === 'restored' || payload?.event === 'shown') {
-              void restoreActiveWebview()
-            }
-          },
-        )
-
-        windowEventUnlisteners.restoreWebviews = await mainWindow.listen(
-          'restoreWebviews',
-          () => {
-            void restoreActiveWebview()
-          },
-        )
-
-        // 检查组件是否已经被销毁
-        if (isComponentDisposed) {
-          cleanupAllWindowEvents()
-        }
-      }
-      catch (error) {
-        logger.error('Failed to register Tauri window events', error)
-      }
-    })()
+    // 注册 Tauri 窗口事件监听器
+    void eventManager.register(mainWindow, {
+      onResize: handleMainWindowResize,
+      onMove: handleMainWindowMove,
+      onFocus: () => { isMainWindowFocused = true },
+      onBlur: () => { isMainWindowFocused = false },
+      onClose: closeAllWebviews,
+      onHideWebviews: () => { void hideAllWebviews({ markForRestore: true }) },
+      onMinimizedOrHidden: () => { void hideAllWebviews({ markForRestore: true }) },
+      onRestoredOrShown: () => { void restoreActiveWebview() },
+      onRestoreWebviews: () => { void restoreActiveWebview() },
+    }).then((focused) => {
+      isMainWindowFocused = focused
+    })
 
     // 初始化 WebView 布局
     scheduleWebviewReflow({ shouldEnsureActiveFront: true })
 
-    // ========== 清理函数 ==========
-
+    // 清理函数
     return () => {
-      isComponentDisposed = true
-
       // 清理 DOM 事件监听器
       domEventHandlers.forEach(({ event, handler }) => {
         window.removeEventListener(event, handler)
       })
 
       // 清理 Tauri 窗口事件监听器
-      cleanupAllWindowEvents()
+      eventManager.dispose()
     }
   })
 
