@@ -2,6 +2,10 @@
  * 应用配置状态管理 - 使用 Svelte 5 Runes
  */
 import type { AppConfig } from '../types/config'
+
+import { invoke } from '@tauri-apps/api/core'
+import { emit } from '@tauri-apps/api/event'
+
 import { DEFAULT_CONFIG } from '../types/config'
 import { logger } from '../utils/logger'
 import { getConfig, saveConfig, updateConfig } from '../utils/storage'
@@ -50,7 +54,6 @@ class ConfigStore {
    */
   async syncAutoLaunchStatus() {
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
       const isEnabled = await invoke<boolean>('is_auto_launch_enabled')
 
       // 如果配置与系统状态不一致，更新配置
@@ -72,7 +75,6 @@ class ConfigStore {
    */
   async syncSelectionToolbarEnabled() {
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
       await invoke('set_selection_toolbar_enabled', {
         enabled: this.config.selectionToolbarEnabled,
       })
@@ -84,7 +86,6 @@ class ConfigStore {
 
   async syncSelectionToolbarPolicies() {
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
       await invoke('set_selection_toolbar_enabled', {
         enabled: this.config.selectionToolbarEnabled,
       })
@@ -113,7 +114,6 @@ class ConfigStore {
     const payload = this.buildIgnoredAppPayload(sanitized)
 
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
       await invoke('set_selection_toolbar_ignored_apps', { apps: payload })
     }
  catch (error) {
@@ -126,7 +126,6 @@ class ConfigStore {
 
   async setSelectionToolbarTemporaryDisabledUntil(until: number | null) {
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
       await invoke('set_selection_toolbar_temporary_disabled_until', { until })
     }
  catch (error) {
@@ -185,7 +184,6 @@ class ConfigStore {
 
     // 通知所有窗口主题已更改
     try {
-      const { emit } = await import('@tauri-apps/api/event')
       await emit('theme-changed', { theme })
     }
  catch (error) {
@@ -235,8 +233,6 @@ class ConfigStore {
    * 设置自动启动
    */
   async setAutoStart(autoStart: boolean) {
-    const { invoke } = await import('@tauri-apps/api/core')
-
     try {
       if (autoStart) {
         await invoke('enable_auto_launch')
@@ -288,7 +284,6 @@ class ConfigStore {
    */
   async setSelectionToolbarEnabled(enabled: boolean) {
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
       await invoke('set_selection_toolbar_enabled', { enabled })
     }
  catch (error) {
@@ -366,7 +361,6 @@ class ConfigStore {
    */
   async checkAccessibilityPermission(): Promise<boolean> {
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
       const granted = await invoke<boolean>('check_accessibility_permission')
       this.accessibilityPermissionGranted = granted
 
@@ -390,7 +384,6 @@ class ConfigStore {
    */
   async requestAccessibilityPermission(): Promise<boolean> {
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
       const granted = await invoke<boolean>('request_accessibility_permission')
       this.accessibilityPermissionGranted = granted
 

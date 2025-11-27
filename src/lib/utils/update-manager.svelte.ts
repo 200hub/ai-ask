@@ -137,7 +137,6 @@ class UpdateManager {
     const info = await checkUpdate()
 
     if (!info?.hasUpdate) {
-      logger.info('Update check completed with no newer version')
       this.setNoUpdate()
       return
     }
@@ -181,6 +180,8 @@ class UpdateManager {
     this.releaseNotes = params.releaseNotes ?? ''
     this.releaseUrl = params.releaseUrl ?? ''
     this.publishedAt = params.publishedAt ?? ''
+    // 检测到更新后，设置状态为 available 以显示更新横幅
+    this.status = 'available'
     this.syncToAppState()
   }
 

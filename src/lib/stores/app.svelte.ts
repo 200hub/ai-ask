@@ -3,8 +3,8 @@
  */
 import type { ViewType } from '../types/config'
 import type { AIPlatform } from '../types/platform'
+
 import { logger } from '$lib/utils/logger'
-import { onUpdateAvailable, onUpdateDownloaded } from '$lib/utils/update'
 import { invoke } from '@tauri-apps/api/core'
 
 /**
@@ -189,28 +189,5 @@ class AppState {
  */
 export const appState = new AppState()
 
-// 初始化更新事件监听（模块加载时）
-if (typeof window !== 'undefined') {
-  void (async () => {
-    try {
-      await onUpdateAvailable(({ version, releaseNotes, releaseUrl, publishedAt }) => {
-        logger.info('Update available', version)
-        appState.setUpdateInfo({
-          version,
-          releaseNotes,
-          releaseUrl,
-          publishedAt,
-        })
-      })
-      await onUpdateDownloaded(({ version, taskId }) => {
-        logger.info('Update downloaded', version, taskId)
-        if (version) {
-          appState.updateVersion = version
-        }
-      })
-    }
- catch (err) {
-      logger.warn('Failed to register update listeners', err as unknown as string)
-    }
-  })()
-}
+// 注意：更新事件监听由 update-manager.svelte.ts 统一管理
+// Header 组件挂载时会调用 updateManager.init() 初始化
