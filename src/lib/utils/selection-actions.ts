@@ -293,10 +293,70 @@ export async function executeTranslation(selectedText: string): Promise<void> {
 }
 
 /**
+ * 构建注入动作的通用辅助函数
+ * 用于翻译器和 AI 平台的文本注入
+ */
+function buildInjectionActions(
+  template: { actions: InjectionAction[] },
+  content: string,
+): InjectionAction[] | null {
+  const fillTemplate = template.actions.find(
+    (action): action is FillTextAction => action.type === 'fill',
+  )
+
+  if (!fillTemplate) {
+    return null
+  }
+
+  const fillAction: FillTextAction = {
+    ...fillTemplate,
+    content,
+    triggerEvents: fillTemplate.triggerEvents ?? true,
+    delay: fillTemplate.delay ?? TRANSLATION_INJECTION.FILL_DELAY_MS,
+    timeout: fillTemplate.timeout ?? TRANSLATION_INJECTION.FILL_TIMEOUT_MS,
+  }
+
+  const actions: InjectionAction[] = [fillAction]
+
+  const clickTemplate = template.actions.find(
+    (action): action is ClickAction => action.type === 'click',
+  )
+
+  if (clickTemplate) {
+    const clickAction: ClickAction = {
+      ...clickTemplate,
+      delay: clickTemplate.delay ?? fillAction.delay ?? TRANSLATION_INJECTION.FILL_DELAY_MS,
+      timeout: clickTemplate.timeout ?? TRANSLATION_INJECTION.CLICK_TIMEOUT_MS,
+    }
+    actions.push(clickAction)
+  }
+
+  return actions
+}
+
+/**
+ * 执行注入脚本的通用辅助函数
+ *
+ * @param webviewId - WebView 标识
+ * @param actions - 注入动作数组
+ */
+async function executeInjection(webviewId: string, actions: InjectionAction[]): Promise<void> {
+  const script = generateInjectionScript(actions)
+
+  await invoke('evaluate_child_webview_script', {
+    payload: {
+      id: webviewId,
+      script,
+    },
+  })
+}
+
+/**
  * 注入文本到翻译器
  *
  * @param text - 要翻译的文本
  * @param translator - 翻译平台
+ * @param webviewId - WebView 标识
  */
 async function injectTranslationText(
   text: string,
@@ -311,46 +371,13 @@ async function injectTranslationText(
       return
     }
 
-    const fillTemplate = template.actions.find(
-      (action): action is FillTextAction => action.type === 'fill',
-    )
-
-    if (!fillTemplate) {
+    const actions = buildInjectionActions(template, text)
+    if (!actions) {
       logger.warn('Translation template missing fill action', { translatorId: translator.id })
       return
     }
 
-    const fillAction: FillTextAction = {
-      ...fillTemplate,
-      content: text,
-      triggerEvents: fillTemplate.triggerEvents ?? true,
-      delay: fillTemplate.delay ?? TRANSLATION_INJECTION.FILL_DELAY_MS,
-      timeout: fillTemplate.timeout ?? TRANSLATION_INJECTION.FILL_TIMEOUT_MS,
-    }
-
-    const actions: InjectionAction[] = [fillAction]
-
-    const clickTemplate = template.actions.find(
-      (action): action is ClickAction => action.type === 'click',
-    )
-
-    if (clickTemplate) {
-      const clickAction: ClickAction = {
-        ...clickTemplate,
-        delay: clickTemplate.delay ?? fillAction.delay ?? TRANSLATION_INJECTION.FILL_DELAY_MS,
-        timeout: clickTemplate.timeout ?? TRANSLATION_INJECTION.CLICK_TIMEOUT_MS,
-      }
-      actions.push(clickAction)
-    }
-
-    const script = generateInjectionScript(actions)
-
-    await invoke('evaluate_child_webview_script', {
-      payload: {
-        id: webviewId,
-        script,
-      },
-    })
+    await executeInjection(webviewId, actions)
 
     logger.info('Translation text injected successfully', {
       translatorId: translator.id,
@@ -419,6 +446,7 @@ export async function executeExplanation(selectedText: string): Promise<void> {
  *
  * @param prompt - 提示词
  * @param platform - AI平台
+ * @param webviewId - WebView 标识
  */
 async function injectAIPrompt(
   prompt: string,
@@ -433,46 +461,13 @@ async function injectAIPrompt(
       return
     }
 
-    const fillTemplate = template.actions.find(
-      (action): action is FillTextAction => action.type === 'fill',
-    )
-
-    if (!fillTemplate) {
+    const actions = buildInjectionActions(template, prompt)
+    if (!actions) {
       logger.warn('AI template missing fill action', { platformId: platform.id })
       return
     }
 
-    const fillAction: FillTextAction = {
-      ...fillTemplate,
-      content: prompt,
-      triggerEvents: fillTemplate.triggerEvents ?? true,
-      delay: fillTemplate.delay ?? TRANSLATION_INJECTION.FILL_DELAY_MS,
-      timeout: fillTemplate.timeout ?? TRANSLATION_INJECTION.FILL_TIMEOUT_MS,
-    }
-
-    const actions: InjectionAction[] = [fillAction]
-
-    const clickTemplate = template.actions.find(
-      (action): action is ClickAction => action.type === 'click',
-    )
-
-    if (clickTemplate) {
-      const clickAction: ClickAction = {
-        ...clickTemplate,
-        delay: clickTemplate.delay ?? fillAction.delay ?? TRANSLATION_INJECTION.FILL_DELAY_MS,
-        timeout: clickTemplate.timeout ?? TRANSLATION_INJECTION.CLICK_TIMEOUT_MS,
-      }
-      actions.push(clickAction)
-    }
-
-    const script = generateInjectionScript(actions)
-
-    await invoke('evaluate_child_webview_script', {
-      payload: {
-        id: webviewId,
-        script,
-      },
-    })
+    await executeInjection(webviewId, actions)
 
     logger.info('AI prompt injected successfully', {
       platformId: platform.id,
