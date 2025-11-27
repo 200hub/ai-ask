@@ -13,6 +13,37 @@ import { logger } from '$lib/utils/logger'
 import { resolveProxyUrl } from '$lib/utils/proxy'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 
+/** 平台预加载配置 */
+interface PreloadConfig {
+  webviewId: string
+  url: string
+  platformId: string
+  platformType: 'translation' | 'ai'
+}
+
+/**
+ * 预加载单个平台的 WebView（共享逻辑）
+ */
+async function preloadPlatformWebview(config: PreloadConfig): Promise<void> {
+  const { webviewId, url, platformId, platformType } = config
+  const proxyUrl = resolveProxyUrl(configStore.config.proxy)
+  const proxy = new ChildWebviewProxy(webviewId, url, proxyUrl)
+
+  const mainWindow = getCurrentWebviewWindow()
+  const bounds = await calculateChildWebviewBounds(mainWindow)
+
+  // 创建但不显示 WebView
+  await proxy.ensure(bounds)
+
+  // 等待页面加载完成，确保预加载真正有效
+  await proxy.waitForLoadFinished()
+
+  logger.info(`${platformType === 'translation' ? 'Translation' : 'AI'} platform preloaded`, {
+    platformId,
+    webviewId,
+  })
+}
+
 /**
  * 预加载默认平台
  *
@@ -20,7 +51,6 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
  * 但不显示它们，等用户需要时可以立即使用
  */
 export async function preloadDefaultPlatforms(): Promise<void> {
-  // 检查是否启用预加载
   if (!configStore.config.preloadDefaultPlatforms) {
     logger.info('Platform preloading is disabled')
     return
@@ -33,7 +63,6 @@ export async function preloadDefaultPlatforms(): Promise<void> {
 
   try {
     await Promise.all([preloadTranslationPlatform(), preloadAIPlatform()])
-
     logger.info('Platform preloading completed successfully')
   }
   catch (error) {
@@ -53,37 +82,20 @@ async function preloadTranslationPlatform(): Promise<void> {
 
   const translator = translationStore.getPlatformById(currentTranslatorId)
   if (!translator || !translator.enabled) {
-    logger.debug('Default translator not available or disabled', {
-      translatorId: currentTranslatorId,
-    })
+    logger.debug('Default translator not available or disabled', { translatorId: currentTranslatorId })
     return
   }
 
   try {
-    const webviewId = `translator-${translator.id}`
-    const proxyUrl = resolveProxyUrl(configStore.config.proxy)
-    const proxy = new ChildWebviewProxy(webviewId, translator.url, proxyUrl)
-
-    // 获取窗口边界
-    const mainWindow = getCurrentWebviewWindow()
-    const bounds = await calculateChildWebviewBounds(mainWindow)
-
-    // 创建但不显示 WebView
-    await proxy.ensure(bounds)
-
-    // 等待页面加载完成，确保预加载真正有效
-    await proxy.waitForLoadFinished()
-
-    logger.info('Translation platform preloaded', {
-      translatorId: translator.id,
-      webviewId,
+    await preloadPlatformWebview({
+      webviewId: `translator-${translator.id}`,
+      url: translator.url,
+      platformId: translator.id,
+      platformType: 'translation',
     })
   }
   catch (error) {
-    logger.warn('Failed to preload translation platform', {
-      translatorId: translator.id,
-      error,
-    })
+    logger.warn('Failed to preload translation platform', { translatorId: translator.id, error })
   }
 }
 
@@ -93,9 +105,9 @@ async function preloadTranslationPlatform(): Promise<void> {
 async function preloadAIPlatform(): Promise<void> {
   // 按优先级获取要预加载的平台
   const candidateIds = [
-    configStore.config.selectionToolbarDefaultPlatformId ?? undefined,
-    configStore.config.lastUsedPlatform ?? undefined,
-    configStore.config.defaultPlatform ?? undefined,
+    configStore.config.selectionToolbarDefaultPlatformId,
+    configStore.config.lastUsedPlatform,
+    configStore.config.defaultPlatform,
   ].filter((id): id is string => Boolean(id))
 
   // 尝试找到第一个可用的平台
@@ -119,29 +131,14 @@ async function preloadAIPlatform(): Promise<void> {
   }
 
   try {
-    const webviewId = `ai-chat-${platform.id}`
-    const proxyUrl = resolveProxyUrl(configStore.config.proxy)
-    const proxy = new ChildWebviewProxy(webviewId, platform.url, proxyUrl)
-
-    // 获取窗口边界
-    const mainWindow = getCurrentWebviewWindow()
-    const bounds = await calculateChildWebviewBounds(mainWindow)
-
-    // 创建但不显示 WebView
-    await proxy.ensure(bounds)
-
-    // 等待页面加载完成，确保预加载真正有效
-    await proxy.waitForLoadFinished()
-
-    logger.info('AI platform preloaded', {
+    await preloadPlatformWebview({
+      webviewId: `ai-chat-${platform.id}`,
+      url: platform.url,
       platformId: platform.id,
-      webviewId,
+      platformType: 'ai',
     })
   }
   catch (error) {
-    logger.warn('Failed to preload AI platform', {
-      platformId: platform.id,
-      error,
-    })
+    logger.warn('Failed to preload AI platform', { platformId: platform.id, error })
   }
 }
