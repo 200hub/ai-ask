@@ -1,7 +1,6 @@
 /**
  * Selection Toolbar State Management - 使用 Svelte 5 Runes
  */
-import { logger } from '../utils/logger'
 
 /**
  * 工具栏位置接口
@@ -35,18 +34,12 @@ class ToolbarStore {
    */
   show(text: string, position: ToolbarPosition) {
     if (!text || text.trim().length === 0) {
-      logger.warn('Selection toolbar: Empty text, not showing')
       return
     }
 
     this.selectedText = text.trim()
     this.position = position
     this.visible = true
-
-    logger.info('Selection toolbar shown', {
-      textLength: this.selectedText.length,
-      position,
-    })
   }
 
   /**
@@ -56,8 +49,6 @@ class ToolbarStore {
     this.visible = false
     this.selectedText = ''
     this.isProcessing = false
-
-    logger.info('Selection toolbar hidden')
   }
 
   /**

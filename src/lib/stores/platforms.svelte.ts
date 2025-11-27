@@ -165,17 +165,9 @@ return
    * @param direction - 移动方向（'up' 向上, 'down' 向下）
    */
   async movePlatform(id: string, direction: 'up' | 'down'): Promise<void> {
-    const { log } = await import('$lib/utils/logger')
-
-    log.debug('[PlatformsStore] Start moving platform', { id, direction })
-    log.debug(
-      '[PlatformsStore] Current platform list',
-      this.platforms.map(p => ({ id: p.id, name: p.name, sortOrder: p.sortOrder })),
-    )
-
     const platform = this.platforms.find(p => p.id === id)
     if (!platform) {
-      log.error('[PlatformsStore] Platform not found', { id })
+      logger.warn('Platform not found for move', { id })
       return
     }
 
@@ -183,11 +175,8 @@ return
     const sorted = [...this.platforms].sort((a, b) => a.sortOrder - b.sortOrder)
     const currentIndex = sorted.findIndex(p => p.id === id)
 
-    log.debug('[PlatformsStore] Current position', { currentIndex, total: sorted.length })
-
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
     if (targetIndex < 0 || targetIndex >= sorted.length) {
-      log.debug('[PlatformsStore] Cannot move - out of bounds', { currentIndex, targetIndex })
       return
     }
 
@@ -197,29 +186,14 @@ return
     platform.sortOrder = targetPlatform.sortOrder
     targetPlatform.sortOrder = tempOrder
 
-    log.debug('[PlatformsStore] Swapped sortOrder', {
-      platform: { id: platform.id, name: platform.name, sortOrder: platform.sortOrder },
-      target: {
-        id: targetPlatform.id,
-        name: targetPlatform.name,
-        sortOrder: targetPlatform.sortOrder,
-      },
-    })
-
     // 触发响应式更新
     this.platforms = [...this.platforms]
 
-    log.debug(
-      '[PlatformsStore] Updated platform list',
-      this.platforms.map(p => ({ id: p.id, name: p.name, sortOrder: p.sortOrder })),
-    )
-
     try {
       await saveAIPlatforms(this.platforms)
-      log.info('[PlatformsStore] Platform order saved successfully')
     }
- catch (error) {
-      log.error('[PlatformsStore] Failed to save platform order', { error })
+    catch (error) {
+      logger.error('Failed to save platform order', error)
       throw error
     }
   }
