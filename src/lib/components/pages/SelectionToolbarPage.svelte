@@ -1,4 +1,10 @@
 <script lang='ts'>
+  /**
+   * SelectionToolbar - 划词工具栏组件
+   *
+   * 显示在独立 Webview 中的浮动工具栏，提供翻译、解释、收藏操作。
+   * 优化版本：简化状态管理和事件处理，提高代码可维护性。
+   */
   import type { UnlistenFn } from '@tauri-apps/api/event'
   import { i18n } from '$lib/i18n'
   import { EVENTS, SELECTION_TOOLBAR } from '$lib/utils/constants'
@@ -10,62 +16,62 @@
   } from '$lib/utils/selection-bridge'
   import { invoke } from '@tauri-apps/api/core'
   import { emit, listen } from '@tauri-apps/api/event'
-
   import { onDestroy, onMount } from 'svelte'
-  /**
-   * SelectionToolbar - 划词工具栏组件
-   *
-   * 显示在独立 Webview 中的浮动工具栏，提供翻译、解释、收藏操作。
-   */
   import '$lib/styles/base.css'
 
-  type Props = {
+  // ============ Props ============
+
+  interface Props {
     isDarkMode?: boolean
   }
 
-  type ToolbarSnapshot = {
+  const { isDarkMode = false }: Props = $props()
+
+  // ============ 类型定义 ============
+
+  interface ToolbarSnapshot {
     last_text: string | null
     enabled: boolean
   }
 
-  const { isDarkMode = false }: Props = $props()
-  const iconFill = $derived(isDarkMode ? '#f9fafb' : '#1f2937')
+  // ============ 状态 ============
 
-  const t = i18n.t
-  type KeyboardHandlerEvent = globalThis.KeyboardEvent
-
-  let trimmedText = $state<string>('')
-  let hasValidSelection = $state<boolean>(false)
-  let canCollect = $state<boolean>(false)
-  let isProcessing = $state<boolean>(false)
+  let trimmedText = $state('')
+  let isProcessing = $state(false)
   let unlistenSelection: UnlistenFn | null = null
-  let autoHideTimer: number | null = null
+  let autoHideTimer: ReturnType<typeof setTimeout> | null = null
 
-  const MIN_SELECTION_LENGTH = SELECTION_TOOLBAR.MIN_SELECTION_LENGTH
+  // ============ 派生状态 ============
 
-  function refreshSelectionStates(rawText: string): void {
-    trimmedText = rawText.trim()
-    hasValidSelection = trimmedText.length >= MIN_SELECTION_LENGTH
-    canCollect = trimmedText.length > 0
-  }
+  const iconFill = $derived(isDarkMode ? '#f9fafb' : '#1f2937')
+  const hasValidSelection = $derived(trimmedText.length >= SELECTION_TOOLBAR.MIN_SELECTION_LENGTH)
+  const canCollect = $derived(trimmedText.length > 0)
+  const t = i18n.t
+
+  // ============ 定时器管理 ============
 
   function clearAutoHideTimer(): void {
     if (autoHideTimer !== null) {
-      window.clearTimeout(autoHideTimer)
+      clearTimeout(autoHideTimer)
       autoHideTimer = null
     }
   }
 
   function restartAutoHideTimer(): void {
     clearAutoHideTimer()
-    autoHideTimer = window.setTimeout(() => {
+    autoHideTimer = setTimeout(() => {
       void hideToolbar()
     }, SELECTION_TOOLBAR.AUTO_HIDE_DELAY_MS)
   }
 
+  // ============ 核心操作 ============
+
+  /**
+   * 隐藏工具栏
+   */
   async function hideToolbar(): Promise<void> {
     clearAutoHideTimer()
-    refreshSelectionStates('')
+    trimmedText = ''
     try {
       await invoke('hide_selection_toolbar')
     }
@@ -74,104 +80,65 @@
     }
   }
 
-  function handlePointerEnter(): void {
-    clearAutoHideTimer()
-  }
-
-  function handlePointerLeave(): void {
-    if (canCollect) {
-      restartAutoHideTimer()
-    }
-    else {
-      void hideToolbar()
-    }
-  }
-
   /**
-   * 统一处理来自 Rust 的选中文本
-   *
-   * 无论是事件推送还是初始快照，都复用这段逻辑：
-   * - 将文本写入本地状态，控制按钮启用/禁用
-   * - 根据当前是否有可收藏文本来决定是否自动隐藏
+   * 处理选中文本
+   * 统一处理来自 Rust 的选中文本（事件推送或初始快照）
    */
   function processSelectionText(rawText: string): void {
-    const trimmed = rawText.trim()
+    const text = rawText.trim()
 
-    if (!trimmed) {
+    if (!text) {
       logger.debug('Empty selection received, hiding toolbar')
       void hideToolbar()
       return
     }
 
-    refreshSelectionStates(rawText)
+    trimmedText = text
     isProcessing = false
-
-    if (!canCollect) {
-      void hideToolbar()
-      return
-    }
-
     restartAutoHideTimer()
-    logger.debug('Selection toolbar received text', { textLength: trimmedText.length })
+    logger.debug('Selection toolbar received text', { textLength: text.length })
   }
 
-  async function handleTranslate(): Promise<void> {
-    if (!hasValidSelection || isProcessing) {
+  // ============ 按钮操作 ============
+
+  /**
+   * 执行操作的通用包装函数
+   */
+  async function executeAction(
+    actionName: string,
+    condition: boolean,
+    action: (text: string) => Promise<void>,
+  ): Promise<void> {
+    if (!condition || isProcessing) {
       return
     }
 
     const text = trimmedText
-    logger.info('Selection toolbar: translate clicked', { textLength: text.length })
+    logger.info(`Selection toolbar: ${actionName} clicked`, { textLength: text.length })
 
     isProcessing = true
     try {
       await hideToolbar()
-      await requestTranslation(text)
+      await action(text)
     }
     catch (error) {
-      logger.error('Failed to trigger translation', error)
+      logger.error(`Failed to trigger ${actionName}`, error)
     }
     finally {
       isProcessing = false
     }
   }
 
-  async function handleExplain(): Promise<void> {
-    if (!hasValidSelection || isProcessing) {
-      return
-    }
-
-    const text = trimmedText
-    logger.info('Selection toolbar: explain clicked', { textLength: text.length })
-
-    isProcessing = true
-    try {
-      await hideToolbar()
-      await requestExplanation(text)
-    }
-    catch (error) {
-      logger.error('Failed to trigger explanation', error)
-    }
-    finally {
-      isProcessing = false
-    }
+  function handleTranslate(): void {
+    void executeAction('translate', hasValidSelection, requestTranslation)
   }
 
-  async function handleCollect(): Promise<void> {
-    if (!canCollect || isProcessing) {
-      return
-    }
+  function handleExplain(): void {
+    void executeAction('explain', hasValidSelection, requestExplanation)
+  }
 
-    const text = trimmedText
-    logger.info('Selection toolbar: collect clicked', { textLength: text.length })
-
-    try {
-      await hideToolbar()
-      await requestCollect(text)
-    }
-    catch (error) {
-      logger.error('Failed to trigger collect', error)
-    }
+  function handleCollect(): void {
+    void executeAction('collect', canCollect, requestCollect)
   }
 
   async function handleTemporaryDisable(): Promise<void> {
@@ -196,7 +163,22 @@
     }
   }
 
-  function handleKeydown(event: KeyboardHandlerEvent): void {
+  // ============ 事件处理 ============
+
+  function handlePointerEnter(): void {
+    clearAutoHideTimer()
+  }
+
+  function handlePointerLeave(): void {
+    if (canCollect) {
+      restartAutoHideTimer()
+    }
+    else {
+      void hideToolbar()
+    }
+  }
+
+  function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       void hideToolbar()
     }
@@ -206,21 +188,23 @@
     void hideToolbar()
   }
 
+  // ============ 生命周期 ============
+
   onMount(async () => {
+    // 监听选中文本事件
     try {
       unlistenSelection = await listen<string>('toolbar-text-selected', (event) => {
-        const payload = event.payload ?? ''
-        processSelectionText(payload)
+        processSelectionText(event.payload ?? '')
       })
     }
     catch (error) {
       logger.error('Failed to listen for toolbar text', error)
     }
 
+    // 获取初始快照
     try {
       const snapshot = await invoke<ToolbarSnapshot>('get_selection_toolbar_state')
       if (snapshot?.last_text) {
-        // 首次挂载时同步 Rust 侧缓存的选区，避免第一次展示全灰
         processSelectionText(snapshot.last_text)
       }
     }
@@ -228,6 +212,7 @@
       logger.error('Failed to get selection toolbar state', error)
     }
 
+    // 添加全局事件监听
     window.addEventListener('keydown', handleKeydown)
     window.addEventListener('blur', handleWindowBlur)
 
@@ -249,6 +234,7 @@
   onpointerenter={handlePointerEnter}
   onpointerleave={handlePointerLeave}
 >
+  <!-- 翻译按钮 -->
   <button
     class='toolbar-button'
     type='button'
@@ -266,6 +252,7 @@
     <span class='sr-only'>{t('errors.selectionToolbar.translate')}</span>
   </button>
 
+  <!-- 解释按钮 -->
   <button
     class='toolbar-button'
     type='button'
@@ -283,6 +270,7 @@
     <span class='sr-only'>{t('errors.selectionToolbar.explain')}</span>
   </button>
 
+  <!-- 收藏按钮 -->
   <button
     class='toolbar-button'
     type='button'
@@ -300,6 +288,7 @@
     <span class='sr-only'>{t('errors.selectionToolbar.collect')}</span>
   </button>
 
+  <!-- 临时禁用按钮 -->
   <button
     class='toolbar-button'
     type='button'
