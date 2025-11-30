@@ -51,21 +51,35 @@ class ConfigStore {
 
   /**
    * 同步自启动状态（确保配置与系统设置一致）
+   *
+   * 重要：如果用户配置中已启用自启动，但系统未注册（可能因重新安装导致），
+   * 则重新注册自启动，而不是禁用配置。这样可以确保重新安装后自启动设置不丢失。
    */
   async syncAutoLaunchStatus() {
     try {
       const isEnabled = await invoke<boolean>('is_auto_launch_enabled')
 
-      // 如果配置与系统状态不一致，更新配置
-      if (this.config.autoStart !== isEnabled) {
-        logger.info('Syncing auto launch status', {
+      if (this.config.autoStart && !isEnabled) {
+        // 用户配置中启用了自启动，但系统未注册（可能因重新安装导致）
+        // 重新注册自启动
+        logger.info('Re-registering auto launch after reinstall', {
           configValue: this.config.autoStart,
           systemValue: isEnabled,
         })
-        this.config = await updateConfig({ autoStart: isEnabled })
+        await invoke('enable_auto_launch')
+      }
+      else if (!this.config.autoStart && isEnabled) {
+        // 用户配置中禁用了自启动，但系统已注册（异常情况）
+        // 将配置同步为系统状态，或者禁用系统自启动
+        // 这里选择禁用系统自启动，保持与用户配置一致
+        logger.info('Disabling auto launch to match config', {
+          configValue: this.config.autoStart,
+          systemValue: isEnabled,
+        })
+        await invoke('disable_auto_launch')
       }
     }
- catch (error) {
+    catch (error) {
       logger.error('Failed to sync auto launch status', error)
     }
   }
