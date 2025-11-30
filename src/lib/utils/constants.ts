@@ -11,6 +11,7 @@ import chatgptIcon from '$lib/assets/platform-icons/chatgpt.svg'
 import copilotIcon from '$lib/assets/platform-icons/copilot.svg'
 import deepseekIcon from '$lib/assets/platform-icons/deepseek.svg'
 import geminiIcon from '$lib/assets/platform-icons/gemini.svg'
+import githubCopilotIcon from '$lib/assets/platform-icons/github-copilot.svg'
 import grokIcon from '$lib/assets/platform-icons/grok.svg'
 import kimiIcon from '$lib/assets/platform-icons/kimi.svg'
 import qianwenIcon from '$lib/assets/platform-icons/qianwen.svg'
@@ -69,6 +70,16 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     enabled: true,
     isCustom: false,
     sortOrder: 5,
+    selectionToolbarAvailable: false,
+  },
+  {
+    id: 'github-copilot',
+    name: 'GitHub Copilot',
+    icon: githubCopilotIcon,
+    url: 'https://github.com/copilot',
+    enabled: true,
+    isCustom: false,
+    sortOrder: 6,
     selectionToolbarAvailable: false,
   },
   // 国内平台
