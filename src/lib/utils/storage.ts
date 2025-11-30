@@ -276,12 +276,15 @@ export async function getAIPlatforms(): Promise<AIPlatform[]> {
       }
 
       const selectionToolbarAvailable = defaults.selectionToolbarAvailable ?? true
+      // 保留用户设置的 preload 值，新平台使用默认值
+      const preload = platform.preload ?? defaults.preload ?? false
 
       const merged: AIPlatform = {
         ...defaults,
         enabled: platform.enabled,
         sortOrder: platform.sortOrder ?? defaults.sortOrder,
         selectionToolbarAvailable,
+        preload,
       }
 
       if (platform.icon !== defaults.icon) {
@@ -291,6 +294,10 @@ export async function getAIPlatforms(): Promise<AIPlatform[]> {
         hasUpdates = true
       }
       if (platform.selectionToolbarAvailable !== selectionToolbarAvailable) {
+        hasUpdates = true
+      }
+      // 检查 preload 是否需要更新
+      if (platform.preload !== preload) {
         hasUpdates = true
       }
 

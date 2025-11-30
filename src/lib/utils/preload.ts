@@ -1,7 +1,7 @@
 /**
  * 平台预加载模块
  *
- * 在应用启动时预加载默认的翻译平台和 AI 平台，
+ * 在应用启动时预加载标记为预加载的 AI 平台和翻译平台，
  * 提升首次使用时的响应速度
  */
 
@@ -47,7 +47,7 @@ async function preloadPlatformWebview(config: PreloadConfig): Promise<void> {
 /**
  * 预加载默认平台
  *
- * 在后台静默创建默认翻译平台和 AI 平台的 WebView，
+ * 在后台静默创建默认翻译平台和标记为预加载的 AI 平台的 WebView，
  * 但不显示它们，等用户需要时可以立即使用
  */
 export async function preloadDefaultPlatforms(): Promise<void> {
@@ -62,7 +62,7 @@ export async function preloadDefaultPlatforms(): Promise<void> {
   logger.info('Starting platform preloading')
 
   try {
-    await Promise.all([preloadTranslationPlatform(), preloadAIPlatform()])
+    await Promise.all([preloadTranslationPlatform(), preloadAIPlatforms()])
     logger.info('Platform preloading completed successfully')
   }
   catch (error) {
@@ -100,45 +100,36 @@ async function preloadTranslationPlatform(): Promise<void> {
 }
 
 /**
- * 预加载 AI 平台
+ * 预加载所有标记为预加载的 AI 平台
  */
-async function preloadAIPlatform(): Promise<void> {
-  // 按优先级获取要预加载的平台
-  const candidateIds = [
-    configStore.config.selectionToolbarDefaultPlatformId,
-    configStore.config.lastUsedPlatform,
-    configStore.config.defaultPlatform,
-  ].filter((id): id is string => Boolean(id))
+async function preloadAIPlatforms(): Promise<void> {
+  // 获取所有标记为预加载且已启用的平台
+  const platformsToPreload = platformsStore.platforms.filter(
+    platform => platform.enabled && platform.preload,
+  )
 
-  // 尝试找到第一个可用的平台
-  let platform = null
-  for (const id of candidateIds) {
-    const p = platformsStore.getPlatformById(id)
-    if (p && p.enabled) {
-      platform = p
-      break
-    }
-  }
-
-  // 如果没有配置的平台，使用第一个启用的平台
-  if (!platform) {
-    platform = platformsStore.enabledPlatforms[0]
-  }
-
-  if (!platform) {
-    logger.debug('No AI platform available for preload')
+  if (platformsToPreload.length === 0) {
+    logger.debug('No AI platforms marked for preload')
     return
   }
 
-  try {
-    await preloadPlatformWebview({
-      webviewId: `ai-chat-${platform.id}`,
-      url: platform.url,
-      platformId: platform.id,
-      platformType: 'ai',
-    })
-  }
-  catch (error) {
-    logger.warn('Failed to preload AI platform', { platformId: platform.id, error })
+  logger.info('AI platforms to preload', {
+    count: platformsToPreload.length,
+    platformIds: platformsToPreload.map(p => p.id),
+  })
+
+  // 串行预加载，避免同时创建太多 WebView 造成资源压力
+  for (const platform of platformsToPreload) {
+    try {
+      await preloadPlatformWebview({
+        webviewId: `ai-chat-${platform.id}`,
+        url: platform.url,
+        platformId: platform.id,
+        platformType: 'ai',
+      })
+    }
+    catch (error) {
+      logger.warn('Failed to preload AI platform', { platformId: platform.id, error })
+    }
   }
 }

@@ -155,10 +155,8 @@ export const enUS = {
   platforms: {
     title: 'AI Platform Management',
     description: 'Manage and configure AI platforms',
-    displayOrderTitle: 'Display Order',
-    displayOrderDescription: 'Arrange how platforms appear in the sidebar.',
-    builtInTitle: 'Built-in platforms',
-    builtInDescription: 'Enable or disable the default AI providers.',
+    listTitle: 'Platform List',
+    listDescription: 'Manage the status, preloading, and display order of all AI platforms.',
     addPlatform: 'Add Platform',
     editPlatform: 'Edit Platform',
     noPlatforms: 'No Platforms',
@@ -189,6 +187,18 @@ export const enUS = {
     errorAdd: 'Unable to add platform. Please try again.',
     iconOptionalHint: 'Optional; leave blank to use a default icon.',
     onlyCustomDeletable: 'Only custom platforms can be deleted',
+    // New: Preload related
+    preload: 'Preload',
+    preloadTitle: 'Preload Settings',
+    preloadDescription: 'Platforms with preloading enabled will automatically load on app startup for faster first use.',
+    preloadEnabled: 'Preload enabled',
+    preloadDisabled: 'Preload disabled',
+    preloadToggleError: 'Unable to update preload setting. Please try again.',
+    // New: Selection toolbar related
+    selectionToolbar: 'Selection Toolbar',
+    selectionToolbarAvailable: 'Available for selection',
+    selectionToolbarUnavailable: 'Not available for selection',
+    selectionToolbarDescription: 'Configure which platforms can be used in the selection toolbar.',
   },
 
   proxy: {

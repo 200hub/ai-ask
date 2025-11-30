@@ -92,6 +92,26 @@ return
   }
 
   /**
+   * 切换平台预加载状态
+   */
+  async togglePreload(id: string) {
+    const platform = this.getPlatformById(id)
+    if (!platform) return
+
+    try {
+      const newPreload = !platform.preload
+      await updateAIPlatform(id, { preload: newPreload })
+      platform.preload = newPreload
+      // 触发响应式更新
+      this.platforms = [...this.platforms]
+    }
+ catch (error) {
+      logger.error('Failed to toggle platform preload', error)
+      throw error
+    }
+  }
+
+  /**
    * 添加自定义平台
    */
   async addPlatform(platform: Omit<AIPlatform, 'id' | 'isCustom' | 'sortOrder'>) {

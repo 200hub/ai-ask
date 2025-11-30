@@ -139,10 +139,8 @@ export const koKR = {
   platforms: {
     title: 'AI 플랫폼 관리',
     description: 'AI 플랫폼 관리 및 구성',
-    displayOrderTitle: '표시 순서',
-    displayOrderDescription: '사이드바에서 플랫폼이 표시되는 순서를 정렬하세요.',
-    builtInTitle: '기본 제공 플랫폼',
-    builtInDescription: '기본 AI 제공업체를 활성화하거나 비활성화합니다.',
+    listTitle: '플랫폼 목록',
+    listDescription: '모든 AI 플랫폼의 상태, 사전 로드 및 표시 순서를 관리합니다.',
     addPlatform: '플랫폼 추가',
     editPlatform: '플랫폼 편집',
     noPlatforms: '플랫폼 없음',
@@ -172,6 +170,18 @@ export const koKR = {
     errorOrder: '순서를 업데이트할 수 없습니다. 다시 시도하세요.',
     errorAdd: '플랫폼을 추가할 수 없습니다. 다시 시도하세요.',
     iconOptionalHint: '선택 사항입니다. 비워두면 기본 아이콘이 사용됩니다.',
+    // 신규: 사전 로드 관련
+    preload: '사전 로드',
+    preloadTitle: '사전 로드 설정',
+    preloadDescription: '사전 로드가 활성화된 플랫폼은 앱 시작 시 자동으로 로드되어 첫 사용 속도가 빨라집니다.',
+    preloadEnabled: '사전 로드 활성화됨',
+    preloadDisabled: '사전 로드 비활성화됨',
+    preloadToggleError: '사전 로드 설정을 업데이트할 수 없습니다. 다시 시도하세요.',
+    // 신규: 선택 도구 모음 관련
+    selectionToolbar: '선택 도구 모음',
+    selectionToolbarAvailable: '선택에서 사용 가능',
+    selectionToolbarUnavailable: '선택에서 사용 불가',
+    selectionToolbarDescription: '선택 도구 모음에서 사용할 수 있는 플랫폼을 구성합니다.',
   },
 
   proxy: {

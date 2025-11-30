@@ -31,6 +31,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 1,
     selectionToolbarAvailable: true,
+    preload: false,
   },
   {
     id: 'claude',
@@ -41,6 +42,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 2,
     selectionToolbarAvailable: true,
+    preload: false,
   },
   {
     id: 'gemini',
@@ -51,6 +53,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 3,
     selectionToolbarAvailable: true,
+    preload: false,
   },
   {
     id: 'copilot',
@@ -61,6 +64,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 4,
     selectionToolbarAvailable: false,
+    preload: false,
   },
   {
     id: 'grok',
@@ -71,6 +75,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 5,
     selectionToolbarAvailable: false,
+    preload: false,
   },
   {
     id: 'github-copilot',
@@ -81,6 +86,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 6,
     selectionToolbarAvailable: false,
+    preload: false,
   },
   // 国内平台
   {
@@ -92,6 +98,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 7,
     selectionToolbarAvailable: true,
+    preload: false,
   },
   {
     id: 'kimi',
@@ -102,6 +109,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 8,
     selectionToolbarAvailable: false,
+    preload: false,
   },
   {
     id: 'wenxin',
@@ -112,6 +120,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 10,
     selectionToolbarAvailable: false,
+    preload: false,
   },
   {
     id: 'doubao',
@@ -122,6 +131,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 11,
     selectionToolbarAvailable: false,
+    preload: false,
   },
   {
     id: 'yuanbao',
@@ -132,6 +142,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 12,
     selectionToolbarAvailable: false,
+    preload: false,
   },
   {
     id: 'qianwen',
@@ -142,6 +153,7 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     isCustom: false,
     sortOrder: 13,
     selectionToolbarAvailable: true,
+    preload: false,
   },
 ]
 

@@ -162,10 +162,19 @@
       // 记录当前是否已经存在该平台对应的 WebView：
             // - true：之前已经创建过子窗口，本次只是切换回该平台（暖启动）
             // - false：首次创建该平台 WebView（冷启动）
-      const hadExistingWebview = Boolean(webview)
+            // - wasPreloaded：预加载的 WebView 被复用（已加载完成，无需等待）
+      let hadExistingWebview = Boolean(webview)
+      let wasPreloaded = false
 
       if (!webview) {
-        webview = await createWebviewForPlatform(platform)
+        const result = await createWebviewForPlatform(platform)
+        webview = result.webview
+        wasPreloaded = result.wasPreloaded
+
+        // 预加载的 WebView 也算是"已存在"的（用于后续的加载时间判断）
+        if (wasPreloaded) {
+          hadExistingWebview = true
+        }
 
         // 检查序列号：创建过程中可能有新请求
         if (platformSwitchSequence !== expectedSequence) {
@@ -175,8 +184,12 @@
         }
 
         webviewWindows.set(platform.id, webview)
+
         // 等待页面真正加载完成再显示，避免用户看到空白页
-        await webview.waitForLoadFinished()
+        // 如果是预加载的 WebView，页面已经加载完成，无需等待
+        if (!wasPreloaded) {
+          await webview.waitForLoadFinished()
+        }
 
         // 再次检查序列号
         if (platformSwitchSequence !== expectedSequence) {
@@ -295,14 +308,39 @@
   }
 
   /**
-   * 为指定平台创建新的子 webview
+   * createWebviewForPlatform 的返回结果
    */
-  async function createWebviewForPlatform(platform: AIPlatform): Promise<ManagedWebview> {
+  interface CreateWebviewResult {
+    webview: ManagedWebview
+    /** 是否复用了已预加载的 WebView（已加载完成，无需等待） */
+    wasPreloaded: boolean
+  }
+
+  /**
+   * 为指定平台获取或创建子 webview
+   *
+   * 如果该平台已被预加载（WebView 已存在于 Rust 端），则复用现有的 WebView；
+   * 否则创建新的 WebView。
+   */
+  async function createWebviewForPlatform(platform: AIPlatform): Promise<CreateWebviewResult> {
     const bounds = await calculateChildWebviewBounds(mainWindow)
     const proxyUrl = resolveProxyUrl(configStore.config.proxy)
-    const webview = new ChildWebviewProxy(`ai-chat-${platform.id}`, platform.url, proxyUrl)
-    await webview.ensure(bounds)
-    return webview
+    const webviewId = `ai-chat-${platform.id}`
+    const webview = new ChildWebviewProxy(webviewId, platform.url, proxyUrl)
+
+    // 检查是否已被预加载（WebView 已存在于 Rust 端）
+    const alreadyExists = await webview.exists()
+    if (alreadyExists) {
+      logger.info('Reusing preloaded WebView', { platformId: platform.id, webviewId })
+      // 只需更新位置，不需要重新创建
+      await webview.updateBounds(bounds)
+      return { webview, wasPreloaded: true }
+    }
+    else {
+      // 新创建 WebView
+      await webview.ensure(bounds)
+      return { webview, wasPreloaded: false }
+    }
   }
 
   // ========== 子 webview 定位和布局管理 ==========

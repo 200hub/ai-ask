@@ -355,21 +355,6 @@
   }
 
   /**
-   * 切换平台预加载
-   */
-  async function handlePreloadChange(event: Event) {
-    const target = event.target as HTMLInputElement
-    const enabled = target.checked
-
-    try {
-      await configStore.setPreloadDefaultPlatforms(enabled)
-    }
-    catch (error) {
-      logger.error('Failed to change preload setting', error)
-    }
-  }
-
-  /**
    * 请求辅助功能权限
    */
   async function handleRequestPermission() {
@@ -778,28 +763,6 @@
           <option value={shortcut}>{formatHotkey(shortcut)}</option>
         {/each}
       </select>
-    </div>
-  </div>
-
-  <!-- 性能优化 -->
-  <div class='setting-group'>
-    <h3 class='group-title'>{t('general.performance')}</h3>
-
-    <div class='setting-item'>
-      <div class='setting-label'>
-        <span class='label-text'>{t('general.preloadPlatforms')}</span>
-        <span class='label-description'>
-          {t('general.preloadPlatformsDescription')}
-        </span>
-      </div>
-      <label class='toggle-switch'>
-        <input
-          type='checkbox'
-          checked={configStore.config.preloadDefaultPlatforms}
-          onchange={handlePreloadChange}
-        />
-        <span class='toggle-slider'></span>
-      </label>
     </div>
   </div>
 

@@ -11,6 +11,7 @@ export interface AIPlatform {
   sortOrder: number // 排序权重
   userAgent?: string // 自定义User Agent（可选）
   selectionToolbarAvailable?: boolean // 是否可用于划词工具栏
+  preload?: boolean // 是否启动时预加载
 }
 
 /**

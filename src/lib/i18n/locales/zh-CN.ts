@@ -151,10 +151,8 @@ export const zhCN = {
   platforms: {
     title: 'AI平台管理',
     description: '管理和配置AI平台',
-    displayOrderTitle: '显示顺序',
-    displayOrderDescription: '调整侧边栏中平台的显示顺序。',
-    builtInTitle: '内置平台',
-    builtInDescription: '启用或禁用默认的 AI 提供商。',
+    listTitle: '平台列表',
+    listDescription: '管理所有 AI 平台的状态、预加载和显示顺序。',
     addPlatform: '添加平台',
     editPlatform: '编辑平台',
     noPlatforms: '暂无平台',
@@ -185,6 +183,18 @@ export const zhCN = {
     errorAdd: '无法添加平台，请重试。',
     iconOptionalHint: '可选，留空将使用默认图标。',
     onlyCustomDeletable: '只能删除自定义平台',
+    // 新增：预加载相关
+    preload: '预加载',
+    preloadTitle: '预加载设置',
+    preloadDescription: '开启预加载的平台会在应用启动时自动加载，提升首次使用速度。',
+    preloadEnabled: '预加载已启用',
+    preloadDisabled: '预加载已禁用',
+    preloadToggleError: '无法更新预加载设置，请重试。',
+    // 新增：划词工具栏相关
+    selectionToolbar: '划词工具栏',
+    selectionToolbarAvailable: '可用于划词',
+    selectionToolbarUnavailable: '不可用于划词',
+    selectionToolbarDescription: '设置哪些平台可以在划词工具栏中使用。',
   },
 
   proxy: {

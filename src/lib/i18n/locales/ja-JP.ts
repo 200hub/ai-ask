@@ -147,10 +147,8 @@ export const jaJP = {
   platforms: {
     title: 'AIプラットフォーム管理',
     description: 'AIプラットフォームの管理と設定',
-    displayOrderTitle: '表示順序',
-    displayOrderDescription: 'サイドバーに表示される順序を並べ替えます。',
-    builtInTitle: '内蔵プラットフォーム',
-    builtInDescription: '既定の AI プロバイダーを有効／無効にします。',
+    listTitle: 'プラットフォーム一覧',
+    listDescription: 'すべての AI プラットフォームの状態、プリロード、表示順序を管理します。',
     addPlatform: 'プラットフォームを追加',
     editPlatform: 'プラットフォームを編集',
     noPlatforms: 'プラットフォームがありません',
@@ -180,6 +178,18 @@ export const jaJP = {
     errorOrder: '並び順を更新できませんでした。もう一度お試しください。',
     errorAdd: 'プラットフォームを追加できませんでした。もう一度お試しください。',
     iconOptionalHint: '任意。空欄の場合はデフォルトアイコンを使用します。',
+    // 新規：プリロード関連
+    preload: 'プリロード',
+    preloadTitle: 'プリロード設定',
+    preloadDescription: 'プリロードが有効なプラットフォームはアプリ起動時に自動的に読み込まれ、初回使用時の速度が向上します。',
+    preloadEnabled: 'プリロード有効',
+    preloadDisabled: 'プリロード無効',
+    preloadToggleError: 'プリロード設定を更新できませんでした。もう一度お試しください。',
+    // 新規：選択ツールバー関連
+    selectionToolbar: '選択ツールバー',
+    selectionToolbarAvailable: '選択で使用可能',
+    selectionToolbarUnavailable: '選択で使用不可',
+    selectionToolbarDescription: '選択ツールバーで使用できるプラットフォームを設定します。',
   },
 
   proxy: {
