@@ -113,7 +113,8 @@
   // 删除平台
   async function deletePlatform(id: string) {
     // eslint-disable-next-line no-alert
-    if (!window.confirm(t('platforms.confirmRemove'))) return
+    if (!window.confirm(t('platforms.confirmRemove')))
+      return
 
     try {
       await platformsStore.removePlatform(id)
@@ -426,7 +427,8 @@
     tabindex='0'
     aria-label={t('common.close')}
     onclick={(event) => {
-      if (event.target === event.currentTarget) closeAddModal()
+      if (event.target === event.currentTarget)
+        closeAddModal()
     }}
     onkeydown={(event) => {
       if (event.key === 'Escape') {
