@@ -44,6 +44,8 @@ class UpdateManager {
   private autoDownloadTriggered = $state<boolean>(false)
   private pollTimer: ReturnType<typeof setInterval> | null = null
   private initialized = false
+  private pollFailureCount = 0
+  private readonly MAX_POLL_FAILURES = 5
 
   /**
    * 初始化更新管理器
@@ -180,8 +182,10 @@ class UpdateManager {
     this.releaseNotes = params.releaseNotes ?? ''
     this.releaseUrl = params.releaseUrl ?? ''
     this.publishedAt = params.publishedAt ?? ''
-    // 检测到更新后，设置状态为 available 以显示更新横幅
-    this.status = 'available'
+    // 只有在 hidden 状态时才更新为 available，避免覆盖正在进行的 downloading 状态
+    if (this.status === 'hidden') {
+      this.status = 'available'
+    }
     this.syncToAppState()
   }
 
@@ -235,9 +239,12 @@ class UpdateManager {
       })
       void this.triggerDownload(asset, 'auto')
     }
-    else {
+    else if (!configStore.config.autoUpdateEnabled) {
+      // 只有在未启用自动更新时才设置为 available
+      // 如果已经触发过自动下载，则保持当前状态（downloading/ready/failed）
       this.status = 'available'
     }
+    // 如果 autoUpdateEnabled 但 autoDownloadTriggered 为 true，说明下载已在进行中，不改变状态
   }
 
   /**
@@ -296,6 +303,7 @@ class UpdateManager {
    */
   private startPolling(taskId: string): void {
     this.stopPolling()
+    this.pollFailureCount = 0
     this.pollTimer = setInterval(() => {
       void this.refreshDownloadStatus(taskId)
     }, POLL_INTERVAL_MS)
@@ -316,10 +324,34 @@ class UpdateManager {
    * 刷新下载状态
    */
   private async refreshDownloadStatus(taskId: string): Promise<void> {
+    logger.debug('Polling download status', { taskId, currentStatus: this.status })
     const downloadStatus = await getDownloadStatus(taskId)
     if (!downloadStatus) {
+      this.pollFailureCount++
+      logger.warn('Failed to get download status', {
+        taskId,
+        failureCount: this.pollFailureCount,
+        maxFailures: this.MAX_POLL_FAILURES,
+      })
+
+      if (this.pollFailureCount >= this.MAX_POLL_FAILURES) {
+        this.stopPolling()
+        this.status = 'failed'
+        this.autoDownloadTriggered = false
+        logger.error('Download status poll failed too many times, marking as failed', { taskId })
+      }
       return
     }
+
+    // 成功获取状态，重置失败计数
+    this.pollFailureCount = 0
+    logger.debug('Got download status from backend', {
+      taskId,
+      backendStatus: downloadStatus.status,
+      bytesDownloaded: downloadStatus.bytesDownloaded,
+      bytesTotal: downloadStatus.bytesTotal,
+      error: downloadStatus.error,
+    })
 
     switch (downloadStatus.status) {
       case 'completed':

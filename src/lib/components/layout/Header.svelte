@@ -100,6 +100,13 @@
 
   // ============ 生命周期 ============
 
+  // 立即初始化更新管理器（不等待 onMount）
+  // 这是为了尽早注册事件监听器，避免错过 Rust 后端发出的 update:available 事件
+  // 旧代码在 <script> 块执行时就开始初始化，新代码也应该保持这个行为
+  if (typeof window !== 'undefined') {
+    void updateManager.init()
+  }
+
   onMount(async () => {
     // 初始化最大化状态
     try {
@@ -108,9 +115,6 @@
     catch {
     // 忽略错误
     }
-
-    // 初始化更新管理器
-    void updateManager.init()
   })
 
   onDestroy(() => {
