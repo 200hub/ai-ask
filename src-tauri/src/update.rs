@@ -592,7 +592,7 @@ async fn start_download(
         let download_path = file_path_for_spawn;
         if let Err(err) = perform_download(
             app_handle,
-            shared_clone,
+            Arc::clone(&shared_clone),
             &asset_clone,
             download_path.as_path(),
             &config_clone,
@@ -604,6 +604,8 @@ async fn start_download(
                 asset_clone.meta.name,
                 err
             );
+            // 确保任务状态被更新为失败（如果 perform_download 内部没有更新的话）
+            update_task_status(&shared_clone, DownloadStatus::Failed, Some(err.to_string()));
         }
     });
 
@@ -626,10 +628,16 @@ async fn perform_download(
 
     let request = client.get(&asset.meta.download_url).headers(headers);
 
-    let mut response = request
-        .send()
-        .await
-        .context("Failed to send download request")?;
+    let response_result = request.send().await;
+    let mut response = match response_result {
+        Ok(resp) => resp,
+        Err(err) => {
+            let error_msg = format!("Failed to send download request: {}", err);
+            update_task_status(&shared, DownloadStatus::Failed, Some(error_msg.clone()));
+            return Err(anyhow!(error_msg));
+        }
+    };
+
     if !response.status().is_success() {
         update_task_status(
             &shared,
@@ -1016,9 +1024,13 @@ fn build_http_client(
     app: &AppHandle,
     config: &UpdateConfig,
 ) -> Result<reqwest::Client, anyhow::Error> {
+    // 下载大文件需要更长的超时时间
+    // connect_timeout: 连接超时 30 秒
+    // timeout: 整体请求超时（包括下载），设置为 30 分钟以支持大文件
+    // 使用 native-tls 后端，兼容性更好（rustls 在某些代理环境下有问题）
     let mut builder = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .use_rustls_tls();
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(30 * 60)); // 30 minutes for large file downloads
 
     if let Some(proxy) = &config.proxy {
         builder = match build_client_with_proxy(proxy) {
@@ -1029,8 +1041,8 @@ fn build_http_client(
                     err
                 );
                 reqwest::Client::builder()
-                    .timeout(Duration::from_secs(30))
-                    .use_rustls_tls()
+                    .connect_timeout(Duration::from_secs(30))
+                    .timeout(Duration::from_secs(30 * 60))
             }
         };
     }

@@ -199,9 +199,11 @@ pub(crate) async fn test_proxy_connection(
 /// 根据代理配置构建 reqwest 客户端
 pub fn build_client_with_proxy(config: &ProxyTestConfig) -> Result<reqwest::Client, String> {
     use reqwest::redirect::Policy;
+    // 下载大文件需要更长的超时时间
     let mut builder = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .redirect(Policy::limited(5));
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(30 * 60)) // 30 minutes for large downloads
+        .redirect(Policy::limited(10)); // 增加重定向次数，GitHub 下载会多次重定向
 
     match config.proxy_type.as_str() {
         "custom" => {
