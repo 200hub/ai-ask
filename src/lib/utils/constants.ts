@@ -488,6 +488,28 @@ export const SELECTION_TOOLBAR = {
 } as const
 
 /**
+ * 划词浮动结果窗口配置常量
+ */
+export const SELECTION_RESULT_WINDOW = {
+  /** 结果窗口宽度（逻辑像素） */
+  WINDOW_WIDTH: 360,
+  /** 结果窗口默认高度（逻辑像素） */
+  WINDOW_HEIGHT: 240,
+  /** 结果窗口最小高度（逻辑像素） */
+  MIN_HEIGHT: 120,
+  /** 结果窗口最大高度（逻辑像素） */
+  MAX_HEIGHT: 400,
+  /** 结果窗口与工具栏的垂直间距（逻辑像素） */
+  VERTICAL_GAP: 8,
+  /** 结果展示后的自动关闭延迟时间（毫秒） */
+  AUTO_CLOSE_DELAY_MS: 30000,
+  /** 注入超时时间（毫秒） */
+  INJECTION_TIMEOUT_MS: 60000,
+  /** 注入轮询间隔（毫秒） */
+  INJECTION_POLL_INTERVAL_MS: 1000,
+} as const
+
+/**
  * 翻译平台语言代码映射
  * 将内部 locale 代码映射到各翻译平台的语言代码
  */

@@ -1,6 +1,7 @@
 //! Selection Toolbar - 划词工具栏管理
 //!
 //! 提供系统级文本选择监听和浮动工具栏窗口管理功能
+//! 以及浮动结果窗口（用于显示翻译/解释结果）
 
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
@@ -14,6 +15,13 @@ use tauri::{
 const TOOLBAR_WIDTH: f64 = 80.0;
 const TOOLBAR_HEIGHT: f64 = 35.0;
 const TOOLBAR_VERTICAL_OFFSET: f64 = 10.0;
+
+// 浮动结果窗口常量
+const RESULT_WINDOW_WIDTH: f64 = 360.0;
+const RESULT_WINDOW_HEIGHT: f64 = 240.0;
+const RESULT_WINDOW_MIN_HEIGHT: f64 = 120.0;
+const RESULT_WINDOW_MAX_HEIGHT: f64 = 400.0;
+const RESULT_WINDOW_VERTICAL_GAP: f64 = 8.0;
 
 /// 工具栏窗口状态
 ///
@@ -653,4 +661,210 @@ pub(crate) fn platform_cursor_position() -> Result<(f64, f64), String> {
     {
         return Err("Cursor position lookup not implemented for this platform".into());
     }
+}
+
+// ============================================================================
+// 浮动结果窗口管理
+// ============================================================================
+
+/// 结果窗口请求数据
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResultWindowRequest {
+    /// 操作类型：translate 或 explain
+    pub action_type: String,
+    /// 选中的文本
+    pub text: String,
+    /// AI 平台 ID
+    pub platform_id: String,
+    /// AI 平台名称
+    pub platform_name: String,
+    /// 工具栏窗口位置（用于计算结果窗口位置）
+    pub toolbar_position: Option<CursorPosition>,
+    /// 目标 webview ID（用于过滤注入结果）
+    pub webview_id: Option<String>,
+    /// 错误信息（如果需要直接显示错误）
+    pub error_message: Option<String>,
+}
+
+/// 显示浮动结果窗口
+///
+/// 在工具栏上方或下方显示结果窗口，自动选择最佳位置
+#[tauri::command]
+pub async fn show_selection_result_window(
+    app: AppHandle,
+    request: ResultWindowRequest,
+) -> Result<(), String> {
+    log::info!(
+        "Showing selection result window: action={}, platform={}",
+        request.action_type,
+        request.platform_id
+    );
+
+    let window = ensure_result_window(&app)?;
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+
+    // 计算窗口位置
+    let (result_x, result_y) = calculate_result_window_position(&request, scale_factor)?;
+
+    // 设置窗口位置
+    let result_x_i32 = result_x.round() as i32;
+    let result_y_i32 = result_y.round() as i32;
+
+    if let Err(error) = window.set_position(Position::Physical(PhysicalPosition::new(
+        result_x_i32,
+        result_y_i32,
+    ))) {
+        log::warn!("Failed to position result window: {}", error);
+    }
+
+    // 设置置顶
+    if let Err(error) = window.set_always_on_top(true) {
+        log::warn!("Failed to set result window always-on-top: {}", error);
+    }
+
+    // 发送请求事件到结果窗口
+    let event_payload = serde_json::json!({
+        "actionType": request.action_type,
+        "text": request.text,
+        "platformId": request.platform_id,
+        "platformName": request.platform_name,
+        "webviewId": request.webview_id,
+        "errorMessage": request.error_message,
+    });
+
+    if let Err(error) = window.emit("selection-result:request", event_payload) {
+        log::warn!("Failed to emit result request event: {}", error);
+    }
+
+    // 显示窗口
+    if !window.is_visible().unwrap_or(true) {
+        if let Err(error) = window.show() {
+            log::warn!("Failed to show result window: {}", error);
+        }
+    }
+
+    // 设置焦点
+    if let Err(error) = window.set_focus() {
+        log::warn!("Failed to focus result window: {}", error);
+    }
+
+    Ok(())
+}
+
+/// 隐藏浮动结果窗口
+#[tauri::command]
+pub async fn hide_selection_result_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("selection-result") {
+        if let Err(error) = window.hide() {
+            log::debug!(
+                "Skipping result window hide because window handle is invalid: {}",
+                error
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// 更新浮动结果窗口位置
+#[tauri::command]
+pub async fn update_selection_result_position(
+    app: AppHandle,
+    position: CursorPosition,
+) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("selection-result") {
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
+        let result_width = RESULT_WINDOW_WIDTH * scale_factor;
+        let result_height = RESULT_WINDOW_HEIGHT * scale_factor;
+
+        // 默认在指定位置上方显示
+        let mut result_x = position.x - result_width / 2.0;
+        let mut result_y = position.y - result_height - RESULT_WINDOW_VERTICAL_GAP * scale_factor;
+
+        // 边界检查
+        if result_x < 0.0 {
+            result_x = 0.0;
+        }
+        if result_y < 0.0 {
+            // 如果上方空间不足，改为在下方显示
+            result_y = position.y + RESULT_WINDOW_VERTICAL_GAP * scale_factor;
+        }
+
+        let result_x_i32 = result_x.round() as i32;
+        let result_y_i32 = result_y.round() as i32;
+
+        if let Err(error) = window.set_position(Position::Physical(PhysicalPosition::new(
+            result_x_i32,
+            result_y_i32,
+        ))) {
+            log::warn!("Failed to update result window position: {}", error);
+        }
+    }
+
+    Ok(())
+}
+
+/// 计算结果窗口位置
+///
+/// 优先在工具栏上方显示，如果上方空间不足则在下方显示
+fn calculate_result_window_position(
+    request: &ResultWindowRequest,
+    scale_factor: f64,
+) -> Result<(f64, f64), String> {
+    let result_width = RESULT_WINDOW_WIDTH * scale_factor;
+    let result_height = RESULT_WINDOW_HEIGHT * scale_factor;
+    let toolbar_height = TOOLBAR_HEIGHT * scale_factor;
+    let gap = RESULT_WINDOW_VERTICAL_GAP * scale_factor;
+
+    // 获取工具栏位置或当前光标位置
+    let (anchor_x, anchor_y) = if let Some(pos) = &request.toolbar_position {
+        (pos.x, pos.y)
+    } else {
+        // 如果没有提供工具栏位置，使用当前光标位置
+        platform_cursor_position().unwrap_or((0.0, 0.0))
+    };
+
+    // 结果窗口水平居中于锚点
+    let mut result_x = anchor_x - result_width / 2.0;
+
+    // 优先在工具栏上方显示
+    // 工具栏位置是其左上角，结果窗口应该在工具栏上方
+    let mut result_y = anchor_y - result_height - gap;
+
+    // 边界检查：确保不超出屏幕左边界
+    if result_x < 0.0 {
+        result_x = 0.0;
+    }
+
+    // 边界检查：如果上方空间不足，改为在下方显示
+    if result_y < 0.0 {
+        // 在工具栏下方显示
+        result_y = anchor_y + toolbar_height + gap;
+    }
+
+    Ok((result_x, result_y))
+}
+
+/// 确保结果窗口存在
+fn ensure_result_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window("selection-result") {
+        return Ok(window);
+    }
+
+    WebviewWindowBuilder::new(
+        app,
+        "selection-result",
+        WebviewUrl::App("/toolbar-result".into()),
+    )
+    .title("Selection Result")
+    .inner_size(RESULT_WINDOW_WIDTH, RESULT_WINDOW_HEIGHT)
+    .min_inner_size(RESULT_WINDOW_WIDTH, RESULT_WINDOW_MIN_HEIGHT)
+    .max_inner_size(RESULT_WINDOW_WIDTH, RESULT_WINDOW_MAX_HEIGHT)
+    .decorations(false)
+    .resizable(false)
+    .skip_taskbar(true)
+    .visible(false)
+    .focused(false)
+    .build()
+    .map_err(|e| format!("Failed to create result window: {}", e))
 }

@@ -422,6 +422,22 @@ export const koKR = {
     executionError: '실행 오류',
     executing: '실행 중...',
   },
+
+  selectionResult: {
+    translating: '번역 중...',
+    explaining: 'AI 설명 중...',
+    copy: '복사',
+    close: '닫기',
+    failed: '결과를 가져오지 못했습니다',
+    noResult: '결과 없음',
+    timeout: '요청 시간 초과',
+    retry: '다시 시도',
+    error: {
+      noPlatform: 'AI 플랫폼이 구성되지 않았습니다',
+      noTemplate: '이 플랫폼은 이 기능을 지원하지 않습니다',
+      failed: '작업에 실패했습니다. 다시 시도해 주세요',
+    },
+  },
 }
 
 export default koKR

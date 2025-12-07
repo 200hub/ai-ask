@@ -434,6 +434,22 @@ export const jaJP = {
     executionError: '実行エラー',
     executing: '実行中...',
   },
+
+  selectionResult: {
+    translating: '翻訳中...',
+    explaining: 'AI が説明中...',
+    copy: 'コピー',
+    close: '閉じる',
+    failed: '結果の取得に失敗しました',
+    noResult: '結果がありません',
+    timeout: 'リクエストタイムアウト',
+    retry: '再試行',
+    error: {
+      noPlatform: 'AIプラットフォームが設定されていません',
+      noTemplate: 'このプラットフォームはこの機能をサポートしていません',
+      failed: '操作に失敗しました。もう一度お試しください',
+    },
+  },
 }
 
 export default jaJP

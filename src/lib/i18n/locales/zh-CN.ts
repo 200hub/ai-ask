@@ -414,6 +414,22 @@ export const zhCN = {
     executionError: '执行错误',
     executing: '执行中...',
   },
+
+  selectionResult: {
+    translating: '翻译中...',
+    explaining: 'AI 解释中...',
+    copy: '复制',
+    close: '关闭',
+    failed: '获取结果失败',
+    noResult: '暂无结果',
+    timeout: '请求超时',
+    retry: '重试',
+    error: {
+      noPlatform: '未配置 AI 平台',
+      noTemplate: '该平台暂不支持此功能',
+      failed: '操作失败，请重试',
+    },
+  },
 }
 
 export default zhCN

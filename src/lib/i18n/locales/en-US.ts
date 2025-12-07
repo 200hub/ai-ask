@@ -422,6 +422,22 @@ export const enUS = {
     executionError: 'Execution error',
     executing: 'Executing...',
   },
+
+  selectionResult: {
+    translating: 'Translating...',
+    explaining: 'AI Explaining...',
+    copy: 'Copy',
+    close: 'Close',
+    failed: 'Failed to get result',
+    noResult: 'No result',
+    timeout: 'Request timeout',
+    retry: 'Retry',
+    error: {
+      noPlatform: 'No AI platform configured',
+      noTemplate: 'This platform does not support this feature',
+      failed: 'Operation failed, please try again',
+    },
+  },
 }
 
 export default enUS
