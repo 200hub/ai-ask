@@ -27,15 +27,27 @@
   let selectionTranslateUnlisten: UnlistenFn | null = null
   let selectionExplainUnlisten: UnlistenFn | null = null
   let selectionCollectUnlisten: UnlistenFn | null = null
+  let openPlatformUnlisten: UnlistenFn | null = null
 
   type SelectionToolbarEventPayload = {
     text?: string
+  }
+
+  /**
+   * 从浮动结果窗口跳转到主窗口的事件负载
+   */
+  type OpenPlatformEventPayload = {
+    platformId: string
+    platformType: 'ai' | 'translation'
+    text?: string
+    action?: 'translate' | 'explain'
   }
 
   onMount(() => {
     void registerOpenSettingsListener()
     void registerTranslationHotkeyListener()
     void registerSelectionToolbarListeners()
+    void registerOpenPlatformListener()
     void initializeStores()
   })
 
@@ -54,6 +66,9 @@
 
     selectionCollectUnlisten?.()
     selectionCollectUnlisten = null
+
+    openPlatformUnlisten?.()
+    openPlatformUnlisten = null
   })
 
   function extractSelectionText(payload: SelectionToolbarEventPayload | null | undefined): string | null {
@@ -212,6 +227,74 @@
     }
     catch (error) {
       logger.error('Failed to listen for open-settings event:', error)
+    }
+  }
+
+  /**
+   * 处理从浮动结果窗口跳转到主窗口的请求
+   */
+  async function handleOpenPlatform(payload: OpenPlatformEventPayload) {
+    logger.info('Open platform request received', payload)
+
+    if (payload.platformType === 'translation') {
+      // 切换到翻译视图
+      const platform = translationStore.getPlatformById(payload.platformId)
+      if (platform) {
+        translationStore.setCurrentPlatform(platform.id)
+        appState.switchToTranslationView()
+        window.dispatchEvent(new CustomEvent('ensureTranslationVisible'))
+
+        // 如果有文本，执行翻译操作
+        if (payload.text && payload.action === 'translate') {
+          // 延迟执行以确保 webview 已显示
+          setTimeout(() => {
+            void executeTranslation(payload.text as string)
+          }, 300)
+        }
+      }
+      else {
+        logger.warn('Translation platform not found', { platformId: payload.platformId })
+      }
+    }
+    else {
+      // 切换到 AI 聊天视图
+      const platform = platformsStore.getPlatformById(payload.platformId)
+      if (platform) {
+        appState.switchToChatView(platform)
+
+        // 如果有文本，执行相应操作
+        if (payload.text) {
+          // 延迟执行以确保 webview 已显示
+          setTimeout(() => {
+            if (payload.action === 'translate') {
+              void executeTranslation(payload.text as string)
+            }
+            else if (payload.action === 'explain') {
+              void executeExplanation(payload.text as string)
+            }
+          }, 300)
+        }
+      }
+      else {
+        logger.warn('AI platform not found', { platformId: payload.platformId })
+      }
+    }
+  }
+
+  /**
+   * 注册打开平台事件监听器
+   */
+  async function registerOpenPlatformListener() {
+    try {
+      openPlatformUnlisten = await listen<OpenPlatformEventPayload>(
+        'openPlatform',
+        (event) => {
+          handleOpenPlatform(event.payload)
+        },
+      )
+    }
+    catch (error) {
+      logger.error('Failed to listen for openPlatform event:', error)
     }
   }
 </script>

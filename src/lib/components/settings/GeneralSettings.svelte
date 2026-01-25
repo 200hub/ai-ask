@@ -355,6 +355,21 @@
   }
 
   /**
+   * 切换悬浮结果窗口模式
+   */
+  async function handleSelectionToolbarUseFloatingWindowChange(event: Event) {
+    const target = event.target as HTMLInputElement
+    const useFloatingWindow = target.checked
+
+    try {
+      await configStore.setSelectionToolbarUseFloatingWindow(useFloatingWindow)
+    }
+    catch (error) {
+      logger.error('Failed to change selection toolbar floating window setting', error)
+    }
+  }
+
+  /**
    * 请求辅助功能权限
    */
   async function handleRequestPermission() {
@@ -583,6 +598,21 @@
             <option value={platform.id}>{platform.name}</option>
           {/each}
         </select>
+      </div>
+
+      <div class='setting-item'>
+        <div class='setting-label'>
+          <span class='label-text'>{t('general.selectionToolbarUseFloatingWindow')}</span>
+          <span class='label-description'>{t('general.selectionToolbarUseFloatingWindowDescription')}</span>
+        </div>
+        <label class='toggle-switch'>
+          <input
+            type='checkbox'
+            checked={configStore.config.selectionToolbarUseFloatingWindow}
+            onchange={handleSelectionToolbarUseFloatingWindowChange}
+          />
+          <span class='toggle-slider'></span>
+        </label>
       </div>
 
       <div class='setting-item stacked'>

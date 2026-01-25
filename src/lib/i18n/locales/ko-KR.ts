@@ -93,12 +93,15 @@ export const koKR = {
     selectionToolbarIgnoreEmpty: '무시할 애플리케이션이 아직 없습니다.',
     accessibilityPermissionRequired: '접근성 권한 필요',
     accessibilityPermissionMessage:
-      '앱 외부 선택 기능이 정상적으로 작동하려면 접근성 권한이 필요합니다. 아래 버튼을 클릭하여 시스템 설정을 열고 \'개인정보 보호 및 보안 > 손쉬운 사용\'에서 이 앱을 추가하세요.',
+      '앱 외부 선택 기능이 정상적으로 작동하려면 접근성 권한이 필요합니다. 아래 버튼을 클릭하여 시스템 설정을 열고 "개인정보 보호 및 보안 > 손쉬운 사용"에서 이 앱을 추가하세요.',
     openSystemSettings: '시스템 설정 열기',
     recheckPermission: '다시 확인',
     selectionToolbarDefaultPlatform: '선택 도구 모음 기본 AI',
     selectionToolbarDefaultPlatformDescription:
-      '선택 도구 모음의 ‘설명’ 기능에 사용할 AI 플랫폼(지원되는 플랫폼만 표시)',
+      '선택 도구 모음의 \'설명\' 기능에 사용할 AI 플랫폼(지원되는 플랫폼만 표시)',
+    selectionToolbarUseFloatingWindow: '플로팅 결과 창 사용',
+    selectionToolbarUseFloatingWindowDescription:
+      '활성화하면 번역/설명 결과가 플로팅 창에 표시됩니다. 비활성화하면 메인 창에서 직접 표시됩니다',
     selectPlatform: '플랫폼 선택',
     selectionToolbarTemporaryDisableTitle: '임시 비활성화',
     selectionToolbarTemporaryDisableDescription:
@@ -426,8 +429,16 @@ export const koKR = {
   selectionResult: {
     translating: '번역 중...',
     explaining: 'AI 설명 중...',
+    translationResult: '번역 결과',
+    explanationResult: '설명 결과',
     copy: '복사',
     close: '닫기',
+    openInMainWindow: '메인 창에서 열기',
+    maximize: '최대화',
+    restore: '복원',
+    pin: '고정',
+    unpin: '고정 해제',
+    originalText: '원문',
     failed: '결과를 가져오지 못했습니다',
     noResult: '결과 없음',
     timeout: '요청 시간 초과',

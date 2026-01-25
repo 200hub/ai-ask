@@ -31,6 +31,7 @@ export interface AppConfig {
   selectionToolbarTemporaryDisabledUntil: number | null
   selectionToolbarTemporaryDisableDurationMs: number
   selectionToolbarDefaultPlatformId: string | null
+  selectionToolbarUseFloatingWindow: boolean // 使用悬浮结果窗口，否则直接打开主窗口
 
   // 性能优化设置
   preloadDefaultPlatforms: boolean // 启动时预加载默认平台
@@ -90,6 +91,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   selectionToolbarTemporaryDisabledUntil: null,
   selectionToolbarTemporaryDisableDurationMs: 15 * 60 * 1000,
   selectionToolbarDefaultPlatformId: null,
+  selectionToolbarUseFloatingWindow: false, // 默认不使用悬浮结果窗口
   preloadDefaultPlatforms: true, // 默认启用预加载
   proxy: { type: 'system' },
   windowSize: {

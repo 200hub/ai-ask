@@ -27,7 +27,7 @@ use std::sync::Mutex;
 use serde::Deserialize;
 use tauri::{
     webview::{NewWindowResponse, Webview, WebviewBuilder},
-    Emitter, LogicalPosition, LogicalSize, Position, Size, State, Url, WebviewUrl, Window,
+    Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, State, Url, WebviewUrl, Window,
 };
 use tauri_plugin_opener::open_url;
 
@@ -86,7 +86,8 @@ pub(crate) struct BoundsPayload {
 pub(crate) struct EnsureChildWebviewPayload {
     id: String,
     url: String,
-    bounds: BoundsPayload,
+    /// 边界参数（可选）- 如果不提供且 webview 已存在，则不更新位置和大小
+    bounds: Option<BoundsPayload>,
     proxy_url: Option<String>,
 }
 
@@ -156,14 +157,18 @@ pub(crate) async fn ensure_child_webview(
     payload: EnsureChildWebviewPayload,
 ) -> Result<(), String> {
     log::debug!(
-        "Ensuring child webview exists: id={}, url={}, proxy={:?}",
+        "Ensuring child webview exists: id={}, url={}, proxy={:?}, bounds={:?}",
         payload.id,
         payload.url,
-        payload.proxy_url
+        payload.proxy_url,
+        payload.bounds.is_some()
     );
 
-    let position = logical_position(&payload.bounds);
-    let size = logical_size(&payload.bounds);
+    // 只有提供了 bounds 时才解析位置和大小
+    let position_size = payload
+        .bounds
+        .as_ref()
+        .map(|b| (logical_position(b), logical_size(b)));
 
     let mut webviews = state
         .webviews
@@ -191,7 +196,7 @@ pub(crate) async fn ensure_child_webview(
 
         if let Ok(current_url) = webview.url() {
             if current_url.as_str() != payload.url {
-                log::debug!(
+                log::info!(
                     "Updating child webview URL: {} -> {}",
                     current_url,
                     payload.url
@@ -202,15 +207,32 @@ pub(crate) async fn ensure_child_webview(
             }
         }
 
-        // Attach navigation and page load events
-        webview
-            .set_position(Position::Logical(position))
-            .map_err(|err| err.to_string())?;
-        webview
-            .set_size(Size::Logical(size))
-            .map_err(|err| err.to_string())?;
-        log::debug!("Child webview updated: {}", payload.id);
+        // 只有提供了 bounds 时才更新位置和大小
+        if let Some((position, size)) = position_size {
+            webview
+                .set_position(Position::Logical(position))
+                .map_err(|err| err.to_string())?;
+            webview
+                .set_size(Size::Logical(size))
+                .map_err(|err| err.to_string())?;
+            log::debug!("Child webview bounds updated: {}", payload.id);
+        } else {
+            log::debug!("Child webview exists, bounds not updated: {}", payload.id);
+        }
     } else {
+        // 创建新 webview - 如果没有提供 bounds，使用默认的隐藏位置
+        let (position, size) = position_size.unwrap_or_else(|| {
+            log::info!(
+                "Creating child webview without bounds, using hidden defaults: {}",
+                payload.id
+            );
+            // 使用主窗口中的隐藏位置（在可视区域外）
+            (
+                LogicalPosition::new(-10000.0, -10000.0),
+                LogicalSize::new(800.0, 600.0),
+            )
+        });
+
         log::info!("Creating new child webview: {}", payload.id);
         let mut builder = WebviewBuilder::new(
             payload.id.clone(),
@@ -226,13 +248,14 @@ pub(crate) async fn ensure_child_webview(
 
         // Attach navigation and page load events
         let main_window = window.clone();
+        let app_handle = window.app_handle().clone();
         let webview_id_for_events = payload.id.clone();
         use std::sync::{Arc, Mutex};
         let agg_state = Arc::new(Mutex::new((0usize, 0usize, String::new()))); // (expected, received, data)
 
         // Intercept navigation to http(s)://injection.localhost/* to shuttle injection results
         {
-            let main_window_nav = main_window.clone();
+            let app_handle_nav = app_handle.clone();
             let webview_id_nav = webview_id_for_events.clone();
             let agg_nav = agg_state.clone();
             builder = builder.on_navigation(move |url| {
@@ -284,7 +307,7 @@ pub(crate) async fn ensure_child_webview(
 
                             if expected == 0 || received == 0 || received != expected {
                                 log::warn!("[NAV-INTERCEPT] Chunk mismatch");
-                                if let Err(e) = main_window_nav.emit(
+                                if let Err(e) = app_handle_nav.emit(
                                     "child-webview:injection-result",
                                     serde_json::json!({
                                         "id": webview_id_nav,
@@ -307,10 +330,11 @@ pub(crate) async fn ensure_child_webview(
                                         log::info!(
                                             "[NAV-INTERCEPT] Decode successful, emitting event"
                                         );
-                                        if let Err(e) = main_window_nav.emit(
+                                        if let Err(e) = app_handle_nav.emit(
                                             "child-webview:injection-result",
                                             serde_json::json!({
                                                 "id": webview_id_nav,
+                                                "success": true,
                                                 "result": json_value
                                             }),
                                         ) {
@@ -326,7 +350,7 @@ pub(crate) async fn ensure_child_webview(
                                     }
                                     Err(e) => {
                                         log::error!("[NAV-INTERCEPT] Decode failed: {}", e);
-                                        if let Err(emit_err) = main_window_nav.emit(
+                                        if let Err(emit_err) = app_handle_nav.emit(
                                             "child-webview:injection-result",
                                             serde_json::json!({
                                                 "id": webview_id_nav,
@@ -345,7 +369,7 @@ pub(crate) async fn ensure_child_webview(
                         } else if path.starts_with("error") {
                             let m = get_param("m");
                             log::error!("[NAV-INTERCEPT] Error signal: {:?}", m);
-                            if let Err(e) = main_window_nav.emit(
+                            if let Err(e) = app_handle_nav.emit(
                                 "child-webview:injection-result",
                                 serde_json::json!({
                                     "id": webview_id_nav,

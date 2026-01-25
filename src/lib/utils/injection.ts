@@ -242,7 +242,7 @@ export function generateExtractScript(action: ExtractAction): string {
             const elapsed = Date.now() - startTime;
             if (elapsed > timeout) {
                 console.warn('[EXTRACT] Timeout - no content found after', elapsed, 'ms');
-                reject(new Error('Extract timeout: no content found'));
+                reject(new Error('EXTRACT_TIMEOUT'));
                 return;
             }
             

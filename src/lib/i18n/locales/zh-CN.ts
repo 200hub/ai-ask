@@ -113,7 +113,10 @@ export const zhCN = {
     recheckPermission: '重新检查',
     selectionToolbarDefaultPlatform: '划词默认 AI 平台',
     selectionToolbarDefaultPlatformDescription:
-      '点击划词工具栏“解释”按钮时使用的 AI 平台，仅显示支持划词的选项',
+      '点击划词工具栏"解释"按钮时使用的 AI 平台，仅显示支持划词的选项',
+    selectionToolbarUseFloatingWindow: '使用悬浮结果窗口',
+    selectionToolbarUseFloatingWindowDescription:
+      '开启后翻译/解释结果显示在悬浮窗口中；关闭后直接打开主窗口显示结果',
     selectPlatform: '选择平台',
     selectionToolbarTemporaryDisableTitle: '临时禁用',
     selectionToolbarTemporaryDisableDescription: '临时关闭划词工具栏，适用于演示、录屏或编码等场景',
@@ -418,8 +421,16 @@ export const zhCN = {
   selectionResult: {
     translating: '翻译中...',
     explaining: 'AI 解释中...',
+    translationResult: '翻译结果',
+    explanationResult: '解释结果',
     copy: '复制',
     close: '关闭',
+    openInMainWindow: '在主窗口中打开',
+    maximize: '最大化',
+    restore: '还原',
+    pin: '钉住',
+    unpin: '取消钉住',
+    originalText: '原文',
     failed: '获取结果失败',
     noResult: '暂无结果',
     timeout: '请求超时',

@@ -96,7 +96,8 @@ return
    */
   async togglePreload(id: string) {
     const platform = this.getPlatformById(id)
-    if (!platform) return
+    if (!platform)
+return
 
     try {
       const newPreload = !platform.preload

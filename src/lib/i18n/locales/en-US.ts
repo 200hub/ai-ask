@@ -111,6 +111,9 @@ export const enUS = {
     selectionToolbarDefaultPlatform: 'Default Selection Toolbar AI',
     selectionToolbarDefaultPlatformDescription:
       'AI platform used when triggering Explain from the selection toolbar (only toolbar-ready platforms are listed)',
+    selectionToolbarUseFloatingWindow: 'Use Floating Result Window',
+    selectionToolbarUseFloatingWindowDescription:
+      'When enabled, translation/explanation results are shown in a floating window; when disabled, results are displayed in the main window directly',
     selectPlatform: 'Select Platform',
     selectionToolbarTemporaryDisableTitle: 'Temporary Disable',
     selectionToolbarTemporaryDisableDescription:
@@ -426,8 +429,16 @@ export const enUS = {
   selectionResult: {
     translating: 'Translating...',
     explaining: 'AI Explaining...',
+    translationResult: 'Translation Result',
+    explanationResult: 'Explanation Result',
     copy: 'Copy',
     close: 'Close',
+    openInMainWindow: 'Open in Main Window',
+    maximize: 'Maximize',
+    restore: 'Restore',
+    pin: 'Pin',
+    unpin: 'Unpin',
+    originalText: 'Original',
     failed: 'Failed to get result',
     noResult: 'No result',
     timeout: 'Request timeout',

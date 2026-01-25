@@ -20,7 +20,6 @@ const TOOLBAR_VERTICAL_OFFSET: f64 = 10.0;
 const RESULT_WINDOW_WIDTH: f64 = 360.0;
 const RESULT_WINDOW_HEIGHT: f64 = 240.0;
 const RESULT_WINDOW_MIN_HEIGHT: f64 = 120.0;
-const RESULT_WINDOW_MAX_HEIGHT: f64 = 400.0;
 const RESULT_WINDOW_VERTICAL_GAP: f64 = 8.0;
 
 /// 工具栏窗口状态
@@ -700,6 +699,16 @@ pub async fn show_selection_result_window(
         request.platform_id
     );
 
+    // 检查主结果窗口是否存在且可见（说明正在被使用/钉住）
+    if let Some(existing_window) = app.get_webview_window("selection-result") {
+        if existing_window.is_visible().unwrap_or(false) {
+            // 主窗口已经可见，说明用户正在使用它（可能被钉住）
+            // 直接创建新窗口来处理新请求，不移动主窗口
+            log::info!("Main result window is visible, creating new window for this request");
+            return create_new_result_window_with_request(app, request).await;
+        }
+    }
+
     let window = ensure_result_window(&app)?;
     let scale_factor = window.scale_factor().unwrap_or(1.0);
 
@@ -722,7 +731,7 @@ pub async fn show_selection_result_window(
         log::warn!("Failed to set result window always-on-top: {}", error);
     }
 
-    // 发送请求事件到结果窗口
+    // 发送请求事件到结果窗口（使用 emit_to 确保只发送到特定窗口）
     let event_payload = serde_json::json!({
         "actionType": request.action_type,
         "text": request.text,
@@ -732,7 +741,11 @@ pub async fn show_selection_result_window(
         "errorMessage": request.error_message,
     });
 
-    if let Err(error) = window.emit("selection-result:request", event_payload) {
+    if let Err(error) = app.emit_to(
+        "selection-result",
+        "selection-result:request",
+        event_payload,
+    ) {
         log::warn!("Failed to emit result request event: {}", error);
     }
 
@@ -851,20 +864,103 @@ fn ensure_result_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         return Ok(window);
     }
 
-    WebviewWindowBuilder::new(
-        app,
-        "selection-result",
-        WebviewUrl::App("/toolbar-result".into()),
-    )
-    .title("Selection Result")
-    .inner_size(RESULT_WINDOW_WIDTH, RESULT_WINDOW_HEIGHT)
-    .min_inner_size(RESULT_WINDOW_WIDTH, RESULT_WINDOW_MIN_HEIGHT)
-    .max_inner_size(RESULT_WINDOW_WIDTH, RESULT_WINDOW_MAX_HEIGHT)
-    .decorations(false)
-    .resizable(false)
-    .skip_taskbar(true)
-    .visible(false)
-    .focused(false)
-    .build()
-    .map_err(|e| format!("Failed to create result window: {}", e))
+    create_result_window(app, "selection-result")
+}
+
+/// 创建新的结果窗口
+fn create_result_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, String> {
+    WebviewWindowBuilder::new(app, label, WebviewUrl::App("/toolbar-result".into()))
+        .title("Selection Result")
+        .inner_size(RESULT_WINDOW_WIDTH, RESULT_WINDOW_HEIGHT)
+        .min_inner_size(RESULT_WINDOW_WIDTH, RESULT_WINDOW_MIN_HEIGHT)
+        .decorations(false) // 禁用原生窗口装饰，使用自定义标题栏
+        .resizable(true) // 启用大小调整
+        .maximizable(true) // 启用最大化
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(false)
+        .build()
+        .map_err(|e| format!("Failed to create result window: {}", e))
+}
+
+/// 用于跟踪下一个结果窗口的编号
+static NEXT_RESULT_WINDOW_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// 当现有结果窗口被钉住时，创建新窗口来处理新请求
+#[tauri::command]
+pub async fn create_new_result_window_with_request(
+    app: AppHandle,
+    request: ResultWindowRequest,
+) -> Result<(), String> {
+    log::info!(
+        "Creating new result window for request: action={}, platform={}",
+        request.action_type,
+        request.platform_id
+    );
+
+    // 生成唯一的窗口标签
+    let window_id = NEXT_RESULT_WINDOW_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let window_label = format!("selection-result-{}", window_id);
+
+    // 创建新窗口
+    let window = create_result_window(&app, &window_label)?;
+
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+
+    // 计算窗口位置
+    let (result_x, result_y) = calculate_result_window_position(&request, scale_factor)?;
+
+    // 设置窗口位置
+    let result_x_i32 = result_x.round() as i32;
+    let result_y_i32 = result_y.round() as i32;
+
+    if let Err(error) = window.set_position(Position::Physical(PhysicalPosition::new(
+        result_x_i32,
+        result_y_i32,
+    ))) {
+        log::warn!("Failed to position new result window: {}", error);
+    }
+
+    // 设置置顶
+    if let Err(error) = window.set_always_on_top(true) {
+        log::warn!("Failed to set new result window always-on-top: {}", error);
+    }
+
+    // 显示窗口
+    if let Err(error) = window.show() {
+        log::warn!("Failed to show new result window: {}", error);
+    }
+
+    // 设置焦点
+    if let Err(error) = window.set_focus() {
+        log::warn!("Failed to focus new result window: {}", error);
+    }
+
+    // 等待窗口加载完成后再发送事件
+    // 新窗口需要时间加载前端并设置事件监听器
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // 发送请求事件到新结果窗口（使用 emit_to 确保只发送到特定窗口）
+    let event_payload = serde_json::json!({
+        "actionType": request.action_type,
+        "text": request.text,
+        "platformId": request.platform_id,
+        "platformName": request.platform_name,
+        "webviewId": request.webview_id,
+        "errorMessage": request.error_message,
+    });
+
+    if let Err(error) = app.emit_to(&window_label, "selection-result:request", event_payload) {
+        log::warn!(
+            "Failed to emit result request event to new window: {}",
+            error
+        );
+    }
+
+    log::info!(
+        "New result window created and request sent: label={}",
+        window_label
+    );
+
+    Ok(())
 }

@@ -25,10 +25,11 @@ use tauri::{
 use global_selection::{check_accessibility_permission, request_accessibility_permission};
 use proxy::test_proxy_connection;
 use selection_toolbar::{
-    get_cursor_position, get_selection_toolbar_state, hide_selection_result_window,
-    hide_selection_toolbar, set_selection_toolbar_enabled, set_selection_toolbar_ignored_apps,
-    set_selection_toolbar_temporary_disabled_until, show_selection_result_window,
-    show_selection_toolbar, update_selection_result_position, ToolbarManager,
+    create_new_result_window_with_request, get_cursor_position, get_selection_toolbar_state,
+    hide_selection_result_window, hide_selection_toolbar, set_selection_toolbar_enabled,
+    set_selection_toolbar_ignored_apps, set_selection_toolbar_temporary_disabled_until,
+    show_selection_result_window, show_selection_toolbar, update_selection_result_position,
+    ToolbarManager,
 };
 use update::{
     check_update, download_update, get_download_status, init as init_update, install_update_now,
@@ -41,8 +42,9 @@ use webview::{
     ChildWebviewManager,
 };
 use window_control::{
-    hide_main_window, hide_window, resolve_main_window, show_main_window,
-    show_main_window_without_restore, show_window, toggle_main_window_visibility, toggle_window,
+    hide_main_window, hide_window, open_platform_in_main_window, resolve_main_window,
+    show_main_window, show_main_window_without_restore, show_window, toggle_main_window_visibility,
+    toggle_window,
 };
 
 /// Enable auto launch on system startup
@@ -286,6 +288,7 @@ pub fn run() {
             toggle_window,
             show_window,
             hide_window,
+            open_platform_in_main_window,
             ensure_child_webview,
             set_child_webview_bounds,
             show_child_webview,
@@ -315,6 +318,7 @@ pub fn run() {
             show_selection_result_window,
             hide_selection_result_window,
             update_selection_result_position,
+            create_new_result_window_with_request,
             check_accessibility_permission,
             request_accessibility_permission
         ])

@@ -107,6 +107,9 @@ export const jaJP = {
     selectionToolbarDefaultPlatform: '選択ツールバーのデフォルトAI',
     selectionToolbarDefaultPlatformDescription:
       '選択ツールバーの「説明」から使用するAIプラットフォーム（対応プラットフォームのみ表示）',
+    selectionToolbarUseFloatingWindow: 'フローティングウィンドウを使用',
+    selectionToolbarUseFloatingWindowDescription:
+      'オンにすると翻訳/説明結果がフローティングウィンドウに表示されます。オフにするとメインウィンドウで直接表示されます',
     selectPlatform: 'プラットフォームを選択',
     selectionToolbarTemporaryDisableTitle: '一時的に無効化',
     selectionToolbarTemporaryDisableDescription:
@@ -438,8 +441,16 @@ export const jaJP = {
   selectionResult: {
     translating: '翻訳中...',
     explaining: 'AI が説明中...',
+    translationResult: '翻訳結果',
+    explanationResult: '説明結果',
     copy: 'コピー',
     close: '閉じる',
+    openInMainWindow: 'メインウィンドウで開く',
+    maximize: '最大化',
+    restore: '元に戻す',
+    pin: 'ピン留め',
+    unpin: 'ピン留め解除',
+    originalText: '原文',
     failed: '結果の取得に失敗しました',
     noResult: '結果がありません',
     timeout: 'リクエストタイムアウト',

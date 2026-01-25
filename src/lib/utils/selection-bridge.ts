@@ -8,7 +8,7 @@ import {
   getDefaultTranslationTemplate,
 } from '$lib/utils/injection-templates'
 import { logger } from '$lib/utils/logger'
-import { getConfig } from '$lib/utils/storage'
+import { getAIPlatforms, getConfig, getTranslationPlatforms } from '$lib/utils/storage'
 
 import { invoke } from '@tauri-apps/api/core'
 import { emitTo } from '@tauri-apps/api/event'
@@ -74,20 +74,29 @@ async function getTranslationPlatform(): Promise<TranslationPlatform | null> {
   try {
     const config = await getConfig()
     const translatorId = config.currentTranslator
+    logger.info('Getting translation platform', {
+      translatorId,
+      configKeys: Object.keys(config),
+    })
     if (!translatorId) {
+      logger.warn('No current translator configured')
       return null
     }
 
-    // 从配置中获取翻译平台（简化版，实际应从 store 获取）
-    // 这里直接返回基本信息即可
-    return {
-      id: translatorId,
-      name: translatorId,
-      icon: '',
-      url: '',
-      enabled: true,
-      supportLanguages: [],
+    // 直接从存储获取平台列表（因为划词工具栏窗口和主窗口是独立的）
+    const platforms = await getTranslationPlatforms()
+    logger.debug('Available translation platforms', {
+      platformIds: platforms.map(p => p.id),
+    })
+    const platform = platforms.find(p => p.id === translatorId)
+
+    if (!platform) {
+      logger.warn('Translation platform not found in storage', { translatorId })
+      return null
     }
+
+    logger.debug('Got translation platform', { id: platform.id, url: platform.url })
+    return platform
   }
   catch (error) {
     logger.error('Failed to get translation platform', error)
@@ -108,21 +117,21 @@ async function getExplainPlatform(): Promise<AIPlatform | null> {
       || config.defaultPlatform
 
     if (!platformId) {
+      logger.warn('No AI platform ID configured for explanation')
       return null
     }
 
-    // 返回基本信息
-    return {
-      id: platformId,
-      name: platformId,
-      icon: '',
-      url: '',
-      enabled: true,
-      isCustom: false,
-      sortOrder: 0,
-      selectionToolbarAvailable: true,
-      preload: false,
+    // 直接从存储获取平台列表（因为划词工具栏窗口和主窗口是独立的）
+    const platforms = await getAIPlatforms()
+    const platform = platforms.find(p => p.id === platformId)
+
+    if (!platform) {
+      logger.warn('AI platform not found in storage', { platformId })
+      return null
     }
+
+    logger.debug('Got explain platform', { id: platform.id, url: platform.url })
+    return platform
   }
   catch (error) {
     logger.error('Failed to get explain platform', error)
@@ -154,6 +163,7 @@ async function buildExplanationPrompt(text: string): Promise<string> {
 
 /**
  * 显示浮动结果窗口并显示错误
+ * 仅在窗口未打开时调用
  */
 async function showResultWindowWithError(
   actionType: 'translate' | 'explain',
@@ -174,16 +184,43 @@ async function showResultWindowWithError(
 }
 
 /**
+ * 通知已显示的结果窗口发生错误
+ * 在窗口已经打开后发生错误时使用
+ */
+async function notifyResultWindowError(errorMessage: string): Promise<void> {
+  try {
+    await emitTo('selection-result', 'selection-result:error', {
+      errorMessage,
+    })
+  }
+  catch (error) {
+    logger.error('Failed to notify result window error', error)
+  }
+}
+
+/**
  * 显示浮动结果窗口并触发注入
+ * 注意：不修改 webview 的位置，只执行注入脚本
+ * webview 保持在主窗口中，用户可以在主窗口中查看完整内容
  */
 async function showResultWindowAndInject(
   actionType: 'translate' | 'explain',
   text: string,
   platformId: string,
   platformName: string,
+  platformUrl: string,
   webviewId: string,
   injectionScript: string,
 ): Promise<void> {
+  logger.info('showResultWindowAndInject called', {
+    actionType,
+    platformId,
+    platformName,
+    platformUrl,
+    webviewId,
+    textLength: text.length,
+  })
+
   // 获取工具栏位置
   const toolbarPosition = await getToolbarPosition()
 
@@ -198,36 +235,51 @@ async function showResultWindowAndInject(
       webview_id: webviewId,
     },
   })
+  logger.debug('Result window shown')
 
-  // 确保 webview 存在
+  // 确保 webview 存在，但不修改其位置
+  // webview 保持在主窗口中的原有位置，用户可以在主窗口中查看完整内容
+  logger.debug('Ensuring child webview exists', { webviewId, platformUrl })
   await invoke('ensure_child_webview', {
     payload: {
       id: webviewId,
-      url: '', // URL 会根据平台自动设置
+      url: platformUrl,
+      // 不指定 bounds，让 webview 保持在主窗口中的位置
     },
   })
+  logger.debug('Child webview ensured')
 
-  // 等待一小段时间让 webview 准备好
-  await new Promise(resolve => setTimeout(resolve, 500))
+  // 等待一小段时间让 webview 准备好（减少等待时间以提高响应速度）
+  await new Promise(resolve => setTimeout(resolve, 200))
 
   // 执行注入脚本
+  logger.debug('Executing injection script', { webviewId })
+  await invoke('evaluate_child_webview_script', {
+    payload: {
+      id: webviewId,
+      script: injectionScript,
+    },
+  })
+  logger.info('Injection script executed', { webviewId, actionType })
+}
+
+/**
+ * 检查是否应该使用悬浮结果窗口
+ * @returns 是否使用悬浮窗口，默认为 true
+ */
+async function shouldUseFloatingWindow(): Promise<boolean> {
   try {
-    await invoke('evaluate_child_webview_script', {
-      payload: {
-        id: webviewId,
-        script: injectionScript,
-      },
-    })
-    logger.info('Injection script executed', { webviewId, actionType })
+    const config = await getConfig()
+    // 如果配置未定义，默认使用悬浮窗口
+    return config.selectionToolbarUseFloatingWindow !== false
   }
-  catch (error) {
-    logger.error('Failed to execute injection script', error)
-    throw error
+  catch {
+    return true
   }
 }
 
 /**
- * 请求翻译 - 使用浮动结果窗口
+ * 请求翻译 - 根据配置使用浮动结果窗口或直接打开主窗口
  */
 export async function requestTranslation(rawText: string): Promise<void> {
   const text = sanitizeSelection(rawText)
@@ -236,6 +288,32 @@ export async function requestTranslation(rawText: string): Promise<void> {
     return
   }
 
+  // 检查是否使用悬浮窗口
+  const useFloating = await shouldUseFloatingWindow()
+
+  if (!useFloating) {
+    // 直接使用主窗口模式 - 通过 Rust 命令发送事件到主窗口
+    logger.info('Requesting translation via main window', { textLength: text.length })
+    try {
+      const platform = await getTranslationPlatform()
+      if (!platform) {
+        logger.warn('No translation platform configured')
+        return
+      }
+      await invoke('open_platform_in_main_window', {
+        platformId: platform.id,
+        platformType: 'translation',
+        text,
+        action: 'translate',
+      })
+    }
+    catch (error) {
+      logger.error('Failed to open translation in main window', error)
+    }
+    return
+  }
+
+  // 使用悬浮结果窗口模式
   logger.info('Requesting translation via floating window', { textLength: text.length })
 
   try {
@@ -271,19 +349,20 @@ export async function requestTranslation(rawText: string): Promise<void> {
       text,
       platform.id,
       platform.name,
+      platform.url,
       webviewId,
       script,
     )
   }
   catch (error) {
     logger.error('Failed to request translation', error)
-    // 显示结果窗口并显示错误
-    await showResultWindowWithError('translate', 'selectionResult.error.failed')
+    // 通知已显示的窗口发生错误，而不是重新打开窗口
+    await notifyResultWindowError('selectionResult.error.failed')
   }
 }
 
 /**
- * 请求 AI 解释 - 使用浮动结果窗口
+ * 请求 AI 解释 - 根据配置使用浮动结果窗口或直接打开主窗口
  */
 export async function requestExplanation(rawText: string): Promise<void> {
   const text = sanitizeSelection(rawText)
@@ -292,6 +371,32 @@ export async function requestExplanation(rawText: string): Promise<void> {
     return
   }
 
+  // 检查是否使用悬浮窗口
+  const useFloating = await shouldUseFloatingWindow()
+
+  if (!useFloating) {
+    // 直接使用主窗口模式 - 通过 Rust 命令发送事件到主窗口
+    logger.info('Requesting explanation via main window', { textLength: text.length })
+    try {
+      const platform = await getExplainPlatform()
+      if (!platform) {
+        logger.warn('No AI platform configured for explanation')
+        return
+      }
+      await invoke('open_platform_in_main_window', {
+        platformId: platform.id,
+        platformType: 'ai',
+        text,
+        action: 'explain',
+      })
+    }
+    catch (error) {
+      logger.error('Failed to open explanation in main window', error)
+    }
+    return
+  }
+
+  // 使用悬浮结果窗口模式
   logger.info('Requesting explanation via floating window', { textLength: text.length })
 
   try {
@@ -334,16 +439,15 @@ export async function requestExplanation(rawText: string): Promise<void> {
       text,
       platform.id,
       platform.name,
+      platform.url,
       webviewId,
       script,
     )
   }
   catch (error) {
     logger.error('Failed to request explanation', error)
-    await showResultWindowWithError(
-      'explain',
-      'selectionResult.error.failed',
-    )
+    // 通知已显示的窗口发生错误，而不是重新打开窗口
+    await notifyResultWindowError('selectionResult.error.failed')
   }
 }
 

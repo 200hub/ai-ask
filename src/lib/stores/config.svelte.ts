@@ -316,6 +316,13 @@ class ConfigStore {
   }
 
   /**
+   * 设置是否使用悬浮结果窗口
+   */
+  async setSelectionToolbarUseFloatingWindow(useFloatingWindow: boolean) {
+    await this.update({ selectionToolbarUseFloatingWindow: useFloatingWindow })
+  }
+
+  /**
    * 设置平台预加载开关
    */
   async setPreloadDefaultPlatforms(enabled: boolean) {

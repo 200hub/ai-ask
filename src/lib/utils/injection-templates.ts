@@ -31,7 +31,8 @@ export const CHATGPT_TEMPLATES: InjectionTemplate[] = [
       {
         type: 'click',
         selector: 'button[data-testid="send-button"]',
-        timeout: 3000,
+        delay: 500, // 等待发送按钮在内容填入后显示
+        timeout: 5000,
       },
       {
         type: 'extract',

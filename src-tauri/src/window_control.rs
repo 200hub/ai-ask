@@ -122,3 +122,47 @@ pub(crate) async fn show_window(window: Window) -> Result<(), String> {
 pub(crate) async fn hide_window(window: Window) -> Result<(), String> {
     hide_main_window(&window).await
 }
+
+/// 在主窗口中打开指定平台
+///
+/// 此命令会：
+/// 1. 显示主窗口
+/// 2. 发送事件让前端切换到指定平台
+#[tauri::command]
+pub(crate) async fn open_platform_in_main_window(
+    app: tauri::AppHandle,
+    platform_id: String,
+    platform_type: String,
+    text: Option<String>,
+    action: Option<String>,
+) -> Result<(), String> {
+    log::info!(
+        "Opening platform in main window: id={}, type={}, has_text={}, action={:?}",
+        platform_id,
+        platform_type,
+        text.is_some(),
+        action
+    );
+
+    // 获取主窗口
+    let main_window =
+        resolve_main_window(&app).ok_or_else(|| "Main window not found".to_string())?;
+
+    // 显示主窗口
+    show_main_window(&main_window).await?;
+
+    // 发送事件让前端切换到指定平台
+    main_window
+        .emit(
+            "openPlatform",
+            serde_json::json!({
+                "platformId": platform_id,
+                "platformType": platform_type,
+                "text": text,
+                "action": action
+            }),
+        )
+        .map_err(|e| format!("Failed to emit openPlatform event: {}", e))?;
+
+    Ok(())
+}
