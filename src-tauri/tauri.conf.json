@@ -65,6 +65,12 @@
       "deb": {
         "depends": []
       }
+    },
+    "android": {
+      "minSdkVersion": 24
+    },
+    "iOS": {
+      "developmentTeam": ""
     }
   }
 }

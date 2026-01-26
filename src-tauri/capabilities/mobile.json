@@ -1,0 +1,33 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Capability for mobile platforms (Android/iOS)",
+  "platforms": ["android", "iOS"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-create",
+    "core:webview:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:event:allow-emit",
+    "core:event:allow-emit-to",
+    "opener:default",
+    "store:default",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-save",
+    "store:allow-load",
+    "store:allow-has",
+    "store:allow-delete",
+    "store:allow-clear",
+    "store:allow-reset",
+    "store:allow-keys",
+    "store:allow-values",
+    "store:allow-entries",
+    "store:allow-length",
+    "shell:allow-open",
+    "shell:default"
+  ]
+}

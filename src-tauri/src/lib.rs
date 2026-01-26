@@ -1,29 +1,46 @@
-//! AI Ask - 桌面应用后端
+//! AI Ask - 跨平台应用后端
 //!
-//! 基于 Tauri 2.0 构建的跨平台桌面应用，提供窗口控制、
-//! 子 WebView 生命周期管理、代理测试、系统托盘与快捷键支持。
+//! 基于 Tauri 2.0 构建的跨平台应用，提供窗口控制、
+//! 子 WebView 生命周期管理、代理测试等功能。
+//! 桌面平台额外支持：系统托盘、全局快捷键、划词工具栏。
 
+// 仅桌面平台编译的模块
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod global_selection;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod proxy;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod selection_toolbar;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod update;
 mod utils;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod webview;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod window_control;
 
 pub use utils::{decode_base64, decode_base64url, decode_base64url_to_json};
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::sync::{Arc, Mutex};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::time::{Duration, Instant};
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconEvent,
     Emitter, Manager, WindowEvent,
 };
 
+#[cfg(any(target_os = "android", target_os = "ios"))]
+use tauri::Manager;
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use global_selection::{check_accessibility_permission, request_accessibility_permission};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use proxy::test_proxy_connection;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use selection_toolbar::{
     create_new_result_window_with_request, get_cursor_position, get_selection_toolbar_state,
     hide_selection_result_window, hide_selection_toolbar, set_selection_toolbar_enabled,
@@ -31,23 +48,27 @@ use selection_toolbar::{
     show_selection_result_window, show_selection_toolbar, update_selection_result_position,
     ToolbarManager,
 };
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use update::{
     check_update, download_update, get_download_status, init as init_update, install_update_now,
     schedule_install,
 };
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use webview::{
     check_child_webview_exists, clear_child_webview_cache, close_child_webview,
     ensure_child_webview, evaluate_child_webview_script, focus_child_webview,
     hide_all_child_webviews, hide_child_webview, set_child_webview_bounds, show_child_webview,
     ChildWebviewManager,
 };
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use window_control::{
     hide_main_window, hide_window, open_platform_in_main_window, resolve_main_window,
     show_main_window, show_main_window_without_restore, show_window, toggle_main_window_visibility,
     toggle_window,
 };
 
-/// Enable auto launch on system startup
+/// Enable auto launch on system startup (desktop only)
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn enable_auto_launch(app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
@@ -63,7 +84,8 @@ async fn enable_auto_launch(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Disable auto launch on system startup
+/// Disable auto launch on system startup (desktop only)
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn disable_auto_launch(app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
@@ -79,7 +101,8 @@ async fn disable_auto_launch(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Check if auto launch is enabled
+/// Check if auto launch is enabled (desktop only)
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 async fn is_auto_launch_enabled(app: tauri::AppHandle) -> Result<bool, String> {
     use tauri_plugin_autostart::ManagerExt;
@@ -100,6 +123,40 @@ pub fn run() {
     env_logger::init();
     log::info!("AI Ask application starting");
 
+    // 根据平台选择不同的初始化流程
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    run_desktop();
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    run_mobile();
+}
+
+/// 移动端应用初始化
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn run_mobile() {
+    log::info!("Initializing mobile application");
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_shell::init())
+        .setup(|_app| {
+            log::debug!("Mobile application setup starting");
+            log::info!("Mobile application setup completed");
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+
+    log::info!("AI Ask mobile application exited");
+}
+
+/// 桌面端应用初始化
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn run_desktop() {
+    log::info!("Initializing desktop application");
+
     tauri::Builder::default()
         .manage(ChildWebviewManager::default())
         .manage(ToolbarManager::default())
@@ -112,7 +169,7 @@ pub fn run() {
             Some(vec!["--flag1", "--flag2"]),
         ))
         .setup(|app| {
-            log::debug!("Application setup starting");
+            log::debug!("Desktop application setup starting");
 
             global_selection::start_global_selection_monitor(app.handle().clone());
 
@@ -269,7 +326,7 @@ pub fn run() {
                         });
             }
 
-            log::info!("Application setup completed");
+            log::info!("Desktop application setup completed");
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -325,5 +382,5 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 
-    log::info!("AI Ask application exited");
+    log::info!("AI Ask desktop application exited");
 }
