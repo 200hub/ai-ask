@@ -6,6 +6,8 @@
 
 // 仅桌面平台编译的模块
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod desktop_notes;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod global_selection;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod proxy;
@@ -36,6 +38,8 @@ use tauri::{
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use tauri::Manager;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use desktop_notes::{close_desktop_note_window, ensure_desktop_note_window};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use global_selection::{check_accessibility_permission, request_accessibility_permission};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -376,6 +380,8 @@ fn run_desktop() {
             hide_selection_result_window,
             update_selection_result_position,
             create_new_result_window_with_request,
+            ensure_desktop_note_window,
+            close_desktop_note_window,
             check_accessibility_permission,
             request_accessibility_permission
         ])

@@ -2,6 +2,7 @@
   import type { SettingsTab } from '$lib/types/config'
   import { i18n } from '$lib/i18n'
   import AboutSettings from './AboutSettings.svelte'
+  import DesktopNotesSettings from './DesktopNotesSettings.svelte'
   import GeneralSettings from './GeneralSettings.svelte'
   import PlatformSettings from './PlatformSettings.svelte'
   import ProxySettings from './ProxySettings.svelte'
@@ -21,6 +22,7 @@
     { id: 'platforms', labelKey: 'settings.platforms', descriptionKey: 'platforms.title', icon: '🤖' },
     { id: 'proxy', labelKey: 'settings.proxy', descriptionKey: 'proxy.title', icon: '🌐' },
     { id: 'translation', labelKey: 'settings.translation', descriptionKey: 'translationSettings.title', icon: '🌍' },
+    { id: 'desktop-notes', labelKey: 'settings.desktopNotes', descriptionKey: 'desktopNotes.title', icon: '🗒️' },
     { id: 'about', labelKey: 'settings.about', descriptionKey: 'about.title', icon: 'ℹ️' },
   ]
 
@@ -66,6 +68,8 @@
         <ProxySettings />
       {:else if currentTab === 'translation'}
         <TranslationSettings />
+      {:else if currentTab === 'desktop-notes'}
+        <DesktopNotesSettings />
       {:else if currentTab === 'about'}
         <AboutSettings />
       {/if}

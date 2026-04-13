@@ -36,6 +36,11 @@ export interface AppConfig {
   // 性能优化设置
   preloadDefaultPlatforms: boolean // 启动时预加载默认平台
 
+  // 桌面便签设置
+  desktopNotesEnabled: boolean
+  desktopNotesSyncEnabled: boolean
+  desktopNotesLastSyncedAt: number | null
+
   // 代理设置
   proxy?: ProxyConfig
 
@@ -93,6 +98,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   selectionToolbarDefaultPlatformId: null,
   selectionToolbarUseFloatingWindow: false, // 默认不使用悬浮结果窗口
   preloadDefaultPlatforms: true, // 默认启用预加载
+  desktopNotesEnabled: false,
+  desktopNotesSyncEnabled: false,
+  desktopNotesLastSyncedAt: null,
   proxy: { type: 'system' },
   windowSize: {
     width: 1200,
@@ -105,7 +113,7 @@ export const DEFAULT_CONFIG: AppConfig = {
 /**
  * 设置标签页类型
  */
-export type SettingsTab = 'general' | 'platforms' | 'proxy' | 'translation' | 'about'
+export type SettingsTab = 'general' | 'platforms' | 'proxy' | 'translation' | 'desktop-notes' | 'about'
 
 /**
  * 视图类型

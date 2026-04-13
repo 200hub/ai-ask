@@ -72,6 +72,23 @@ vi.mock('@tauri-apps/plugin-store', () => ({
 vi.mock('$lib/utils/constants', () => ({
   BUILT_IN_AI_PLATFORMS: builtInAI,
   BUILT_IN_TRANSLATION_PLATFORMS: builtInTranslation,
+  DESKTOP_NOTES: {
+    DEFAULT_WIDTH: 320,
+    DEFAULT_HEIGHT: 280,
+    MIN_WIDTH: 240,
+    MIN_HEIGHT: 180,
+    DEFAULT_OFFSET_X: 120,
+    DEFAULT_OFFSET_Y: 120,
+    DEFAULT_COLOR: 'sunny',
+  },
+  DESKTOP_NOTE_COLOR_PRESETS: [
+    { id: 'sunny' },
+    { id: 'mint' },
+    { id: 'sky' },
+    { id: 'lavender' },
+    { id: 'rose' },
+    { id: 'slate' },
+  ],
 }))
 
 let getConfig: (typeof import('$lib/utils/storage'))['getConfig']
@@ -82,6 +99,8 @@ let addCustomPlatform: (typeof import('$lib/utils/storage'))['addCustomPlatform'
 let deleteAIPlatform: (typeof import('$lib/utils/storage'))['deleteAIPlatform']
 let getTranslationPlatforms: (typeof import('$lib/utils/storage'))['getTranslationPlatforms']
 let resetToDefaults: (typeof import('$lib/utils/storage'))['resetToDefaults']
+let getDesktopNotes: (typeof import('$lib/utils/storage'))['getDesktopNotes']
+let saveDesktopNotes: (typeof import('$lib/utils/storage'))['saveDesktopNotes']
 
 beforeEach(async () => {
   storeData = {}
@@ -97,6 +116,8 @@ beforeEach(async () => {
   deleteAIPlatform = storageModule.deleteAIPlatform
   getTranslationPlatforms = storageModule.getTranslationPlatforms
   resetToDefaults = storageModule.resetToDefaults
+  getDesktopNotes = storageModule.getDesktopNotes
+  saveDesktopNotes = storageModule.saveDesktopNotes
 })
 
 describe('storage utilities', () => {
@@ -207,5 +228,58 @@ describe('storage utilities', () => {
 
     expect(translations).toEqual(builtInTranslation)
     expect(storeData[STORAGE_KEYS.TRANSLATION_PLATFORMS]).toEqual(builtInTranslation)
+  })
+
+  it('normalizes desktop notes before returning them', async () => {
+    storeData.desktop_notes = [
+      {
+        id: 'note-1',
+        title: 'Daily',
+        content: 'Hello',
+        color: 'sky',
+        visible: true,
+        bounds: { x: 10, y: 20, width: 200, height: 120 },
+        createdAt: 1,
+        updatedAt: 2,
+        sync: { dirty: false, deleted: false },
+      },
+      {
+        id: '',
+      },
+    ]
+
+    const notes = await getDesktopNotes()
+
+    expect(notes).toHaveLength(1)
+    expect(notes[0].bounds.width).toBeGreaterThanOrEqual(240)
+    expect(notes[0].bounds.height).toBeGreaterThanOrEqual(180)
+    expect(notes[0].color).toBe('sky')
+  })
+
+  it('persists desktop notes through the shared store', async () => {
+    await saveDesktopNotes([
+      {
+        id: 'note-2',
+        title: 'Saved',
+        content: '- item',
+        color: 'mint',
+        visible: true,
+        bounds: { x: 30, y: 40, width: 320, height: 280 },
+        createdAt: 10,
+        updatedAt: 11,
+        deletedAt: null,
+        sync: {
+          dirty: true,
+          lastSyncedAt: null,
+        },
+      },
+    ])
+
+    expect(storeData.desktop_notes).toEqual([
+      expect.objectContaining({
+        id: 'note-2',
+        color: 'mint',
+      }),
+    ])
   })
 })

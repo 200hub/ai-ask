@@ -1,122 +1,122 @@
 <script lang='ts'>
-  import { i18n } from '$lib/i18n'
-  import { appState } from '$lib/stores/app.svelte'
-  import { logger } from '$lib/utils/logger'
-  /**
-   * 主内容区域组件 - 根据当前视图显示不同内容
-   */
-  import { onMount } from 'svelte'
-  import LoadingSpinner from '../common/LoadingSpinner.svelte'
-  import WelcomePage from '../pages/WelcomePage.svelte'
+    import { i18n } from '$lib/i18n'
+    import { appState } from '$lib/stores/app.svelte'
+    import { logger } from '$lib/utils/logger'
+    /**
+     * 主内容区域组件 - 根据当前视图显示不同内容
+     */
+    import { onMount } from 'svelte'
+    import LoadingSpinner from '../common/LoadingSpinner.svelte'
+    import WelcomePage from '../pages/WelcomePage.svelte'
 
-  // 懒加载 AIChat，避免未进入聊天视图时的任何潜在副作用
-  type AIChatComponent = typeof import('../pages/AIChatPage.svelte').default
-  let AIChatComp = $state<AIChatComponent | null>(null)
+    // 懒加载 AIChat，避免未进入聊天视图时的任何潜在副作用
+    type AIChatComponent = typeof import('../pages/AIChatPage.svelte').default
+    let AIChatComp = $state<AIChatComponent | null>(null)
 
-  // 懒加载翻译页，降低初始包体积
-  type TranslationComponent = typeof import('../pages/TranslationPage.svelte').default
-  let TranslationComp = $state<TranslationComponent | null>(null)
+    // 懒加载翻译页，降低初始包体积
+    type TranslationComponent = typeof import('../pages/TranslationPage.svelte').default
+    let TranslationComp = $state<TranslationComponent | null>(null)
 
-  // 懒加载设置视图，按需加载设置相关依赖
-  type SettingsViewComponent = typeof import('../settings/SettingsPage.svelte').default
-  let SettingsViewComp = $state<SettingsViewComponent | null>(null)
+    // 懒加载设置视图，按需加载设置相关依赖
+    type SettingsViewComponent = typeof import('../settings/SettingsPage.svelte').default
+    let SettingsViewComp = $state<SettingsViewComponent | null>(null)
 
-  // 懒加载调试页面
-  type DebugInjectionPageComponent = typeof import('../pages/DebugInjectionPage.svelte').default
-  let DebugInjectionPageComp = $state<DebugInjectionPageComponent | null>(null)
+    // 懒加载调试页面
+    type DebugInjectionPageComponent = typeof import('../pages/DebugInjectionPage.svelte').default
+    let DebugInjectionPageComp = $state<DebugInjectionPageComponent | null>(null)
 
-  const t = i18n.t
+    const t = i18n.t
 
-  $effect(() => {
-    if (appState.currentView === 'chat' && !AIChatComp) {
-      (async () => {
-        const mod = await import('../pages/AIChatPage.svelte')
-        AIChatComp = mod.default
-      })()
-    }
-  })
-
-  $effect(() => {
-    if (appState.currentView === 'translation' && !TranslationComp) {
-      (async () => {
-        const mod = await import('../pages/TranslationPage.svelte')
-        TranslationComp = mod.default
-      })()
-    }
-  })
-
-  $effect(() => {
-    if (appState.currentView === 'settings' && !SettingsViewComp) {
-      (async () => {
-        try {
-          const mod = await import('../settings/SettingsPage.svelte')
-          SettingsViewComp = mod.default
-        }
-        catch (error) {
-          logger.error('Failed to load settings view on demand:', error)
-        }
-      })()
-    }
-  })
-
-  $effect(() => {
-    if (appState.currentView === 'debug' && !DebugInjectionPageComp) {
-      (async () => {
-        try {
-          const mod = await import('../pages/DebugInjectionPage.svelte')
-          DebugInjectionPageComp = mod.default
-        }
-        catch (error) {
-          logger.error('Failed to load debug page:', error)
-        }
-      })()
-    }
-  })
-
-  onMount(() => {
-    const timers: number[] = []
-
-    // 工具函数：在指定延迟后执行预加载逻辑，并记录定时器方便卸载时清理
-    const schedulePrefetch = (delay: number, loader: () => void) => {
-      const id = window.setTimeout(loader, delay)
-      timers.push(id)
-    }
-
-    // 1）优先预加载 AI 聊天页面：
-        // 应用启动后稍等 200ms，在后台静默 import AIChat，
-        // 这样划词触发“解释”或从侧边栏直接进入聊天视图时，不会被首次动态 import 卡住。
-    schedulePrefetch(200, () => {
-      if (AIChatComp) {
-        return
-      }
-
-      void import('../pages/AIChatPage.svelte')
-        .then((mod) => {
+    $effect(() => {
+      if (appState.currentView === 'chat' && !AIChatComp) {
+        (async () => {
+          const mod = await import('../pages/AIChatPage.svelte')
           AIChatComp = mod.default
-        })
-        .catch((error) => {
-          logger.error('Failed to preload AI chat page:', error)
-        })
+        })()
+      }
     })
 
-    // 2）随后预加载翻译页面：
-        // 再等 320ms 预取 TranslationPage，用于划词翻译场景的首次切换优化。
-    schedulePrefetch(320, () => {
-      if (TranslationComp) {
-        return
+    $effect(() => {
+      if (appState.currentView === 'translation' && !TranslationComp) {
+        (async () => {
+          const mod = await import('../pages/TranslationPage.svelte')
+          TranslationComp = mod.default
+        })()
+      }
+    })
+
+    $effect(() => {
+      if (appState.currentView === 'settings' && !SettingsViewComp) {
+        (async () => {
+          try {
+            const mod = await import('../settings/SettingsPage.svelte')
+            SettingsViewComp = mod.default
+          }
+          catch (error) {
+            logger.error('Failed to load settings view on demand:', error)
+          }
+        })()
+      }
+    })
+
+    $effect(() => {
+      if (appState.currentView === 'debug' && !DebugInjectionPageComp) {
+        (async () => {
+          try {
+            const mod = await import('../pages/DebugInjectionPage.svelte')
+            DebugInjectionPageComp = mod.default
+          }
+          catch (error) {
+            logger.error('Failed to load debug page:', error)
+          }
+        })()
+      }
+    })
+
+    onMount(() => {
+      const timers: number[] = []
+
+      // 工具函数：在指定延迟后执行预加载逻辑，并记录定时器方便卸载时清理
+      const schedulePrefetch = (delay: number, loader: () => void) => {
+        const id = window.setTimeout(loader, delay)
+        timers.push(id)
       }
 
-      void import('../pages/TranslationPage.svelte')
-        .then((mod) => {
-          TranslationComp = mod.default
-        })
-        .catch((error) => {
-          logger.error('Failed to preload translation page:', error)
-        })
-    })
+      // 1）优先预加载 AI 聊天页面：
+      // 应用启动后稍等 200ms，在后台静默 import AIChat，
+      // 这样划词触发“解释”或从侧边栏直接进入聊天视图时，不会被首次动态 import 卡住。
+      schedulePrefetch(200, () => {
+        if (AIChatComp) {
+          return
+        }
 
-    // 3）最后预加载设置面板：
-        // 设置打开频率相对较低，放在最后，避免抢占启动阶段的资源。
+        void import('../pages/AIChatPage.svelte')
+          .then((mod) => {
+            AIChatComp = mod.default
+          })
+          .catch((error) => {
+            logger.error('Failed to preload AI chat page:', error)
+          })
+      })
+
+      // 2）随后预加载翻译页面：
+      // 再等 320ms 预取 TranslationPage，用于划词翻译场景的首次切换优化。
+      schedulePrefetch(320, () => {
+        if (TranslationComp) {
+          return
+        }
+
+        void import('../pages/TranslationPage.svelte')
+          .then((mod) => {
+            TranslationComp = mod.default
+          })
+          .catch((error) => {
+            logger.error('Failed to preload translation page:', error)
+          })
+      })
+
+      // 3）最后预加载设置面板：
+      // 设置打开频率相对较低，放在最后，避免抢占启动阶段的资源。
     schedulePrefetch(450, () => {
       if (SettingsViewComp) {
         return

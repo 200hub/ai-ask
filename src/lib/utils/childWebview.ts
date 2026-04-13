@@ -92,12 +92,28 @@ export async function calculateChildWebviewBounds(
     const headerHeight = layoutElements.header?.offsetHeight ?? 44
     const mainContentRect = layoutElements.mainContent?.getBoundingClientRect()
 
-    const contentOffsetLeft = mainContentRect?.left ?? sidebarWidth
-    const contentOffsetTop = mainContentRect?.top ?? headerHeight
-    const contentWidth
-      = mainContentRect?.width ?? Math.max(0, innerSize.width / scaleFactor - contentOffsetLeft)
-    const contentHeight
-      = mainContentRect?.height ?? Math.max(0, innerSize.height / scaleFactor - contentOffsetTop)
+    // 保护性边界计算：
+    // 某些时机（窗口恢复/首次布局）mainContentRect 可能短暂返回异常值（例如 left=0），
+    // 这会导致子 WebView 覆盖侧边栏和设置区域并拦截点击。
+    const rawLeft = mainContentRect?.left ?? sidebarWidth
+    const rawTop = mainContentRect?.top ?? headerHeight
+    const rawWidth
+      = mainContentRect?.width ?? Math.max(0, innerSize.width / scaleFactor - rawLeft)
+    const rawHeight
+      = mainContentRect?.height ?? Math.max(0, innerSize.height / scaleFactor - rawTop)
+
+    const windowWidthLogical = Math.max(0, innerSize.width / scaleFactor)
+    const windowHeightLogical = Math.max(0, innerSize.height / scaleFactor)
+
+    // 至少不小于侧边栏/头部偏移，避免盖住左侧平台栏与顶部区域
+    const contentOffsetLeft = Math.max(sidebarWidth, rawLeft)
+    const contentOffsetTop = Math.max(headerHeight, rawTop)
+
+    // 尺寸也要与窗口可用区域进行夹紧，防止超出并覆盖其他区域
+    const maxWidth = Math.max(0, windowWidthLogical - contentOffsetLeft)
+    const maxHeight = Math.max(0, windowHeightLogical - contentOffsetTop)
+    const contentWidth = Math.min(Math.max(0, rawWidth), maxWidth)
+    const contentHeight = Math.min(Math.max(0, rawHeight), maxHeight)
 
     return {
       positionLogical: {

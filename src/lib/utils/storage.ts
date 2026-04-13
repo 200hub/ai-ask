@@ -1,11 +1,17 @@
 import type { AppConfig, ProxyConfig } from '../types/config'
+import type { DesktopNote, DesktopNoteBounds, DesktopNoteColor, DesktopNoteSyncState } from '../types/desktop-note'
 import type { AIPlatform, TranslationPlatform } from '../types/platform'
 /**
  * 存储工具类 - 用于配置的持久化
  */
 import { Store } from '@tauri-apps/plugin-store'
 import { DEFAULT_CONFIG } from '../types/config'
-import { BUILT_IN_AI_PLATFORMS, BUILT_IN_TRANSLATION_PLATFORMS } from './constants'
+import {
+  BUILT_IN_AI_PLATFORMS,
+  BUILT_IN_TRANSLATION_PLATFORMS,
+  DESKTOP_NOTE_COLOR_PRESETS,
+  DESKTOP_NOTES,
+} from './constants'
 import { logger } from './logger'
 
 /**
@@ -16,6 +22,122 @@ const STORAGE_KEYS = {
   AI_PLATFORMS: 'ai_platforms',
   TRANSLATION_PLATFORMS: 'translation_platforms',
   CUSTOM_PLATFORMS: 'custom_platforms',
+  DESKTOP_NOTES: 'desktop_notes',
+}
+
+const DESKTOP_NOTE_COLOR_IDS = new Set<DesktopNoteColor>(
+  DESKTOP_NOTE_COLOR_PRESETS.map(item => item.id),
+)
+
+function normalizeDesktopNoteColor(value: unknown): DesktopNoteColor {
+  if (typeof value === 'string' && DESKTOP_NOTE_COLOR_IDS.has(value as DesktopNoteColor)) {
+    return value as DesktopNoteColor
+  }
+
+  return DESKTOP_NOTES.DEFAULT_COLOR as DesktopNoteColor
+}
+
+function normalizeNoteBounds(value: unknown): DesktopNoteBounds {
+  const candidate = value as Partial<DesktopNoteBounds> | null | undefined
+  const width = Number(candidate?.width)
+  const height = Number(candidate?.height)
+  const x = Number(candidate?.x)
+  const y = Number(candidate?.y)
+
+  const bounds: DesktopNoteBounds = {
+    width: Number.isFinite(width) ? Math.max(DESKTOP_NOTES.MIN_WIDTH, width) : DESKTOP_NOTES.DEFAULT_WIDTH,
+    height: Number.isFinite(height) ? Math.max(DESKTOP_NOTES.MIN_HEIGHT, height) : DESKTOP_NOTES.DEFAULT_HEIGHT,
+    x: Number.isFinite(x) ? x : DESKTOP_NOTES.DEFAULT_OFFSET_X,
+    y: Number.isFinite(y) ? y : DESKTOP_NOTES.DEFAULT_OFFSET_Y,
+  }
+
+  // 保留屏幕参考尺寸（用于跨分辨率/DPI 等比缩放）
+  const refW = Number(candidate?.refScreenWidth)
+  const refH = Number(candidate?.refScreenHeight)
+  if (Number.isFinite(refW) && refW > 0) {
+    bounds.refScreenWidth = refW
+  }
+  if (Number.isFinite(refH) && refH > 0) {
+    bounds.refScreenHeight = refH
+  }
+
+  return bounds
+}
+
+function normalizeDesktopNoteSync(value: unknown): DesktopNoteSyncState {
+  const candidate = value as Partial<DesktopNoteSyncState> | null | undefined
+  const lastSyncedAt = typeof candidate?.lastSyncedAt === 'number' && Number.isFinite(candidate.lastSyncedAt)
+    ? candidate.lastSyncedAt
+    : null
+
+  return {
+    dirty: candidate?.dirty !== false,
+    lastSyncedAt,
+  }
+}
+
+function normalizeDeletedAt(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value
+  }
+  // 兼容旧版 sync.deleted 布尔迁移：如果旧数据有 deleted=true，转为时间戳
+  return null
+}
+
+function createDefaultDesktopNote(partial?: Partial<DesktopNote>): DesktopNote {
+  const now = Date.now()
+
+  // 兼容旧版数据迁移：从 sync.deleted + sync.issueNumber 等字段迁移
+  const legacySync = partial?.sync as Record<string, unknown> | undefined
+  let deletedAt = normalizeDeletedAt(partial?.deletedAt)
+  if (!deletedAt && legacySync?.deleted === true) {
+    deletedAt = now // 旧版 deleted=true → 转为软删除时间戳
+  }
+
+  return {
+    id: partial?.id ?? `note-${now}`,
+    title: partial?.title ?? '',
+    content: partial?.content ?? '',
+    color: normalizeDesktopNoteColor(partial?.color),
+    visible: partial?.visible ?? true,
+    bounds: normalizeNoteBounds(partial?.bounds),
+    createdAt: partial?.createdAt ?? now,
+    updatedAt: partial?.updatedAt ?? now,
+    deletedAt,
+    sync: normalizeDesktopNoteSync(partial?.sync),
+  }
+}
+
+function normalizeDesktopNotes(value: unknown): DesktopNote[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const normalized = value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null
+      }
+
+      const candidate = entry as Partial<DesktopNote>
+      if (typeof candidate.id !== 'string' || candidate.id.trim().length === 0) {
+        return null
+      }
+
+      return createDefaultDesktopNote(candidate)
+    })
+    .filter((item): item is DesktopNote => item !== null)
+
+  // 以 id 去重：保留 updatedAt 更新的那条，避免重复 key 触发 Svelte each_key_duplicate
+  const deduped = new Map<string, DesktopNote>()
+  for (const note of normalized) {
+    const existing = deduped.get(note.id)
+    if (!existing || note.updatedAt >= existing.updatedAt) {
+      deduped.set(note.id, note)
+    }
+  }
+
+  return Array.from(deduped.values())
 }
 
 function normalizeProxyConfig(
@@ -237,6 +359,43 @@ export async function updateConfig(updates: Partial<AppConfig>): Promise<AppConf
   }
   catch (error) {
     logger.error('Failed to update config', error)
+    throw error
+  }
+}
+
+/**
+ * 获取桌面便签列表
+ */
+export async function getDesktopNotes(): Promise<DesktopNote[]> {
+  try {
+    const storeInstance = await initStore()
+    const raw = await storeInstance.get<DesktopNote[]>(STORAGE_KEYS.DESKTOP_NOTES)
+    const normalized = normalizeDesktopNotes(raw)
+
+    if (JSON.stringify(raw ?? []) !== JSON.stringify(normalized)) {
+      await saveDesktopNotes(normalized)
+    }
+
+    return normalized
+  }
+  catch (error) {
+    logger.error('Failed to get desktop notes', error)
+    return []
+  }
+}
+
+/**
+ * 保存桌面便签列表
+ */
+export async function saveDesktopNotes(notes: DesktopNote[]): Promise<void> {
+  try {
+    const normalized = normalizeDesktopNotes(notes)
+    const storeInstance = await initStore()
+    await storeInstance.set(STORAGE_KEYS.DESKTOP_NOTES, normalized)
+    await storeInstance.save()
+  }
+  catch (error) {
+    logger.error('Failed to save desktop notes', error)
     throw error
   }
 }

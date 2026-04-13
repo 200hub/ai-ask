@@ -135,6 +135,10 @@
    */
   async function showPlatformWebview(platform: AIPlatform, expectedSequence: number) {
     try {
+      if (appState.currentView !== 'chat') {
+        return
+      }
+
       appState.setWebviewLoading(true)
       const start = Date.now()
 
@@ -150,6 +154,10 @@
 
       // 1. 隐藏其他平台的WebView
       await hideOtherWebviews(platform.id)
+
+      if (appState.currentView !== 'chat') {
+        return
+      }
 
       // 再次检查序列号
       if (platformSwitchSequence !== expectedSequence) {
@@ -191,6 +199,11 @@
           await webview.waitForLoadFinished()
         }
 
+        if (appState.currentView !== 'chat') {
+          await webview.hide().catch(() => {})
+          return
+        }
+
         // 再次检查序列号
         if (platformSwitchSequence !== expectedSequence) {
           logger.debug('Platform switch cancelled after load finished', { platform: platform.name })
@@ -222,6 +235,10 @@
         const bounds = await calculateChildWebviewBounds(mainWindow)
         await webview.updateBounds(bounds)
 
+        if (appState.currentView !== 'chat') {
+          return
+        }
+
         // 检查序列号
         if (platformSwitchSequence !== expectedSequence) {
           logger.debug('Platform switch cancelled after bounds update', { platform: platform.name })
@@ -231,6 +248,11 @@
 
       // 3. 显示窗口并获取焦点
       await webview.show()
+
+      if (appState.currentView !== 'chat') {
+        await webview.hide().catch(() => {})
+        return
+      }
 
       // 检查序列号
       if (platformSwitchSequence !== expectedSequence) {
@@ -274,7 +296,7 @@
       logger.error('Failed to show AI platform WebView', { platform: platform.name, error })
 
       // 只有在序列号匹配时才显示错误
-      if (platformSwitchSequence === expectedSequence) {
+      if (platformSwitchSequence === expectedSequence && appState.currentView === 'chat') {
         appState.setError(t('chat.loadError'))
         appState.setWebviewLoading(false)
       }

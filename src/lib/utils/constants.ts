@@ -313,7 +313,7 @@ export const TIMING = {
  */
 export const NETWORK = {
   /** 代理测试目标 URL */
-  PROXY_TEST_URL: 'https://www.example.com',
+  PROXY_TEST_URL: 'https://www.google.com',
   /** HTTP 重定向限制次数 */
   HTTP_REDIRECT_LIMIT: 5,
 } as const
@@ -340,6 +340,68 @@ export const EVENTS = {
   CHILD_WEBVIEW_INJECTION_RESULT: 'child-webview:injection-result',
   /** 划词工具栏临时禁用状态更新事件 */
   SELECTION_TOOLBAR_TEMP_DISABLE_CHANGED: 'selection-toolbar:temporary-disable-changed',
+  /** 请求主窗口打开便签事件 */
+  DESKTOP_NOTES_OPEN: 'desktop-notes:open',
+} as const
+
+/**
+ * 桌面便签颜色预设
+ */
+export const DESKTOP_NOTE_COLOR_PRESETS = [
+  { id: 'sunny', name: 'Sunny', background: '#FFF4B5', accent: '#E5B300', text: '#3A2A00' },
+  { id: 'mint', name: 'Mint', background: '#DDF8E8', accent: '#23A56B', text: '#123A27' },
+  { id: 'sky', name: 'Sky', background: '#DDEEFF', accent: '#2B78E4', text: '#102A43' },
+  { id: 'lavender', name: 'Lavender', background: '#EEE6FF', accent: '#7C4DFF', text: '#28185A' },
+  { id: 'rose', name: 'Rose', background: '#FFE2EA', accent: '#E64980', text: '#5B1830' },
+  { id: 'slate', name: 'Slate', background: '#E6ECF5', accent: '#52667A', text: '#1E2933' },
+] as const
+
+/**
+ * 桌面便签默认配置
+ */
+export const DESKTOP_NOTES = {
+  DEFAULT_WIDTH: 320,
+  DEFAULT_HEIGHT: 280,
+  MIN_WIDTH: 240,
+  MIN_HEIGHT: 180,
+  DEFAULT_OFFSET_X: 120,
+  DEFAULT_OFFSET_Y: 120,
+  DEFAULT_COLOR: 'sunny',
+  /** 默认参考屏幕逻辑宽度（测试/SSR 环境无 screen 对象时的回退值） */
+  DEFAULT_SCREEN_WIDTH: 1920,
+  /** 默认参考屏幕逻辑高度（测试/SSR 环境无 screen 对象时的回退值） */
+  DEFAULT_SCREEN_HEIGHT: 1080,
+  WINDOW_LABEL_PREFIX: 'desktop-note-',
+  WINDOW_ROUTE: '/sticky-note',
+  SAVE_DEBOUNCE_MS: 250,
+  SYNC_DEBOUNCE_MS: 800,
+  MAX_NOTES_PER_SYNC: 100,
+  /** 设置页面轮询刷新间隔（毫秒），用于与便签窗口同步数据 */
+  SETTINGS_REFRESH_INTERVAL_MS: 2000,
+} as const
+
+/**
+ * Supabase 同步相关常量
+ *
+ * URL 和 ANON_KEY 是项目级公开值（Supabase 官方设计），安全性由 RLS 策略保证。
+ * 所有用户共享同一个 Supabase 后端，无需用户手动配置。
+ *
+ * 开发者首次部署时运行 `pnpm supabase:setup` 自动填入实际值，
+ * 填入后提交代码，打包后用户即可直接使用。
+ */
+export const SUPABASE = {
+  /** Supabase 项目 URL（公开值，打包前由开发者填入） */
+  URL: 'https://jgmstgqtnfrzlranycvc.supabase.co',
+  /** Supabase Anon Key（公开值，打包前由开发者填入） */
+  ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpnbXN0Z3F0bmZyemxyYW55Y3ZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwNzY2NTIsImV4cCI6MjA5MTY1MjY1Mn0.YiKgzynPwNWzZLW_RFf0wxgC_NSnZdAZ3b6_9ucn-G0',
+  /** desktop_notes 表名 */
+  NOTES_TABLE: 'desktop_notes',
+  /** 软删除记录物理清理天数 */
+  SOFT_DELETE_RETENTION_DAYS: 30,
+  /** 密码重置回调 URL（Supabase 默认重定向页面） */
+  PASSWORD_RESET_REDIRECT_URL: '',
+  /** 密码最小长度 */
+  PASSWORD_MIN_LENGTH: 6,
 } as const
 
 /**

@@ -7,6 +7,7 @@
   import { i18n } from '$lib/i18n'
   import { appState } from '$lib/stores/app.svelte'
   import { configStore } from '$lib/stores/config.svelte'
+  import { desktopNotesStore } from '$lib/stores/desktop-notes.svelte'
   import { platformsStore } from '$lib/stores/platforms.svelte'
   import { translationStore } from '$lib/stores/translation.svelte'
   import { copyTextToClipboard } from '$lib/utils/clipboard'
@@ -190,8 +191,12 @@
   async function initializeStores() {
     try {
       await configStore.init()
+      await desktopNotesStore.init()
       await platformsStore.init()
       await translationStore.init()
+
+      await desktopNotesStore.refreshSession()
+      desktopNotesStore.startAuthListener()
 
       const translatorId = configStore.config.currentTranslator
       if (translatorId) {
@@ -209,6 +214,31 @@
         if (platform && platform.enabled) {
           appState.switchToChatView(platform)
         }
+      }
+
+      if (configStore.config.desktopNotesEnabled) {
+        // 启动时：如果开启同步且已认证，先执行同步（以远端数据为准，关闭前已同步到 Supabase）
+        if (
+          configStore.config.desktopNotesSyncEnabled
+          && desktopNotesStore.session.authenticated
+        ) {
+          try {
+            const result = await desktopNotesStore.syncWithSupabase({
+              preferRemote: true,
+              fullPull: true,
+            })
+            logger.info('Startup desktop notes sync completed', {
+              pushed: result.pushed,
+              pulled: result.pulled,
+            })
+          }
+          catch (error) {
+            logger.warn('Startup desktop notes sync failed', error)
+          }
+        }
+
+        // 同步后恢复窗口（包含远端同步下来的新便签），确保即使同步失败也能恢复本地便签
+        await desktopNotesStore.restoreVisibleWindows({ recoverHidden: true })
       }
 
       // 预加载默认平台（异步，不阻塞初始化）

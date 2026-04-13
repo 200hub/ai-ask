@@ -330,6 +330,27 @@ class ConfigStore {
   }
 
   /**
+   * 设置桌面便签总开关
+   */
+  async setDesktopNotesEnabled(enabled: boolean) {
+    await this.update({ desktopNotesEnabled: enabled })
+  }
+
+  /**
+   * 设置桌面便签同步开关
+   */
+  async setDesktopNotesSyncEnabled(enabled: boolean) {
+    await this.update({ desktopNotesSyncEnabled: enabled })
+  }
+
+  /**
+   * 更新桌面便签最近同步时间
+   */
+  async setDesktopNotesLastSyncedAt(timestamp: number | null) {
+    await this.update({ desktopNotesLastSyncedAt: timestamp })
+  }
+
+  /**
    * 设置窗口尺寸
    */
   async setWindowSize(width: number, height: number) {
