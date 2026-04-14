@@ -53,7 +53,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 9
+          version: 10
       
       # 检查当前版本是否已有对应 tag
       - name: Check if version changed
@@ -83,10 +83,10 @@ jobs:
           # 检查 lockfile 是否存在
           if [ -f "pnpm-lock.yaml" ]; then
             echo "Installing with frozen lockfile..."
-            pnpm install --frozen-lockfile --config.only-built-dependencies=esbuild
+            pnpm install --frozen-lockfile
           else
             echo "No lockfile found, installing without freeze..."
-            pnpm install --no-frozen-lockfile --config.only-built-dependencies=esbuild
+            pnpm install --no-frozen-lockfile
           fi
       
       # 同步版本号到其他文件
