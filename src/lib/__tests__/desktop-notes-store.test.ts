@@ -338,4 +338,99 @@ describe('scaleBoundsForScreen', () => {
       configurable: true,
     })
   })
+
+  it('should clamp bounds when note is completely below screen (y > screenHeight)', () => {
+    // 模拟问题场景：便签 y=1788 超出 1440 高度的屏幕
+    Object.defineProperty(globalThis, 'screen', {
+      value: { width: 2560, height: 1440 },
+      configurable: true,
+    })
+
+    const bounds = {
+      x: 2059,
+      y: 1788,
+      width: 874,
+      height: 628,
+      refScreenWidth: 2560,
+      refScreenHeight: 1440,
+    }
+    const result = scaleBoundsForScreen(bounds)
+
+    // y 应被约束到屏幕内可见区域（screenH - MIN_VISIBLE_PORTION = 1440 - 80 = 1360）
+    expect(result.y).toBeLessThanOrEqual(1440 - 80)
+    // x 也应被约束（2059 + 874 > 2560，但 x=2059 < 2560 - 80=2480，所以 x 不需要约束）
+    // 但 x=2059 < 2560-80=2480，x 没超出右边界
+    expect(result.x).toBeLessThanOrEqual(2560 - 80)
+    expect(result.width).toBe(874)
+    expect(result.height).toBe(628)
+
+    Object.defineProperty(globalThis, 'screen', {
+      value: { width: 0, height: 0 },
+      configurable: true,
+    })
+  })
+
+  it('should clamp bounds when note is off-screen to the right', () => {
+    Object.defineProperty(globalThis, 'screen', {
+      value: { width: 1920, height: 1080 },
+      configurable: true,
+    })
+
+    const bounds = {
+      x: 1900,
+      y: 100,
+      width: 320,
+      height: 280,
+      refScreenWidth: 1920,
+      refScreenHeight: 1080,
+    }
+    const result = scaleBoundsForScreen(bounds)
+
+    // x=1900 > 1920-80=1840 → 应被约束到 1840
+    expect(result.x).toBe(1920 - 80)
+    expect(result.y).toBe(100)
+
+    Object.defineProperty(globalThis, 'screen', {
+      value: { width: 0, height: 0 },
+      configurable: true,
+    })
+  })
+
+  it('should clamp bounds when note is off-screen to the left or top', () => {
+    Object.defineProperty(globalThis, 'screen', {
+      value: { width: 1920, height: 1080 },
+      configurable: true,
+    })
+
+    const bounds = {
+      x: -400,
+      y: -300,
+      width: 320,
+      height: 280,
+      refScreenWidth: 1920,
+      refScreenHeight: 1080,
+    }
+    const result = scaleBoundsForScreen(bounds)
+
+    // x + width = -400 + 320 = -80，等于 minVisible 的负数 → 刚好在边界
+    // x + width < 80 → x 应被约束到 80 - 320 = -240
+    expect(result.x + result.width).toBeGreaterThanOrEqual(80)
+    expect(result.y + result.height).toBeGreaterThanOrEqual(80)
+
+    Object.defineProperty(globalThis, 'screen', {
+      value: { width: 0, height: 0 },
+      configurable: true,
+    })
+  })
+
+  it('should clamp bounds for old data without refScreen that is off-screen', () => {
+    // 旧数据无 refScreenWidth/refScreenHeight，但位置超出屏幕
+    // 默认屏幕回退到 1920x1080
+    const bounds = { x: 2000, y: 1200, width: 320, height: 280 }
+    const result = scaleBoundsForScreen(bounds)
+
+    // 应被约束到默认屏幕 1920x1080 内
+    expect(result.x).toBeLessThanOrEqual(1920 - 80)
+    expect(result.y).toBeLessThanOrEqual(1080 - 80)
+  })
 })

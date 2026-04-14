@@ -364,6 +364,8 @@ export const DESKTOP_NOTES = {
   DEFAULT_HEIGHT: 280,
   MIN_WIDTH: 240,
   MIN_HEIGHT: 180,
+  /** 窗口在屏幕边缘至少可见的像素数（用于边界约束） */
+  MIN_VISIBLE_PORTION: 80,
   DEFAULT_OFFSET_X: 120,
   DEFAULT_OFFSET_Y: 120,
   DEFAULT_COLOR: 'sunny',

@@ -60,27 +60,61 @@ function getScreenLogicalSize(): { width: number, height: number } {
 }
 
 /**
+ * 将 bounds 约束到当前屏幕可见区域内：
+ * - 保证窗口至少有 MIN_VISIBLE_PORTION 像素在屏幕内可见
+ * - 超出屏幕边界时自动拉回
+ */
+function clampBoundsToScreen(bounds: DesktopNoteBounds): DesktopNoteBounds {
+  const { width: screenW, height: screenH } = getScreenLogicalSize()
+
+  // 确保窗口至少有一部分在屏幕内可见
+  const minVisible = DESKTOP_NOTES.MIN_VISIBLE_PORTION
+  let { x, y } = bounds
+  const { width, height } = bounds
+
+  // 右边界：窗口左边缘不能超出 screenW - minVisible
+  if (x > screenW - minVisible) {
+    x = screenW - minVisible
+  }
+  // 下边界：窗口上边缘不能超出 screenH - minVisible
+  if (y > screenH - minVisible) {
+    y = screenH - minVisible
+  }
+  // 左边界：窗口右边缘不能小于 minVisible
+  if (x + width < minVisible) {
+    x = minVisible - width
+  }
+  // 上边界：窗口下边缘不能小于 minVisible
+  if (y + height < minVisible) {
+    y = minVisible - height
+  }
+
+  return { ...bounds, x: Math.round(x), y: Math.round(y) }
+}
+
+/**
  * 按屏幕比例缩放 bounds：将存储的 bounds 根据保存时屏幕尺寸
  * 等比缩放到当前屏幕尺寸，确保不同分辨率/DPI 下便签位置和大小一致。
+ * 缩放后会将窗口约束到屏幕可见区域内，防止便签出现在屏幕外。
  */
 export function scaleBoundsForScreen(bounds: DesktopNoteBounds): DesktopNoteBounds {
   const { refScreenWidth, refScreenHeight } = bounds
   if (!refScreenWidth || !refScreenHeight) {
-    // 旧数据无参考屏幕尺寸，直接使用原始值
-    return bounds
+    // 旧数据无参考屏幕尺寸，直接使用原始值，但仍需约束到屏幕内
+    return clampBoundsToScreen(bounds)
   }
 
   const { width: curW, height: curH } = getScreenLogicalSize()
 
-  // 屏幕尺寸未变，无需缩放
+  // 屏幕尺寸未变，无需缩放，但仍需约束到屏幕内
   if (curW === refScreenWidth && curH === refScreenHeight) {
-    return bounds
+    return clampBoundsToScreen(bounds)
   }
 
   const scaleX = curW / refScreenWidth
   const scaleY = curH / refScreenHeight
 
-  return {
+  const scaled: DesktopNoteBounds = {
     x: Math.round(bounds.x * scaleX),
     y: Math.round(bounds.y * scaleY),
     width: Math.max(Math.round(bounds.width * scaleX), DESKTOP_NOTES.MIN_WIDTH),
@@ -88,6 +122,8 @@ export function scaleBoundsForScreen(bounds: DesktopNoteBounds): DesktopNoteBoun
     refScreenWidth: curW,
     refScreenHeight: curH,
   }
+
+  return clampBoundsToScreen(scaled)
 }
 
 function createDefaultBounds(index: number): DesktopNoteBounds {
