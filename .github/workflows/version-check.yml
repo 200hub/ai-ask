@@ -4,8 +4,8 @@ name: Version Check and Auto Release
 #
 # 工作流程：
 #   1. 监听 main 分支的 push 事件
-#   2. 检查 src-tauri/tauri.conf.json 是否有变更
-#   3. 如果版本号发生变化，自动同步到其他文件
+#   2. 检查 src-tauri/tauri.conf.json 的版本是否已有对应 tag
+#   3. 如果没有对应 tag，自动同步版本号到其他文件
 #   4. 创建新的版本 tag
 #   5. 触发 release 工作流
 #
@@ -41,42 +41,41 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
-          fetch-depth: 2  # 需要至少两个 commit 来比较变更
+          fetch-depth: 0  # 需要完整历史和 tag 来做版本发布判断
+          fetch-tags: true
           token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}  # 使用 PAT 以触发后续工作流
       
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
       
       - name: Setup pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v6
         with:
           version: 9
       
-      # 检查版本号是否有变化
+      # 检查当前版本是否已有对应 tag
       - name: Check if version changed
         id: version-check
         run: |
-          # 获取当前版本
+          # 获取当前版本（单一真实来源）
           CURRENT_VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
           echo "Current version: $CURRENT_VERSION"
-          
-          # 使用 git show 获取上一个 commit 的版本（不改变工作区）
-          PREVIOUS_VERSION=$(git show HEAD~1:src-tauri/tauri.conf.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8')).version" 2>/dev/null || echo "none")
-          
-          echo "Previous version: $PREVIOUS_VERSION"
-          
-          # 检查版本是否变化
-          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+
+          # 与 tag 比对：存在 v{version} 或 {version} 视为已发布
+          VERSION_TAG="v${CURRENT_VERSION}"
+          echo "Checking tags: ${VERSION_TAG} (fallback: ${CURRENT_VERSION})"
+
+          if git rev-parse "${VERSION_TAG}" >/dev/null 2>&1 || git rev-parse "${CURRENT_VERSION}" >/dev/null 2>&1; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version already released by tag, skip sync/tag creation"
+          else
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-            echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "Version unchanged: $CURRENT_VERSION"
+            echo "No release tag found for $CURRENT_VERSION, continue release flow"
           fi
       
       # 安装依赖（仅在版本变更时）
