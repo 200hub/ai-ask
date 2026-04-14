@@ -170,6 +170,16 @@
       await desktopNotesStore.init()
       applyTheme(configStore.config.theme)
 
+      // 诊断：确认便签窗口初始化后是否能找到对应便签
+      const foundNote = noteId ? desktopNotesStore.getNoteById(noteId) : null
+      if (!foundNote && noteId) {
+        logger.warn('Sticky note window: note not found after init', {
+          noteId,
+          totalNotes: desktopNotesStore.notes.length,
+          noteIds: desktopNotesStore.notes.map(n => n.id),
+        })
+      }
+
       // 刷新认证状态，以便自动同步判断
       void desktopNotesStore.refreshSession()
 

@@ -394,6 +394,13 @@ class DesktopNotesStore {
   async restoreVisibleWindows(options?: { recoverHidden?: boolean }) {
     const recoverHidden = options?.recoverHidden ?? false
     const toRestore = recoverHidden ? this.activeNotes : this.visibleNotes
+    logger.info('Restoring desktop note windows', {
+      recoverHidden,
+      total: this.notes.length,
+      active: this.activeNotes.length,
+      toRestore: toRestore.length,
+      noteIds: toRestore.map(n => n.id),
+    })
     for (const note of toRestore) {
       try {
         await this.openNoteWindow(note.id)
@@ -551,6 +558,12 @@ class DesktopNotesStore {
       // 重新从存储读取最新数据，避免使用本窗口的过期内存快照
       this.notes = await getDesktopNotes()
 
+      logger.info('Sync starting', {
+        localCount: this.notes.length,
+        lastSyncedAt: configStore.config.desktopNotesLastSyncedAt,
+        options,
+      })
+
       const { notes, result } = await performFullSync(
         this.notes,
         configStore.config.desktopNotesLastSyncedAt,
@@ -559,6 +572,12 @@ class DesktopNotesStore {
 
       this.notes = notes
       await this.persistNow()
+
+      logger.info('Sync completed', {
+        mergedCount: notes.length,
+        pushed: result.pushed,
+        pulled: result.pulled,
+      })
 
       // 更新最后同步时间
       await configStore.setDesktopNotesLastSyncedAt(result.syncedAt)

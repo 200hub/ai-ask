@@ -207,6 +207,7 @@ export async function performFullSync(
   // 3. 拉取远端变更
   // 启动时或首次同步使用全量拉取（fullPull 或 lastSyncedAt === null）
   const pullSince = options?.fullPull ? null : lastSyncedAt
+  logger.info('Pulling remote changes', { pullSince, fullPull: !!options?.fullPull, lastSyncedAt })
   const remoteRows = await pullRemoteChanges(pullSince)
 
   // 4. 合并

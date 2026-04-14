@@ -146,9 +146,7 @@ async function waitForWebviewReady(id: string): Promise<void> {
       payload: { id },
     })
     // 添加 500ms 快速超时，IPC 通常很快，如果卡住就假设不存在
-    const timeoutPromise = new Promise<boolean>((resolve) => {
-      setTimeout(() => resolve(false), 500)
-    })
+    const timeoutPromise = new Promise<boolean>(resolve => setTimeout(resolve, 500, false))
     alreadyExists = await Promise.race([checkPromise, timeoutPromise])
   }
   catch (error) {

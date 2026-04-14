@@ -236,7 +236,9 @@
   async function handleSyncNow() {
     isBusy = true
     try {
-      const result = await desktopNotesStore.syncWithSupabase()
+      // 手动同步使用全量拉取，确保能获取到所有远端变更
+      // （增量拉取依赖 lastSyncedAt 过滤，可能遗漏直接在数据库修改的记录）
+      const result = await desktopNotesStore.syncWithSupabase({ fullPull: true })
       authStatus = formatTranslation('desktopNotes.sync.successCount', {
         pushed: result.pushed,
         pulled: result.pulled,
