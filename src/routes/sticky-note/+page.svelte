@@ -511,6 +511,10 @@
         word-break: break-word;
     }
 
+    .note-preview :global(*) {
+      box-sizing: border-box;
+    }
+
     .note-preview :global(h1),
     .note-preview :global(h2),
     .note-preview :global(h3) {
@@ -527,16 +531,91 @@
         padding-left: 1.4rem;
     }
 
+    .note-preview :global(li + li) {
+      margin-top: 0.15rem;
+    }
+
+    .note-preview :global(blockquote) {
+      margin: 0.45rem 0;
+      padding: 0.25rem 0.55rem;
+      border-left: 3px solid color-mix(in srgb, var(--note-accent) 65%, white 20%);
+      background: color-mix(in srgb, var(--note-accent) 8%, white 82%);
+      border-radius: 0.2rem;
+      color: color-mix(in srgb, var(--note-text) 90%, black);
+    }
+
+    .note-preview :global(blockquote p) {
+      margin: 0.2rem 0;
+    }
+
+    .note-preview :global(a) {
+      color: color-mix(in srgb, var(--note-accent) 80%, #1d4ed8 20%);
+      text-decoration: underline;
+      text-underline-offset: 0.12rem;
+      word-break: break-all;
+    }
+
+    .note-preview :global(a:hover) {
+      opacity: 0.9;
+    }
+
+    .note-preview :global(hr) {
+      border: none;
+      border-top: 1px solid color-mix(in srgb, var(--note-accent) 25%, transparent);
+      margin: 0.6rem 0;
+    }
+
+    .note-preview :global(table) {
+      width: 100%;
+      margin: 0.5rem 0;
+      border-collapse: collapse;
+      border: 1px solid color-mix(in srgb, var(--note-accent) 35%, white 40%);
+      font-size: 0.84rem;
+      background: color-mix(in srgb, white 65%, var(--note-bg));
+    }
+
+    .note-preview :global(th),
+    .note-preview :global(td) {
+      border: 1px solid color-mix(in srgb, var(--note-accent) 28%, white 45%);
+      padding: 0.35rem 0.45rem;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .note-preview :global(thead th) {
+      background: color-mix(in srgb, var(--note-accent) 14%, white 75%);
+      font-weight: 600;
+    }
+
+    .note-preview :global(tbody tr:nth-child(even)) {
+      background: color-mix(in srgb, var(--note-accent) 6%, white 82%);
+    }
+
     .note-preview :global(pre) {
         padding: 0.55rem;
         border-radius: 0.4rem;
         background: color-mix(in srgb, var(--note-accent) 8%, white 70%);
         overflow: auto;
         font-size: 0.82rem;
+      border: 1px solid color-mix(in srgb, var(--note-accent) 22%, white 50%);
     }
 
     .note-preview :global(code) {
         font-family: Consolas, 'Courier New', monospace;
+    }
+
+    .note-preview :global(:not(pre) > code) {
+      padding: 0.08rem 0.25rem;
+      border-radius: 0.24rem;
+      background: color-mix(in srgb, var(--note-accent) 10%, white 74%);
+      border: 1px solid color-mix(in srgb, var(--note-accent) 22%, white 55%);
+      font-size: 0.82rem;
+    }
+
+    .note-preview :global(input[type='checkbox']) {
+      margin-right: 0.28rem;
+      accent-color: color-mix(in srgb, var(--note-accent) 85%, #1d4ed8 15%);
+      transform: translateY(1px);
     }
 
     .note-preview :global(.empty-hint) {
