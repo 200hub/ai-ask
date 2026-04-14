@@ -28,8 +28,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'src-tauri/tauri.conf.json'
 
 permissions:
   contents: write  # 需要写权限来创建 tag 和提交变更
@@ -85,10 +83,10 @@ jobs:
           # 检查 lockfile 是否存在
           if [ -f "pnpm-lock.yaml" ]; then
             echo "Installing with frozen lockfile..."
-            pnpm install --frozen-lockfile
+            pnpm install --frozen-lockfile --config.only-built-dependencies=esbuild
           else
             echo "No lockfile found, installing without freeze..."
-            pnpm install --no-frozen-lockfile
+            pnpm install --no-frozen-lockfile --config.only-built-dependencies=esbuild
           fi
       
       # 同步版本号到其他文件
