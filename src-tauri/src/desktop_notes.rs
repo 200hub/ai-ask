@@ -71,8 +71,9 @@ pub async fn ensure_desktop_note_window(
 ) -> Result<(), String> {
     let label = desktop_note_window_label(&payload.note_id);
 
-    // 如果窗口已存在，仅显示并恢复焦点，不重新设置 bounds
+    // 如果窗口已存在，重新设置位置/大小并显示（确保切换屏幕后能正确重定位）
     if let Some(window) = app.get_webview_window(&label) {
+        set_note_window_geometry(&window, &payload.bounds)?;
         window.show().map_err(|error| error.to_string())?;
         return Ok(());
     }

@@ -320,4 +320,17 @@ describe('boundsToPixels & pixelsToBounds', () => {
     expect(on1440p.x).toBe(1280)
     expect(on1440p.y).toBe(720)
   })
+
+  it('should clamp out-of-range percentages to [0, 1]', () => {
+    // 模拟旧数据或副屏便签：百分比 > 1.0 或 < 0 时应被钳位到合法范围
+    const outOfRange = { leftPercent: 1.3, topPercent: -0.1, rightPercent: 1.5, bottomPercent: 0.5 }
+    const result = boundsToPixels(outOfRange, 1920, 1080)
+    // leftPercent clamped to 1.0, topPercent clamped to 0
+    expect(result.x).toBe(1920)
+    expect(result.y).toBe(0)
+    // width = (1.0 - 1.0) * 1920 → 0 → clamped to MIN_WIDTH (240)
+    expect(result.width).toBe(240)
+    // height = (0.5 - 0) * 1080 = 540
+    expect(result.height).toBe(540)
+  })
 })

@@ -61,16 +61,24 @@ function getScreenLogicalSize(): { width: number, height: number } {
 
 /**
  * 将百分比 bounds 转换为绝对像素坐标（用于传递给 Rust 创建窗口）
+ *
+ * 百分比会被钳位到 [0, 1] 范围内，确保便签始终在当前屏幕可见区域内。
+ * 这样即使便签原来在副屏，切换到单屏后也能正确显示。
  */
 export function boundsToPixels(
   bounds: DesktopNoteBounds,
   screenW: number,
   screenH: number,
 ): { x: number, y: number, width: number, height: number } {
-  const x = Math.round(bounds.leftPercent * screenW)
-  const y = Math.round(bounds.topPercent * screenH)
-  const w = Math.max(Math.round((bounds.rightPercent - bounds.leftPercent) * screenW), DESKTOP_NOTES.MIN_WIDTH)
-  const h = Math.max(Math.round((bounds.bottomPercent - bounds.topPercent) * screenH), DESKTOP_NOTES.MIN_HEIGHT)
+  const lp = Math.max(0, Math.min(1, bounds.leftPercent))
+  const tp = Math.max(0, Math.min(1, bounds.topPercent))
+  const rp = Math.max(0, Math.min(1, bounds.rightPercent))
+  const bp = Math.max(0, Math.min(1, bounds.bottomPercent))
+
+  const x = Math.round(lp * screenW)
+  const y = Math.round(tp * screenH)
+  const w = Math.max(Math.round((rp - lp) * screenW), DESKTOP_NOTES.MIN_WIDTH)
+  const h = Math.max(Math.round((bp - tp) * screenH), DESKTOP_NOTES.MIN_HEIGHT)
   return { x, y, width: w, height: h }
 }
 
@@ -355,12 +363,19 @@ class DesktopNotesStore {
   async openNoteWindow(noteId: string) {
     const note = this.getNoteById(noteId)
     if (!note) {
+      logger.warn('Cannot open note window: note not found', { noteId })
       return
     }
 
     // 将百分比 bounds 转换为当前屏幕的绝对像素坐标
     const { width: screenW, height: screenH } = getScreenLogicalSize()
     const pixelBounds = boundsToPixels(note.bounds, screenW, screenH)
+    logger.debug('Opening note window', {
+      noteId,
+      bounds: note.bounds,
+      screen: { width: screenW, height: screenH },
+      pixelBounds,
+    })
     await invoke('ensure_desktop_note_window', {
       payload: {
         noteId: note.id,

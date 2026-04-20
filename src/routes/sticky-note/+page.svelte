@@ -79,21 +79,31 @@
         const logicalSize = physSize.toLogical(scaleFactor)
 
         // 使用当前便签所在显示器的逻辑尺寸作为参考，
-        // 将绝对像素坐标转换为屏幕百分比保存
+        // 将绝对像素坐标转换为屏幕百分比保存。
+        // 注意：outerPosition() 返回全局坐标，需要减去显示器原点得到显示器本地坐标，
+        // 否则副屏便签的百分比会 > 1.0，恢复时位置跑飞。
         let monitorLogicalWidth = screen.width
         let monitorLogicalHeight = screen.height
+        let monitorOriginX = 0
+        let monitorOriginY = 0
         if (monitor) {
           const monitorScale = monitor.scaleFactor ?? scaleFactor
           monitorLogicalWidth = Math.round(monitor.size.width / monitorScale)
           monitorLogicalHeight = Math.round(monitor.size.height / monitorScale)
+          // 显示器原点的逻辑坐标（全局 → 本地偏移量）
+          monitorOriginX = Math.round(monitor.position.x / monitorScale)
+          monitorOriginY = Math.round(monitor.position.y / monitorScale)
         }
 
+        // 全局逻辑坐标 → 显示器本地逻辑坐标
+        const localX = logicalPos.x - monitorOriginX
+        const localY = logicalPos.y - monitorOriginY
         const logicalWidth = Math.max(logicalSize.width, DESKTOP_NOTES.MIN_WIDTH)
         const logicalHeight = Math.max(logicalSize.height, DESKTOP_NOTES.MIN_HEIGHT)
 
         await desktopNotesStore.updateNoteBounds(noteId, pixelsToBounds(
-          logicalPos.x,
-          logicalPos.y,
+          localX,
+          localY,
           logicalWidth,
           logicalHeight,
           monitorLogicalWidth,
