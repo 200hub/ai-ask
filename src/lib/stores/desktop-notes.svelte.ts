@@ -60,82 +60,44 @@ function getScreenLogicalSize(): { width: number, height: number } {
 }
 
 /**
- * 将 bounds 约束到当前屏幕可见区域内：
- * - 保证窗口至少有 MIN_VISIBLE_PORTION 像素在屏幕内可见
- * - 超出屏幕边界时自动拉回
+ * 将百分比 bounds 转换为绝对像素坐标（用于传递给 Rust 创建窗口）
  */
-function clampBoundsToScreen(bounds: DesktopNoteBounds): DesktopNoteBounds {
-  const { width: screenW, height: screenH } = getScreenLogicalSize()
-
-  // 确保窗口至少有一部分在屏幕内可见
-  const minVisible = DESKTOP_NOTES.MIN_VISIBLE_PORTION
-  let { x, y } = bounds
-  const { width, height } = bounds
-
-  // 右边界：窗口左边缘不能超出 screenW - minVisible
-  if (x > screenW - minVisible) {
-    x = screenW - minVisible
-  }
-  // 下边界：窗口上边缘不能超出 screenH - minVisible
-  if (y > screenH - minVisible) {
-    y = screenH - minVisible
-  }
-  // 左边界：窗口右边缘不能小于 minVisible
-  if (x + width < minVisible) {
-    x = minVisible - width
-  }
-  // 上边界：窗口下边缘不能小于 minVisible
-  if (y + height < minVisible) {
-    y = minVisible - height
-  }
-
-  return { ...bounds, x: Math.round(x), y: Math.round(y) }
+export function boundsToPixels(
+  bounds: DesktopNoteBounds,
+  screenW: number,
+  screenH: number,
+): { x: number, y: number, width: number, height: number } {
+  const x = Math.round(bounds.leftPercent * screenW)
+  const y = Math.round(bounds.topPercent * screenH)
+  const w = Math.max(Math.round((bounds.rightPercent - bounds.leftPercent) * screenW), DESKTOP_NOTES.MIN_WIDTH)
+  const h = Math.max(Math.round((bounds.bottomPercent - bounds.topPercent) * screenH), DESKTOP_NOTES.MIN_HEIGHT)
+  return { x, y, width: w, height: h }
 }
 
 /**
- * 按屏幕比例缩放 bounds：将存储的 bounds 根据保存时屏幕尺寸
- * 等比缩放到当前屏幕尺寸，确保不同分辨率/DPI 下便签位置和大小一致。
- * 缩放后会将窗口约束到屏幕可见区域内，防止便签出现在屏幕外。
+ * 将绝对像素坐标转换为百分比 bounds（用于保存便签位置）
  */
-export function scaleBoundsForScreen(bounds: DesktopNoteBounds): DesktopNoteBounds {
-  const { refScreenWidth, refScreenHeight } = bounds
-  if (!refScreenWidth || !refScreenHeight) {
-    // 旧数据无参考屏幕尺寸，直接使用原始值，但仍需约束到屏幕内
-    return clampBoundsToScreen(bounds)
+export function pixelsToBounds(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  screenW: number,
+  screenH: number,
+): DesktopNoteBounds {
+  return {
+    leftPercent: x / screenW,
+    topPercent: y / screenH,
+    rightPercent: (x + width) / screenW,
+    bottomPercent: (y + height) / screenH,
   }
-
-  const { width: curW, height: curH } = getScreenLogicalSize()
-
-  // 屏幕尺寸未变，无需缩放，但仍需约束到屏幕内
-  if (curW === refScreenWidth && curH === refScreenHeight) {
-    return clampBoundsToScreen(bounds)
-  }
-
-  const scaleX = curW / refScreenWidth
-  const scaleY = curH / refScreenHeight
-
-  const scaled: DesktopNoteBounds = {
-    x: Math.round(bounds.x * scaleX),
-    y: Math.round(bounds.y * scaleY),
-    width: Math.max(Math.round(bounds.width * scaleX), DESKTOP_NOTES.MIN_WIDTH),
-    height: Math.max(Math.round(bounds.height * scaleY), DESKTOP_NOTES.MIN_HEIGHT),
-    refScreenWidth: curW,
-    refScreenHeight: curH,
-  }
-
-  return clampBoundsToScreen(scaled)
 }
 
 function createDefaultBounds(index: number): DesktopNoteBounds {
   const { width: sw, height: sh } = getScreenLogicalSize()
-  return {
-    x: DESKTOP_NOTES.DEFAULT_OFFSET_X + index * 24,
-    y: DESKTOP_NOTES.DEFAULT_OFFSET_Y + index * 24,
-    width: DESKTOP_NOTES.DEFAULT_WIDTH,
-    height: DESKTOP_NOTES.DEFAULT_HEIGHT,
-    refScreenWidth: sw,
-    refScreenHeight: sh,
-  }
+  const x = DESKTOP_NOTES.DEFAULT_OFFSET_X + index * 24
+  const y = DESKTOP_NOTES.DEFAULT_OFFSET_Y + index * 24
+  return pixelsToBounds(x, y, DESKTOP_NOTES.DEFAULT_WIDTH, DESKTOP_NOTES.DEFAULT_HEIGHT, sw, sh)
 }
 
 function createEmptyNote(index: number): DesktopNote {
@@ -384,7 +346,7 @@ class DesktopNotesStore {
   }
 
   async updateNoteBounds(noteId: string, bounds: DesktopNoteBounds) {
-    // bounds 变更标记 dirty，以便同步到 Supabase（含屏幕参考尺寸 refScreenWidth/refScreenHeight）
+    // bounds 变更标记 dirty，以便百分比位置同步到 Supabase
     await this.updateNote(noteId, { bounds })
   }
 
@@ -396,18 +358,19 @@ class DesktopNotesStore {
       return
     }
 
-    // 按屏幕比例缩放 bounds：不同分辨率/DPI 下等比还原窗口位置和大小
-    const scaledBounds = scaleBoundsForScreen(note.bounds)
+    // 将百分比 bounds 转换为当前屏幕的绝对像素坐标
+    const { width: screenW, height: screenH } = getScreenLogicalSize()
+    const pixelBounds = boundsToPixels(note.bounds, screenW, screenH)
     await invoke('ensure_desktop_note_window', {
       payload: {
         noteId: note.id,
-        bounds: scaledBounds,
+        bounds: pixelBounds,
       },
     })
 
-    // 仅当 visible 状态需要变更时才更新，且不标记 dirty 避免无谓同步
+    // visible 变更时标记 dirty，同步到 Supabase 以便其他设备知晓打开状态
     if (!note.visible) {
-      await this.updateNote(noteId, { visible: true }, false)
+      await this.updateNote(noteId, { visible: true }, true)
     }
   }
 
@@ -421,7 +384,13 @@ class DesktopNotesStore {
       logger.warn('Failed to close desktop note window', { noteId, error })
     }
 
-    await this.updateNote(noteId, { visible: false }, false)
+    // 标记 dirty 以同步 visible=false 到 Supabase，确保其他设备知晓关闭状态
+    await this.updateNote(noteId, { visible: false }, true)
+
+    // 触发同步以传播关闭状态
+    if (configStore.config.desktopNotesSyncEnabled && this.session.authenticated) {
+      this.queueAutoSync()
+    }
   }
 
   /**
@@ -702,6 +671,22 @@ class DesktopNotesStore {
     this.unsubscribeRealtime = null
   }
 
+  /**
+   * 静默关闭便签窗口（仅关闭 Rust 端窗口，不标记 dirty 避免反向同步环）
+   *
+   * 用于 Realtime 收到远端 visible=false 时关闭本地窗口。
+   */
+  private async closeNoteWindowSilent(noteId: string) {
+    try {
+      await invoke('close_desktop_note_window', {
+        payload: { noteId },
+      })
+    }
+    catch (error) {
+      logger.warn('Failed to close desktop note window (realtime)', { noteId, error })
+    }
+  }
+
   private handleRealtimeInsert(row: DesktopNoteRow) {
     const existing = this.notes.find(n => n.id === row.id)
     if (existing) {
@@ -719,9 +704,16 @@ class DesktopNotesStore {
       return // 本地版本不比远端旧
     }
 
+    const wasVisible = local?.visible ?? false
     const merged = mergeRemoteIntoLocal(this.notes, [row])
     this.notes = merged
     void this.persistNow()
+
+    // 远端将便签设为不可见时，关闭本地窗口（不标记 dirty 避免反向同步环）
+    const updated = this.notes.find(n => n.id === row.id)
+    if (wasVisible && updated && !updated.visible) {
+      void this.closeNoteWindowSilent(row.id)
+    }
   }
 
   private handleRealtimeDelete(row: DesktopNoteRow) {

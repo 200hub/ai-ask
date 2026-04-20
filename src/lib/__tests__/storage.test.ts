@@ -238,7 +238,7 @@ describe('storage utilities', () => {
         content: 'Hello',
         color: 'sky',
         visible: true,
-        bounds: { x: 10, y: 20, width: 200, height: 120 },
+        bounds: { leftPercent: 0.01, topPercent: 0.02, rightPercent: 0.11, bottomPercent: 0.13 },
         createdAt: 1,
         updatedAt: 2,
         sync: { dirty: false, deleted: false },
@@ -251,8 +251,8 @@ describe('storage utilities', () => {
     const notes = await getDesktopNotes()
 
     expect(notes).toHaveLength(1)
-    expect(notes[0].bounds.width).toBeGreaterThanOrEqual(240)
-    expect(notes[0].bounds.height).toBeGreaterThanOrEqual(180)
+    expect(notes[0].bounds.leftPercent).toBe(0.01)
+    expect(notes[0].bounds.rightPercent).toBe(0.11)
     expect(notes[0].color).toBe('sky')
   })
 
@@ -264,7 +264,7 @@ describe('storage utilities', () => {
         content: '- item',
         color: 'mint',
         visible: true,
-        bounds: { x: 30, y: 40, width: 320, height: 280 },
+        bounds: { leftPercent: 0.02, topPercent: 0.04, rightPercent: 0.18, bottomPercent: 0.3 },
         createdAt: 10,
         updatedAt: 11,
         deletedAt: null,

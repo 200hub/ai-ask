@@ -43,7 +43,7 @@ function createTestNote(overrides: Partial<DesktopNote> = {}): DesktopNote {
     content: overrides.content ?? '',
     color: overrides.color ?? 'sunny',
     visible: overrides.visible ?? true,
-    bounds: overrides.bounds ?? { x: 100, y: 100, width: 320, height: 280 },
+    bounds: overrides.bounds ?? { leftPercent: 0.05, topPercent: 0.09, rightPercent: 0.22, bottomPercent: 0.35 },
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
     deletedAt: overrides.deletedAt ?? null,
@@ -83,7 +83,7 @@ describe('desktopNotesStore', () => {
 
       await desktopNotesStore.init()
 
-      const newBounds = { x: 200, y: 200, width: 400, height: 350 }
+      const newBounds = { leftPercent: 0.1, topPercent: 0.18, rightPercent: 0.31, bottomPercent: 0.51 }
       await desktopNotesStore.updateNoteBounds('test-note-1', newBounds)
 
       const updated = desktopNotesStore.getNoteById('test-note-1')
@@ -156,8 +156,17 @@ describe('desktopNotesStore', () => {
       await desktopNotesStore.init()
       await desktopNotesStore.openNoteWindow('test-note-5')
 
+      // 前端将百分比 bounds 转为像素后传给 Rust
       expect(mockInvoke).toHaveBeenCalledWith('ensure_desktop_note_window', {
-        payload: { noteId: 'test-note-5', bounds: note.bounds },
+        payload: {
+          noteId: 'test-note-5',
+          bounds: expect.objectContaining({
+            x: expect.any(Number),
+            y: expect.any(Number),
+            width: expect.any(Number),
+            height: expect.any(Number),
+          }),
+        },
       })
 
       const updated = desktopNotesStore.getNoteById('test-note-5')
@@ -252,185 +261,63 @@ describe('desktopNotesStore', () => {
   })
 })
 
-describe('scaleBoundsForScreen', () => {
-  let scaleBoundsForScreen: (typeof import('$lib/stores/desktop-notes.svelte'))['scaleBoundsForScreen']
+describe('boundsToPixels & pixelsToBounds', () => {
+  let boundsToPixels: (typeof import('$lib/stores/desktop-notes.svelte'))['boundsToPixels']
+  let pixelsToBounds: (typeof import('$lib/stores/desktop-notes.svelte'))['pixelsToBounds']
 
   beforeEach(async () => {
-    ({ scaleBoundsForScreen } = await import('$lib/stores/desktop-notes.svelte'))
+    ({ boundsToPixels, pixelsToBounds } = await import('$lib/stores/desktop-notes.svelte'))
   })
 
-  it('should return bounds unchanged when no refScreen dimensions', () => {
-    const bounds = { x: 100, y: 100, width: 320, height: 280 }
-    const result = scaleBoundsForScreen(bounds)
-    expect(result).toEqual(bounds)
+  it('should convert percentage bounds to pixel coordinates', () => {
+    const bounds = { leftPercent: 0.1, topPercent: 0.2, rightPercent: 0.4, bottomPercent: 0.5 }
+    const result = boundsToPixels(bounds, 1920, 1080)
+    expect(result.x).toBe(192)
+    expect(result.y).toBe(216)
+    expect(result.width).toBe(576)
+    expect(result.height).toBe(324)
   })
 
-  it('should return bounds unchanged when screen size matches ref', () => {
-    // 测试环境 screen.width/height 默认由 jsdom 设置（通常 0），
-    // 回退到 DEFAULT_SCREEN_WIDTH/HEIGHT = 1920x1080
-    const bounds = {
-      x: 100,
-      y: 100,
-      width: 320,
-      height: 280,
-      refScreenWidth: 1920,
-      refScreenHeight: 1080,
-    }
-    const result = scaleBoundsForScreen(bounds)
-    // screen 不可用时回退到默认 1920x1080，与 ref 相同 → 不缩放
-    expect(result).toEqual(bounds)
-  })
-
-  it('should scale bounds proportionally for different screen size', () => {
-    // 模拟从 1920x1080 屏幕保存的 bounds，在 2560x1440 屏幕上还原
-    Object.defineProperty(globalThis, 'screen', {
-      value: { width: 2560, height: 1440 },
-      configurable: true,
-    })
-
-    const bounds = {
-      x: 960,
-      y: 540,
-      width: 320,
-      height: 280,
-      refScreenWidth: 1920,
-      refScreenHeight: 1080,
-    }
-    const result = scaleBoundsForScreen(bounds)
-
-    // scaleX = 2560/1920 ≈ 1.333, scaleY = 1440/1080 ≈ 1.333
-    expect(result.x).toBe(Math.round(960 * (2560 / 1920)))
-    expect(result.y).toBe(Math.round(540 * (1440 / 1080)))
-    expect(result.width).toBe(Math.round(320 * (2560 / 1920)))
-    expect(result.height).toBe(Math.round(280 * (1440 / 1080)))
-    expect(result.refScreenWidth).toBe(2560)
-    expect(result.refScreenHeight).toBe(1440)
-
-    // 清理
-    Object.defineProperty(globalThis, 'screen', {
-      value: { width: 0, height: 0 },
-      configurable: true,
-    })
-  })
-
-  it('should enforce MIN_WIDTH and MIN_HEIGHT when scaling down', () => {
-    Object.defineProperty(globalThis, 'screen', {
-      value: { width: 800, height: 600 },
-      configurable: true,
-    })
-
-    const bounds = {
-      x: 100,
-      y: 100,
-      width: 320,
-      height: 280,
-      refScreenWidth: 3840,
-      refScreenHeight: 2160,
-    }
-    const result = scaleBoundsForScreen(bounds)
-
-    // scaleX = 800/3840 ≈ 0.208 → width = 320*0.208 ≈ 67 → 应 clamp 到 MIN_WIDTH=240
+  it('should enforce MIN_WIDTH and MIN_HEIGHT', () => {
+    // 非常小的百分比区域 → 宽/高不足时应 clamp 到最小值
+    const bounds = { leftPercent: 0.5, topPercent: 0.5, rightPercent: 0.51, bottomPercent: 0.51 }
+    const result = boundsToPixels(bounds, 1920, 1080)
     expect(result.width).toBeGreaterThanOrEqual(240)
     expect(result.height).toBeGreaterThanOrEqual(180)
-
-    Object.defineProperty(globalThis, 'screen', {
-      value: { width: 0, height: 0 },
-      configurable: true,
-    })
   })
 
-  it('should clamp bounds when note is completely below screen (y > screenHeight)', () => {
-    // 模拟问题场景：便签 y=1788 超出 1440 高度的屏幕
-    Object.defineProperty(globalThis, 'screen', {
-      value: { width: 2560, height: 1440 },
-      configurable: true,
-    })
-
-    const bounds = {
-      x: 2059,
-      y: 1788,
-      width: 874,
-      height: 628,
-      refScreenWidth: 2560,
-      refScreenHeight: 1440,
-    }
-    const result = scaleBoundsForScreen(bounds)
-
-    // y 应被约束到屏幕内可见区域（screenH - MIN_VISIBLE_PORTION = 1440 - 80 = 1360）
-    expect(result.y).toBeLessThanOrEqual(1440 - 80)
-    // x 也应被约束（2059 + 874 > 2560，但 x=2059 < 2560 - 80=2480，所以 x 不需要约束）
-    // 但 x=2059 < 2560-80=2480，x 没超出右边界
-    expect(result.x).toBeLessThanOrEqual(2560 - 80)
-    expect(result.width).toBe(874)
-    expect(result.height).toBe(628)
-
-    Object.defineProperty(globalThis, 'screen', {
-      value: { width: 0, height: 0 },
-      configurable: true,
-    })
+  it('should convert pixel coordinates to percentage bounds', () => {
+    const result = pixelsToBounds(192, 216, 576, 324, 1920, 1080)
+    expect(result.leftPercent).toBe(0.1)
+    expect(result.topPercent).toBe(0.2)
+    expect(result.rightPercent).toBe(0.4)
+    expect(result.bottomPercent).toBe(0.5)
   })
 
-  it('should clamp bounds when note is off-screen to the right', () => {
-    Object.defineProperty(globalThis, 'screen', {
-      value: { width: 1920, height: 1080 },
-      configurable: true,
-    })
+  it('should round-trip correctly', () => {
+    const original = { leftPercent: 0.25, topPercent: 0.15, rightPercent: 0.6, bottomPercent: 0.75 }
+    const screenW = 1920
+    const screenH = 1080
+    const pixels = boundsToPixels(original, screenW, screenH)
+    const restored = pixelsToBounds(pixels.x, pixels.y, pixels.width, pixels.height, screenW, screenH)
 
-    const bounds = {
-      x: 1900,
-      y: 100,
-      width: 320,
-      height: 280,
-      refScreenWidth: 1920,
-      refScreenHeight: 1080,
-    }
-    const result = scaleBoundsForScreen(bounds)
-
-    // x=1900 > 1920-80=1840 → 应被约束到 1840
-    expect(result.x).toBe(1920 - 80)
-    expect(result.y).toBe(100)
-
-    Object.defineProperty(globalThis, 'screen', {
-      value: { width: 0, height: 0 },
-      configurable: true,
-    })
+    // 因为 Math.round，可能有微小误差
+    expect(Math.abs(restored.leftPercent - original.leftPercent)).toBeLessThan(0.001)
+    expect(Math.abs(restored.topPercent - original.topPercent)).toBeLessThan(0.001)
+    expect(Math.abs(restored.rightPercent - original.rightPercent)).toBeLessThan(0.001)
+    expect(Math.abs(restored.bottomPercent - original.bottomPercent)).toBeLessThan(0.001)
   })
 
-  it('should clamp bounds when note is off-screen to the left or top', () => {
-    Object.defineProperty(globalThis, 'screen', {
-      value: { width: 1920, height: 1080 },
-      configurable: true,
-    })
+  it('should handle different screen sizes consistently', () => {
+    // 在 1920x1080 保存的百分比，在 2560x1440 上还原
+    const percentBounds = pixelsToBounds(960, 540, 320, 280, 1920, 1080)
+    const on1080p = boundsToPixels(percentBounds, 1920, 1080)
+    const on1440p = boundsToPixels(percentBounds, 2560, 1440)
 
-    const bounds = {
-      x: -400,
-      y: -300,
-      width: 320,
-      height: 280,
-      refScreenWidth: 1920,
-      refScreenHeight: 1080,
-    }
-    const result = scaleBoundsForScreen(bounds)
-
-    // x + width = -400 + 320 = -80，等于 minVisible 的负数 → 刚好在边界
-    // x + width < 80 → x 应被约束到 80 - 320 = -240
-    expect(result.x + result.width).toBeGreaterThanOrEqual(80)
-    expect(result.y + result.height).toBeGreaterThanOrEqual(80)
-
-    Object.defineProperty(globalThis, 'screen', {
-      value: { width: 0, height: 0 },
-      configurable: true,
-    })
-  })
-
-  it('should clamp bounds for old data without refScreen that is off-screen', () => {
-    // 旧数据无 refScreenWidth/refScreenHeight，但位置超出屏幕
-    // 默认屏幕回退到 1920x1080
-    const bounds = { x: 2000, y: 1200, width: 320, height: 280 }
-    const result = scaleBoundsForScreen(bounds)
-
-    // 应被约束到默认屏幕 1920x1080 内
-    expect(result.x).toBeLessThanOrEqual(1920 - 80)
-    expect(result.y).toBeLessThanOrEqual(1080 - 80)
+    // 两个屏幕上的相对位置应一致（即百分比相同），但绝对像素不同
+    expect(on1080p.x).toBe(960)
+    expect(on1080p.y).toBe(540)
+    expect(on1440p.x).toBe(1280)
+    expect(on1440p.y).toBe(720)
   })
 })

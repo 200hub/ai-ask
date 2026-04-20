@@ -3,6 +3,7 @@
 //! 设计目标：
 //! 1. 保持窗口层轻量，只负责创建/更新/关闭便签窗口
 //! 2. 认证与同步由前端通过 Supabase JS SDK 完成，Rust 不参与
+//! 3. 便签位置以屏幕百分比存储在前端，打开时前端转换为像素坐标传入
 
 use serde::Deserialize;
 use tauri::{
@@ -16,7 +17,7 @@ const DESKTOP_NOTE_WINDOW_TITLE: &str = "Sticky Note";
 const DESKTOP_NOTE_MIN_WIDTH: f64 = 240.0;
 const DESKTOP_NOTE_MIN_HEIGHT: f64 = 180.0;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopNoteBoundsPayload {
     x: f64,
@@ -60,6 +61,9 @@ fn set_note_window_geometry(
 }
 
 /// 确保便签窗口存在：已存在则显示，否则创建新窗口
+///
+/// 前端负责将百分比 bounds 转换为当前屏幕的绝对像素坐标，
+/// Rust 端只需按给定坐标创建/显示窗口。
 #[tauri::command]
 pub async fn ensure_desktop_note_window(
     app: AppHandle,

@@ -237,8 +237,8 @@
           }
         }
 
-        // 同步后恢复窗口（包含远端同步下来的新便签），确保即使同步失败也能恢复本地便签
-        await desktopNotesStore.restoreVisibleWindows({ recoverHidden: true })
+        // 同步后恢复窗口：仅恢复 visible=true 的便签（visible 状态已跨设备同步）
+        await desktopNotesStore.restoreVisibleWindows({ recoverHidden: false })
       }
 
       // 预加载默认平台（异步，不阻塞初始化）

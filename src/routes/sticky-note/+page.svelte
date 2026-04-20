@@ -2,7 +2,8 @@
   import type { UnlistenFn } from '@tauri-apps/api/event'
   import { i18n } from '$lib/i18n'
   import { configStore } from '$lib/stores/config.svelte'
-  import { desktopNotesStore } from '$lib/stores/desktop-notes.svelte'
+  import { desktopNotesStore, pixelsToBounds } from '$lib/stores/desktop-notes.svelte'
+
   import {
     DESKTOP_NOTE_COLOR_PRESETS,
     DESKTOP_NOTES,
@@ -11,6 +12,7 @@
   import { logger } from '$lib/utils/logger'
   import { listen } from '@tauri-apps/api/event'
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+  import { currentMonitor } from '@tauri-apps/api/window'
   import { onMount } from 'svelte'
   import '$lib/styles/base.css'
 
@@ -49,7 +51,7 @@
   }
 
   // 几何同步：带暂停保护，避免颜色切换等操作引发意外 bounds 更新；
-  // 同步时记录当前屏幕逻辑尺寸（refScreenWidth/refScreenHeight），便于跨分辨率/DPI 等比还原
+  // 同步时将像素坐标转换为屏幕百分比保存，便于跨分辨率/DPI 自动还原
   function scheduleGeometrySync() {
     if (!noteId || geometryPaused) {
       return
@@ -65,24 +67,38 @@
       }
 
       try {
-        const [physPosition, physSize, scaleFactor] = await Promise.all([
+        const [physPosition, physSize, scaleFactor, monitor] = await Promise.all([
           appWindow.outerPosition(),
           appWindow.innerSize(),
           appWindow.scaleFactor(),
+          currentMonitor(),
         ])
 
         // 转换为逻辑坐标（Rust 端使用 Logical 单位创建窗口）
         const logicalPos = physPosition.toLogical(scaleFactor)
         const logicalSize = physSize.toLogical(scaleFactor)
 
-        await desktopNotesStore.updateNoteBounds(noteId, {
-          x: logicalPos.x,
-          y: logicalPos.y,
-          width: Math.max(logicalSize.width, DESKTOP_NOTES.MIN_WIDTH),
-          height: Math.max(logicalSize.height, DESKTOP_NOTES.MIN_HEIGHT),
-          refScreenWidth: screen.width,
-          refScreenHeight: screen.height,
-        })
+        // 使用当前便签所在显示器的逻辑尺寸作为参考，
+        // 将绝对像素坐标转换为屏幕百分比保存
+        let monitorLogicalWidth = screen.width
+        let monitorLogicalHeight = screen.height
+        if (monitor) {
+          const monitorScale = monitor.scaleFactor ?? scaleFactor
+          monitorLogicalWidth = Math.round(monitor.size.width / monitorScale)
+          monitorLogicalHeight = Math.round(monitor.size.height / monitorScale)
+        }
+
+        const logicalWidth = Math.max(logicalSize.width, DESKTOP_NOTES.MIN_WIDTH)
+        const logicalHeight = Math.max(logicalSize.height, DESKTOP_NOTES.MIN_HEIGHT)
+
+        await desktopNotesStore.updateNoteBounds(noteId, pixelsToBounds(
+          logicalPos.x,
+          logicalPos.y,
+          logicalWidth,
+          logicalHeight,
+          monitorLogicalWidth,
+          monitorLogicalHeight,
+        ))
 
         // 大小/位置变更也需要同步到 Supabase
         triggerAutoSync()

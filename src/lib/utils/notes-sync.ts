@@ -1,4 +1,4 @@
-import type { DesktopNote, DesktopNoteRow, DesktopNotesSyncResult } from '$lib/types/desktop-note'
+import type { DesktopNote, DesktopNoteBounds, DesktopNoteRow, DesktopNotesSyncResult } from '$lib/types/desktop-note'
 /**
  * 便签同步引擎 — Supabase 实现
  *
@@ -8,8 +8,7 @@ import type { DesktopNote, DesktopNoteRow, DesktopNotesSyncResult } from '$lib/t
  * 3. 合并采用 Last-Writer-Wins（以 updatedAt 为准）
  * 4. Realtime 订阅进行增量同步
  *
- * 同步字段：title, content, color, bounds（含 refScreenWidth/refScreenHeight）
- * 纯本地字段：visible（窗口是否打开，不同步）
+ * 同步字段：title, content, color, bounds（百分比格式 + visible 编码）
  */
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
@@ -19,6 +18,9 @@ import { getCurrentUser, getSupabaseClient } from '$lib/utils/supabase'
 
 /**
  * 本地便签 → Supabase 行格式
+ *
+ * visible 状态编码到 bounds JSONB 中（避免 Schema 迁移），
+ * 使关闭/打开状态能跨设备同步。
  */
 function noteToRow(note: DesktopNote, userId: string): DesktopNoteRow {
   return {
@@ -27,7 +29,7 @@ function noteToRow(note: DesktopNote, userId: string): DesktopNoteRow {
     title: note.title,
     content: note.content,
     color: note.color,
-    bounds: note.bounds,
+    bounds: { ...note.bounds, visible: note.visible } as DesktopNoteBounds,
     created_at: note.createdAt,
     updated_at: note.updatedAt,
     deleted_at: note.deletedAt,
@@ -39,25 +41,33 @@ function noteToRow(note: DesktopNote, userId: string): DesktopNoteRow {
  *
  * 字段映射规则：
  * - title/content/color/bounds/createdAt/updatedAt/deletedAt → 直接从远端行赋值
- * - visible → 保留本地窗口状态（不同步），新便签默认 false
- * - bounds → 优先用远端（含 refScreenWidth/refScreenHeight），缺失时复用本地或默认值
+ * - visible → 从远端 bounds JSONB 的 visible 字段读取（跨设备同步关闭/打开状态）；
+ *   旧数据无 visible 字段时：已有本地便签保留本地状态，新便签默认 true（显示）
+ * - bounds → 百分比格式，剔除 visible 字段后赋值
  * - sync → 重置为 dirty=false + 当前时间戳
  */
 function rowToNote(row: DesktopNoteRow, existingLocal?: DesktopNote): DesktopNote {
+  const rawBounds = (row.bounds ?? {}) as DesktopNoteBounds & { visible?: boolean }
+  // 从 bounds JSONB 中提取 visible 状态（跨设备同步用）
+  const remoteVisible = typeof rawBounds.visible === 'boolean' ? rawBounds.visible : undefined
+  // 剔除 visible，保留纯 bounds 字段
+  const { visible: _extracted, ...cleanBounds } = rawBounds
+
+  const bounds: DesktopNoteBounds = {
+    leftPercent: cleanBounds.leftPercent ?? 0,
+    topPercent: cleanBounds.topPercent ?? 0,
+    rightPercent: cleanBounds.rightPercent ?? 0,
+    bottomPercent: cleanBounds.bottomPercent ?? 0,
+  }
+
   return {
     id: row.id,
     title: row.title,
     content: row.content,
     color: row.color as DesktopNote['color'],
-    // visible 是纯本地窗口状态（当前设备是否打开窗口），不从远端覆盖
-    visible: existingLocal?.visible ?? false,
-    // bounds 优先使用远端数据（含 refScreenWidth/refScreenHeight），确保跨设备同步
-    bounds: row.bounds ?? existingLocal?.bounds ?? {
-      x: DESKTOP_NOTES.DEFAULT_OFFSET_X,
-      y: DESKTOP_NOTES.DEFAULT_OFFSET_Y,
-      width: DESKTOP_NOTES.DEFAULT_WIDTH,
-      height: DESKTOP_NOTES.DEFAULT_HEIGHT,
-    },
+    // 远端有明确 visible 状态时使用远端值；否则保留本地状态或默认 true（新便签可见）
+    visible: remoteVisible !== undefined ? remoteVisible : (existingLocal?.visible ?? true),
+    bounds,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,

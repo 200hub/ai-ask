@@ -39,29 +39,17 @@ function normalizeDesktopNoteColor(value: unknown): DesktopNoteColor {
 
 function normalizeNoteBounds(value: unknown): DesktopNoteBounds {
   const candidate = value as Partial<DesktopNoteBounds> | null | undefined
-  const width = Number(candidate?.width)
-  const height = Number(candidate?.height)
-  const x = Number(candidate?.x)
-  const y = Number(candidate?.y)
+  const lp = Number(candidate?.leftPercent)
+  const tp = Number(candidate?.topPercent)
+  const rp = Number(candidate?.rightPercent)
+  const bp = Number(candidate?.bottomPercent)
 
-  const bounds: DesktopNoteBounds = {
-    width: Number.isFinite(width) ? Math.max(DESKTOP_NOTES.MIN_WIDTH, width) : DESKTOP_NOTES.DEFAULT_WIDTH,
-    height: Number.isFinite(height) ? Math.max(DESKTOP_NOTES.MIN_HEIGHT, height) : DESKTOP_NOTES.DEFAULT_HEIGHT,
-    x: Number.isFinite(x) ? x : DESKTOP_NOTES.DEFAULT_OFFSET_X,
-    y: Number.isFinite(y) ? y : DESKTOP_NOTES.DEFAULT_OFFSET_Y,
+  return {
+    leftPercent: Number.isFinite(lp) ? lp : DESKTOP_NOTES.DEFAULT_OFFSET_X / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH,
+    topPercent: Number.isFinite(tp) ? tp : DESKTOP_NOTES.DEFAULT_OFFSET_Y / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT,
+    rightPercent: Number.isFinite(rp) ? rp : (DESKTOP_NOTES.DEFAULT_OFFSET_X + DESKTOP_NOTES.DEFAULT_WIDTH) / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH,
+    bottomPercent: Number.isFinite(bp) ? bp : (DESKTOP_NOTES.DEFAULT_OFFSET_Y + DESKTOP_NOTES.DEFAULT_HEIGHT) / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT,
   }
-
-  // 保留屏幕参考尺寸（用于跨分辨率/DPI 等比缩放）
-  const refW = Number(candidate?.refScreenWidth)
-  const refH = Number(candidate?.refScreenHeight)
-  if (Number.isFinite(refW) && refW > 0) {
-    bounds.refScreenWidth = refW
-  }
-  if (Number.isFinite(refH) && refH > 0) {
-    bounds.refScreenHeight = refH
-  }
-
-  return bounds
 }
 
 function normalizeDesktopNoteSync(value: unknown): DesktopNoteSyncState {

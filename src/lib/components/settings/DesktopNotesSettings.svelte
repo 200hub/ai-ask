@@ -1,4 +1,5 @@
 <script lang='ts'>
+  import type { DesktopNoteBounds } from '$lib/types/desktop-note'
   import { i18n } from '$lib/i18n'
   import { configStore } from '$lib/stores/config.svelte'
   import { desktopNotesStore } from '$lib/stores/desktop-notes.svelte'
@@ -86,6 +87,13 @@
     return `background:${preset.background}; border-color:${preset.accent}; color:${preset.text};`
   }
 
+  /** 将百分比 bounds 转换为近似像素尺寸（用于设置页显示） */
+  function noteSizeLabel(bounds: DesktopNoteBounds): string {
+    const w = Math.round((bounds.rightPercent - bounds.leftPercent) * DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH)
+    const h = Math.round((bounds.bottomPercent - bounds.topPercent) * DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT)
+    return `${w}×${h}`
+  }
+
   async function handleFeatureToggle(event: Event) {
     const enabled = (event.target as HTMLInputElement).checked
     isBusy = true
@@ -93,7 +101,7 @@
     try {
       await configStore.setDesktopNotesEnabled(enabled)
       if (enabled) {
-        await desktopNotesStore.restoreVisibleWindows({ recoverHidden: true })
+        await desktopNotesStore.restoreVisibleWindows({ recoverHidden: false })
       }
       else {
         await desktopNotesStore.hideAllWindows()
@@ -303,7 +311,7 @@
               <div class='note-meta'>
                 <div class='note-title'>{note.content ? note.content.split('\n')[0].replace(/^#+\s*/, '').slice(0, 30) : t('desktopNotes.emptyContent')}</div>
                 <div class='note-subtitle'>
-                  {Math.round(note.bounds.width)}×{Math.round(note.bounds.height)}
+                  {noteSizeLabel(note.bounds)}
                 </div>
               </div>
             </div>
