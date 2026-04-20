@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "ai-ask"
-version = "0.0.1-alpha.26"
+version = "0.0.1-beta.1"
 dependencies = [
  "accessibility",
  "anyhow",
