@@ -227,7 +227,13 @@ fn run_desktop() {
                     }
                     "quit" => {
                         log::info!("Tray menu: quit application");
-                        app.exit(0);
+                        let app_handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            // 退出前广播事件，给便签窗口留出落盘机会
+                            let _ = app_handle.emit("app-before-exit", ());
+                            tokio::time::sleep(Duration::from_millis(400)).await;
+                            app_handle.exit(0);
+                        });
                     }
                     _ => {}
                 });
@@ -335,6 +341,11 @@ fn run_desktop() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                // 仅主窗口拦截关闭并隐藏到托盘；其他窗口（便签、工具栏等）允许正常关闭
+                if window.label() != "main" {
+                    return;
+                }
+
                 log::debug!("Window close request intercepted, hiding to tray");
                 api.prevent_close();
                 let window = window.clone();

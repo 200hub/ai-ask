@@ -4,7 +4,7 @@
  * 说明：
  * - `deletedAt` 用于软删除标记（时间戳），null 表示活跃
  * - `visible` 编码在 bounds JSONB 中随 Supabase 同步
- * - `bounds` 采用屏幕百分比 (0~1) 存储，跨设备/分辨率/DPI 自动适配
+ * - `bounds` 采用屏幕百分比 (0~1) 存储，但仅设备本地保存（不跨设备同步）
  * - 使用 Supabase Auth + PostgreSQL 进行云端同步
  */
 export type DesktopNoteColor = 'sunny' | 'mint' | 'sky' | 'lavender' | 'rose' | 'slate'
@@ -43,7 +43,7 @@ export interface DesktopNote {
   color: DesktopNoteColor
   /** 窗口是否可见（编码在 bounds JSONB 中随 Supabase 同步） */
   visible: boolean
-  /** 窗口位置/大小（百分比格式，同步到 Supabase） */
+  /** 窗口位置/大小（百分比格式，仅设备本地） */
   bounds: DesktopNoteBounds
   createdAt: number
   updatedAt: number

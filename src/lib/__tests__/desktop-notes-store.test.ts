@@ -74,7 +74,7 @@ beforeEach(async () => {
 
 describe('desktopNotesStore', () => {
   describe('updateNoteBounds', () => {
-    it('should mark note as dirty when updating bounds (for Supabase sync)', async () => {
+    it('should keep bounds update local-only without marking dirty', async () => {
       const note = createTestNote({
         id: 'test-note-1',
         sync: { dirty: false, lastSyncedAt: 1000 },
@@ -89,8 +89,8 @@ describe('desktopNotesStore', () => {
       const updated = desktopNotesStore.getNoteById('test-note-1')
       expect(updated).not.toBeNull()
       expect(updated!.bounds).toEqual(newBounds)
-      // bounds 变更应标记 dirty 以便同步到 Supabase
-      expect(updated!.sync.dirty).toBe(true)
+      // bounds 变更为设备本地状态，不应触发云同步 dirty
+      expect(updated!.sync.dirty).toBe(false)
     })
   })
 

@@ -45,6 +45,8 @@ vi.mock('$lib/utils/constants', () => ({
     DEFAULT_OFFSET_Y: 100,
     DEFAULT_WIDTH: 320,
     DEFAULT_HEIGHT: 280,
+    DEFAULT_SCREEN_WIDTH: 1920,
+    DEFAULT_SCREEN_HEIGHT: 1080,
     MAX_NOTES_PER_SYNC: 50,
   },
   SUPABASE: {
@@ -183,7 +185,7 @@ describe('mergeRemoteIntoLocal', () => {
     expect(merged[0].content).toBe('local version')
   })
 
-  it('should use remote bounds when remote overwrites (bounds now synced)', () => {
+  it('should preserve local bounds when remote overwrites', () => {
     const localBounds = { leftPercent: 0.03, topPercent: 0.05, rightPercent: 0.24, bottomPercent: 0.33 }
     const remoteBoundsData = { leftPercent: 0.5, topPercent: 0.5, rightPercent: 0.55, bottomPercent: 0.6 }
     const localNotes: DesktopNote[] = [
@@ -199,11 +201,11 @@ describe('mergeRemoteIntoLocal', () => {
     ]
 
     const merged = syncModule.mergeRemoteIntoLocal(localNotes, remoteRows)
-    // 远端较新时使用远端 bounds（bounds 已同步）
-    expect(merged[0].bounds).toEqual(remoteBoundsData)
+    // 远端较新时仍保留本地 bounds（位置按设备本地保存）
+    expect(merged[0].bounds).toEqual(localBounds)
   })
 
-  it('should use remote bounds for new notes when no local', () => {
+  it('should use default local bounds for new notes when no local', () => {
     const remoteBounds = { leftPercent: 0.26, topPercent: 0.46, rightPercent: 0.57, bottomPercent: 0.83 }
 
     const merged = syncModule.mergeRemoteIntoLocal([], [
@@ -211,7 +213,12 @@ describe('mergeRemoteIntoLocal', () => {
     ])
 
     expect(merged).toHaveLength(1)
-    expect(merged[0].bounds).toEqual(remoteBounds)
+    expect(merged[0].bounds).toEqual({
+      leftPercent: 100 / 1920,
+      topPercent: 100 / 1080,
+      rightPercent: 420 / 1920,
+      bottomPercent: 380 / 1080,
+    })
   })
 
   it('should handle merged soft-deleted notes', () => {
@@ -296,7 +303,11 @@ describe('pushDirtyNotes', () => {
     expect(mockFrom).toHaveBeenCalledWith('desktop_notes')
     expect(mockUpsert).toHaveBeenCalledWith(
       expect.arrayContaining([
-        expect.objectContaining({ id: 'dirty-1', user_id: 'user-1' }),
+        expect.objectContaining({
+          id: 'dirty-1',
+          user_id: 'user-1',
+          bounds: { visible: true },
+        }),
       ]),
       { onConflict: 'user_id,id' },
     )
@@ -528,8 +539,8 @@ describe('performFullSync', () => {
     expect(notes).toHaveLength(1)
     // preferRemote=true → 远端数据覆盖本地（即使本地 updatedAt 更大）
     expect(notes[0].content).toBe('remote updated')
-    // bounds 也应使用远端版本
-    expect(notes[0].bounds.leftPercent).toBe(0.3)
+    // bounds 应保留本地版本（位置不跨设备同步）
+    expect(notes[0].bounds.leftPercent).toBe(0.05)
     // fullPull 时 pullSince 为 null → 不应有 gt 过滤
     expect(pullChain.order).toHaveBeenCalled()
   })

@@ -35,6 +35,7 @@
   let unlistenResized: UnlistenFn | null = null
   let unlistenBlur: UnlistenFn | null = null
   let unlistenClose: UnlistenFn | null = null
+  let unlistenBeforeExit: UnlistenFn | null = null
   let geometryTimer: ReturnType<typeof setTimeout> | null = null
 
   const currentNote = $derived(noteId ? desktopNotesStore.getNoteById(noteId) : null)
@@ -225,6 +226,11 @@
       }
 
       try {
+        unlistenBeforeExit = await listen('app-before-exit', async () => {
+          // 托盘退出流程：在真正退出前强制落盘，避免最后一次 resize/drag 丢失
+          await desktopNotesStore.flushPersistPublic()
+        })
+
         unlistenMoved = await appWindow.onMoved(() => {
           scheduleGeometrySync()
         })
@@ -258,6 +264,7 @@
       unlistenResized?.()
       unlistenBlur?.()
       unlistenClose?.()
+      unlistenBeforeExit?.()
       if (geometryTimer) {
         clearTimeout(geometryTimer)
       }

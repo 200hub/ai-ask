@@ -354,8 +354,24 @@ class DesktopNotesStore {
   }
 
   async updateNoteBounds(noteId: string, bounds: DesktopNoteBounds) {
-    // bounds 变更标记 dirty，以便百分比位置同步到 Supabase
-    await this.updateNote(noteId, { bounds })
+    // 位置为设备本地状态：仅本地持久化，不参与云端 dirty/updatedAt 同步。
+    let changed = false
+
+    this.notes = this.notes.map((note) => {
+      if (note.id !== noteId) {
+        return note
+      }
+
+      changed = true
+      return {
+        ...note,
+        bounds,
+      }
+    })
+
+    if (changed) {
+      this.queuePersist(noteId)
+    }
   }
 
   // ==================== 窗口管理 ====================

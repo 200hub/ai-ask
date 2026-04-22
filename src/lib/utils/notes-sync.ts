@@ -8,7 +8,9 @@ import type { DesktopNote, DesktopNoteBounds, DesktopNoteRow, DesktopNotesSyncRe
  * 3. 合并采用 Last-Writer-Wins（以 updatedAt 为准）
  * 4. Realtime 订阅进行增量同步
  *
- * 同步字段：title, content, color, bounds（百分比格式 + visible 编码）
+ * 同步字段：title, content, color, visible（编码在 bounds JSONB）
+ *
+ * 重要：bounds（位置）按设备本地保存，不做跨设备同步。
  */
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
@@ -21,6 +23,8 @@ import { getCurrentUser, getSupabaseClient } from '$lib/utils/supabase'
  *
  * visible 状态编码到 bounds JSONB 中（避免 Schema 迁移），
  * 使关闭/打开状态能跨设备同步。
+ *
+ * 位置 bounds 不再写入远端（每个设备维护自己的窗口位置）。
  */
 function noteToRow(note: DesktopNote, userId: string): DesktopNoteRow {
   return {
@@ -29,10 +33,19 @@ function noteToRow(note: DesktopNote, userId: string): DesktopNoteRow {
     title: note.title,
     content: note.content,
     color: note.color,
-    bounds: { ...note.bounds, visible: note.visible } as DesktopNoteBounds,
+    bounds: { visible: note.visible } as unknown as DesktopNoteBounds,
     created_at: note.createdAt,
     updated_at: note.updatedAt,
     deleted_at: note.deletedAt,
+  }
+}
+
+function getDefaultLocalBounds(): DesktopNoteBounds {
+  return {
+    leftPercent: DESKTOP_NOTES.DEFAULT_OFFSET_X / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH,
+    topPercent: DESKTOP_NOTES.DEFAULT_OFFSET_Y / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT,
+    rightPercent: (DESKTOP_NOTES.DEFAULT_OFFSET_X + DESKTOP_NOTES.DEFAULT_WIDTH) / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH,
+    bottomPercent: (DESKTOP_NOTES.DEFAULT_OFFSET_Y + DESKTOP_NOTES.DEFAULT_HEIGHT) / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT,
   }
 }
 
@@ -40,25 +53,17 @@ function noteToRow(note: DesktopNote, userId: string): DesktopNoteRow {
  * Supabase 行 → 本地便签格式
  *
  * 字段映射规则：
- * - title/content/color/bounds/createdAt/updatedAt/deletedAt → 直接从远端行赋值
+ * - title/content/color/createdAt/updatedAt/deletedAt → 从远端行赋值
  * - visible → 从远端 bounds JSONB 的 visible 字段读取（跨设备同步关闭/打开状态）；
  *   旧数据无 visible 字段时：已有本地便签保留本地状态，新便签默认 true（显示）
- * - bounds → 百分比格式，剔除 visible 字段后赋值
+ * - bounds → 保留本地（existingLocal）位置；新便签使用本地默认位置
  * - sync → 重置为 dirty=false + 当前时间戳
  */
 function rowToNote(row: DesktopNoteRow, existingLocal?: DesktopNote): DesktopNote {
   const rawBounds = (row.bounds ?? {}) as DesktopNoteBounds & { visible?: boolean }
   // 从 bounds JSONB 中提取 visible 状态（跨设备同步用）
   const remoteVisible = typeof rawBounds.visible === 'boolean' ? rawBounds.visible : undefined
-  // 剔除 visible，保留纯 bounds 字段
-  const { visible: _extracted, ...cleanBounds } = rawBounds
-
-  const bounds: DesktopNoteBounds = {
-    leftPercent: cleanBounds.leftPercent ?? 0,
-    topPercent: cleanBounds.topPercent ?? 0,
-    rightPercent: cleanBounds.rightPercent ?? 0,
-    bottomPercent: cleanBounds.bottomPercent ?? 0,
-  }
+  const bounds = existingLocal?.bounds ?? getDefaultLocalBounds()
 
   return {
     id: row.id,
@@ -158,9 +163,9 @@ export async function pullRemoteChanges(lastSyncedAt: number | null): Promise<De
  * 合并远端变更到本地：Last-Writer-Wins
  *
  * 规则：
- * - 远端 updated_at > 本地 updatedAt → 覆盖本地
+ * - 远端 updated_at > 本地 updatedAt → 覆盖本地（保留本地位置 bounds）
  * - 远端 updated_at <= 本地 updatedAt → 保留本地（本地已在 push 阶段推送）
- * - 远端有但本地无 → 新增到本地
+ * - 远端有但本地无 → 新增到本地（使用本地默认位置）
  */
 export function mergeRemoteIntoLocal(
   localNotes: DesktopNote[],
