@@ -93,11 +93,37 @@ export function pixelsToBounds(
   screenW: number,
   screenH: number,
 ): DesktopNoteBounds {
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
+  const minWidthPercent = DESKTOP_NOTES.MIN_WIDTH / screenW
+  const minHeightPercent = DESKTOP_NOTES.MIN_HEIGHT / screenH
+
+  let left = clamp01(x / screenW)
+  let top = clamp01(y / screenH)
+  let right = clamp01((x + width) / screenW)
+  let bottom = clamp01((y + height) / screenH)
+
+  // 防止出现 right <= left / bottom <= top 的无效区域，避免重启后位置错乱
+  if (right <= left) {
+    right = Math.min(1, left + minWidthPercent)
+    if (right <= left) {
+      left = Math.max(0, 1 - minWidthPercent)
+      right = 1
+    }
+  }
+
+  if (bottom <= top) {
+    bottom = Math.min(1, top + minHeightPercent)
+    if (bottom <= top) {
+      top = Math.max(0, 1 - minHeightPercent)
+      bottom = 1
+    }
+  }
+
   return {
-    leftPercent: x / screenW,
-    topPercent: y / screenH,
-    rightPercent: (x + width) / screenW,
-    bottomPercent: (y + height) / screenH,
+    leftPercent: left,
+    topPercent: top,
+    rightPercent: right,
+    bottomPercent: bottom,
   }
 }
 
@@ -399,12 +425,24 @@ class DesktopNotesStore {
       },
     })
 
-    // visible 变更时标记 dirty，同步到 Supabase 以便其他设备知晓打开状态
-    if (!note.visible) {
-      await this.updateNote(noteId, { visible: true }, true)
+    // 无论主窗口内存中 visible 状态如何（可能因便签窗口自行关闭而滞后），
+    // 打开便签时始终更新 visible=true 并触发同步，确保跨设备状态一致。
+    await this.updateNote(noteId, { visible: true }, true)
+    if (configStore.config.desktopNotesSyncEnabled && this.session.authenticated) {
+      this.queueAutoSync()
     }
   }
 
+  /**
+   * 关闭指定便签窗口。
+   *
+   * Rust 端执行 window.close() 会触发目标便签窗口的 onCloseRequested 流程，
+   * 由便签窗口自身负责持久化 visible=false（经 `markNoteHiddenLocally`），
+   * 因此这里无需再重复标记。
+   *
+   * 若目标窗口已不存在（例如用户已手动关闭），为保证本地视图一致性，
+   * 我们仍对本 store 做一次 visible=false 标记。
+   */
   async closeNoteWindow(noteId: string) {
     try {
       await invoke('close_desktop_note_window', {
@@ -415,10 +453,25 @@ class DesktopNotesStore {
       logger.warn('Failed to close desktop note window', { noteId, error })
     }
 
-    // 标记 dirty 以同步 visible=false 到 Supabase，确保其他设备知晓关闭状态
+    // 便签窗口独立 webview，其 onCloseRequested 会自行更新 visible=false。
+    // 但当前 store（主窗口/设置页）的内存副本需要同步更新，否则 UI 列表仍然显示“打开”。
+    await this.markNoteHiddenLocally(noteId)
+  }
+
+  /**
+   * 将便签本地状态标记为不可见并触发云同步。
+   *
+   * 仅写入本地 store + 持久化 + 云同步 dirty，不调用 Rust 侧窗口命令。
+   * 供便签窗口 onCloseRequested 以及主窗口 closeNoteWindow 共用。
+   */
+  async markNoteHiddenLocally(noteId: string) {
+    const note = this.getNoteById(noteId)
+    if (!note || !note.visible) {
+      return
+    }
+
     await this.updateNote(noteId, { visible: false }, true)
 
-    // 触发同步以传播关闭状态
     if (configStore.config.desktopNotesSyncEnabled && this.session.authenticated) {
       this.queueAutoSync()
     }

@@ -79,6 +79,8 @@ vi.mock('$lib/utils/constants', () => ({
     MIN_HEIGHT: 180,
     DEFAULT_OFFSET_X: 120,
     DEFAULT_OFFSET_Y: 120,
+    DEFAULT_SCREEN_WIDTH: 1920,
+    DEFAULT_SCREEN_HEIGHT: 1080,
     DEFAULT_COLOR: 'sunny',
   },
   DESKTOP_NOTE_COLOR_PRESETS: [
@@ -254,6 +256,37 @@ describe('storage utilities', () => {
     expect(notes[0].bounds.leftPercent).toBe(0.01)
     expect(notes[0].bounds.rightPercent).toBe(0.11)
     expect(notes[0].color).toBe('sky')
+  })
+
+  it('normalizes invalid desktop note bounds into a valid rectangle', async () => {
+    storeData.desktop_notes = [
+      {
+        id: 'note-invalid-bounds',
+        title: 'Bad bounds',
+        content: 'Test',
+        color: 'sky',
+        visible: true,
+        bounds: {
+          leftPercent: 1.3,
+          topPercent: -0.2,
+          rightPercent: 0.2,
+          bottomPercent: -1,
+        },
+        createdAt: 1,
+        updatedAt: 2,
+        deletedAt: null,
+        sync: { dirty: false, lastSyncedAt: null },
+      },
+    ]
+
+    const notes = await getDesktopNotes()
+    expect(notes).toHaveLength(1)
+    expect(notes[0].bounds.leftPercent).toBeGreaterThanOrEqual(0)
+    expect(notes[0].bounds.topPercent).toBeGreaterThanOrEqual(0)
+    expect(notes[0].bounds.rightPercent).toBeLessThanOrEqual(1)
+    expect(notes[0].bounds.bottomPercent).toBeLessThanOrEqual(1)
+    expect(notes[0].bounds.rightPercent).toBeGreaterThan(notes[0].bounds.leftPercent)
+    expect(notes[0].bounds.bottomPercent).toBeGreaterThan(notes[0].bounds.topPercent)
   })
 
   it('persists desktop notes through the shared store', async () => {

@@ -39,16 +39,41 @@ function normalizeDesktopNoteColor(value: unknown): DesktopNoteColor {
 
 function normalizeNoteBounds(value: unknown): DesktopNoteBounds {
   const candidate = value as Partial<DesktopNoteBounds> | null | undefined
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
+  const minWidthPercent = DESKTOP_NOTES.MIN_WIDTH / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH
+  const minHeightPercent = DESKTOP_NOTES.MIN_HEIGHT / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT
+
   const lp = Number(candidate?.leftPercent)
   const tp = Number(candidate?.topPercent)
   const rp = Number(candidate?.rightPercent)
   const bp = Number(candidate?.bottomPercent)
 
+  let left = Number.isFinite(lp) ? clamp01(lp) : DESKTOP_NOTES.DEFAULT_OFFSET_X / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH
+  let top = Number.isFinite(tp) ? clamp01(tp) : DESKTOP_NOTES.DEFAULT_OFFSET_Y / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT
+  let right = Number.isFinite(rp) ? clamp01(rp) : (DESKTOP_NOTES.DEFAULT_OFFSET_X + DESKTOP_NOTES.DEFAULT_WIDTH) / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH
+  let bottom = Number.isFinite(bp) ? clamp01(bp) : (DESKTOP_NOTES.DEFAULT_OFFSET_Y + DESKTOP_NOTES.DEFAULT_HEIGHT) / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT
+
+  if (right <= left) {
+    right = Math.min(1, left + minWidthPercent)
+    if (right <= left) {
+      left = Math.max(0, 1 - minWidthPercent)
+      right = 1
+    }
+  }
+
+  if (bottom <= top) {
+    bottom = Math.min(1, top + minHeightPercent)
+    if (bottom <= top) {
+      top = Math.max(0, 1 - minHeightPercent)
+      bottom = 1
+    }
+  }
+
   return {
-    leftPercent: Number.isFinite(lp) ? lp : DESKTOP_NOTES.DEFAULT_OFFSET_X / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH,
-    topPercent: Number.isFinite(tp) ? tp : DESKTOP_NOTES.DEFAULT_OFFSET_Y / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT,
-    rightPercent: Number.isFinite(rp) ? rp : (DESKTOP_NOTES.DEFAULT_OFFSET_X + DESKTOP_NOTES.DEFAULT_WIDTH) / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH,
-    bottomPercent: Number.isFinite(bp) ? bp : (DESKTOP_NOTES.DEFAULT_OFFSET_Y + DESKTOP_NOTES.DEFAULT_HEIGHT) / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT,
+    leftPercent: left,
+    topPercent: top,
+    rightPercent: right,
+    bottomPercent: bottom,
   }
 }
 

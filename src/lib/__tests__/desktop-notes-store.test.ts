@@ -333,4 +333,15 @@ describe('boundsToPixels & pixelsToBounds', () => {
     // height = (0.5 - 0) * 1080 = 540
     expect(result.height).toBe(540)
   })
+
+  it('should sanitize invalid pixel-derived bounds to a valid rectangle', () => {
+    // 模拟异常几何：窗口位置远超屏幕，导致 right/left、bottom/top 可能无效
+    const result = pixelsToBounds(2600, 1400, 10, 10, 1920, 1080)
+    expect(result.leftPercent).toBeGreaterThanOrEqual(0)
+    expect(result.topPercent).toBeGreaterThanOrEqual(0)
+    expect(result.rightPercent).toBeLessThanOrEqual(1)
+    expect(result.bottomPercent).toBeLessThanOrEqual(1)
+    expect(result.rightPercent).toBeGreaterThan(result.leftPercent)
+    expect(result.bottomPercent).toBeGreaterThan(result.topPercent)
+  })
 })
