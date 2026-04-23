@@ -4,11 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // Mock 外部依赖
 const mockGetDesktopNotes = vi.fn()
 const mockSaveDesktopNotes = vi.fn()
+const mockSaveNoteBounds = vi.fn()
+const mockLoadNoteBounds = vi.fn()
+const mockDeleteNoteBounds = vi.fn()
 const mockInvoke = vi.fn()
 
 vi.mock('$lib/utils/storage', () => ({
   getDesktopNotes: () => mockGetDesktopNotes(),
   saveDesktopNotes: (notes: DesktopNote[]) => mockSaveDesktopNotes(notes),
+  saveNoteBounds: (...args: unknown[]) => mockSaveNoteBounds(...args),
+  loadNoteBounds: (...args: unknown[]) => mockLoadNoteBounds(...args),
+  deleteNoteBounds: (...args: unknown[]) => mockDeleteNoteBounds(...args),
 }))
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -62,12 +68,18 @@ beforeEach(async () => {
   vi.useFakeTimers()
   mockGetDesktopNotes.mockReset()
   mockSaveDesktopNotes.mockReset()
+  mockSaveNoteBounds.mockReset()
+  mockLoadNoteBounds.mockReset()
+  mockDeleteNoteBounds.mockReset()
   mockInvoke.mockReset()
   mockSetDesktopNotesLastSyncedAt.mockReset()
 
   // 默认返回空列表
   mockGetDesktopNotes.mockResolvedValue([])
-  mockSaveDesktopNotes.mockResolvedValue(undefined);
+  mockSaveDesktopNotes.mockResolvedValue(undefined)
+  mockSaveNoteBounds.mockResolvedValue(undefined)
+  mockLoadNoteBounds.mockResolvedValue(null)
+  mockDeleteNoteBounds.mockResolvedValue(undefined);
 
   ({ desktopNotesStore } = await import('$lib/stores/desktop-notes.svelte'))
 })
@@ -91,6 +103,8 @@ describe('desktopNotesStore', () => {
       expect(updated!.bounds).toEqual(newBounds)
       // bounds 变更为设备本地状态，不应触发云同步 dirty
       expect(updated!.sync.dirty).toBe(false)
+      // 应使用 per-note key 写入（不做 read-modify-write），避免多窗口竞态
+      expect(mockSaveNoteBounds).toHaveBeenCalledWith('test-note-1', newBounds)
     })
   })
 

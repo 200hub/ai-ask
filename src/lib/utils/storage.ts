@@ -414,6 +414,55 @@ export async function saveDesktopNotes(notes: DesktopNote[]): Promise<void> {
 }
 
 /**
+ * 保存单个便签的位置（per-note key，避免多窗口并发 read-modify-write 竞态）
+ *
+ * 使用独立 key `note_bounds_<noteId>`，每个便签窗口只写自己的 key，
+ * Tauri plugin-store 对同一 store 的写操作在 Rust 侧串行化，彻底消除竞态。
+ */
+export async function saveNoteBounds(noteId: string, bounds: DesktopNoteBounds): Promise<void> {
+  try {
+    const storeInstance = await initStore()
+    await storeInstance.set(`note_bounds_${noteId}`, bounds)
+    await storeInstance.save()
+  }
+  catch (error) {
+    logger.error('Failed to save note bounds', { noteId, error })
+  }
+}
+
+/**
+ * 读取单个便签的位置（per-note key）
+ */
+export async function loadNoteBounds(noteId: string): Promise<DesktopNoteBounds | null> {
+  try {
+    const storeInstance = await initStore()
+    const raw = await storeInstance.get<unknown>(`note_bounds_${noteId}`)
+    if (!raw) {
+      return null
+    }
+    return normalizeNoteBounds(raw)
+  }
+  catch (error) {
+    logger.error('Failed to load note bounds', { noteId, error })
+    return null
+  }
+}
+
+/**
+ * 删除单个便签的位置缓存（便签删除时调用，清理孤立 key）
+ */
+export async function deleteNoteBounds(noteId: string): Promise<void> {
+  try {
+    const storeInstance = await initStore()
+    await storeInstance.delete(`note_bounds_${noteId}`)
+    await storeInstance.save()
+  }
+  catch (error) {
+    logger.warn('Failed to delete note bounds', { noteId, error })
+  }
+}
+
+/**
  * 获取AI平台列表
  */
 export async function getAIPlatforms(): Promise<AIPlatform[]> {

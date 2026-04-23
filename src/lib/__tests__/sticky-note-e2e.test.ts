@@ -14,12 +14,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockGetDesktopNotes = vi.fn()
 const mockSaveDesktopNotes = vi.fn()
+const mockSaveNoteBounds = vi.fn()
+const mockLoadNoteBounds = vi.fn()
+const mockDeleteNoteBounds = vi.fn()
 const mockInvoke = vi.fn()
 const mockSetDesktopNotesLastSyncedAt = vi.fn()
 
 vi.mock('$lib/utils/storage', () => ({
   getDesktopNotes: () => mockGetDesktopNotes(),
   saveDesktopNotes: (notes: DesktopNote[]) => mockSaveDesktopNotes(notes),
+  saveNoteBounds: (...args: unknown[]) => mockSaveNoteBounds(...args),
+  loadNoteBounds: (...args: unknown[]) => mockLoadNoteBounds(...args),
+  deleteNoteBounds: (...args: unknown[]) => mockDeleteNoteBounds(...args),
 }))
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -80,11 +86,17 @@ beforeEach(async () => {
   vi.useFakeTimers()
   mockGetDesktopNotes.mockReset()
   mockSaveDesktopNotes.mockReset()
+  mockSaveNoteBounds.mockReset()
+  mockLoadNoteBounds.mockReset()
+  mockDeleteNoteBounds.mockReset()
   mockInvoke.mockReset()
   mockSetDesktopNotesLastSyncedAt.mockReset()
 
   mockGetDesktopNotes.mockResolvedValue([])
   mockSaveDesktopNotes.mockResolvedValue(undefined)
+  mockSaveNoteBounds.mockResolvedValue(undefined)
+  mockLoadNoteBounds.mockResolvedValue(null)
+  mockDeleteNoteBounds.mockResolvedValue(undefined)
   mockInvoke.mockResolvedValue(undefined);
 
   ({ desktopNotesStore } = await import('$lib/stores/desktop-notes.svelte'))
@@ -153,18 +165,35 @@ describe('sticky note e2e - 几何持久化', () => {
     mockGetDesktopNotes.mockResolvedValue([note])
     await desktopNotesStore.init()
 
-    await desktopNotesStore.updateNoteBounds('n-bounds', {
+    const newBounds = {
       leftPercent: 0.3,
       topPercent: 0.4,
       rightPercent: 0.6,
       bottomPercent: 0.7,
-    })
+    }
+    await desktopNotesStore.updateNoteBounds('n-bounds', newBounds)
 
     const updated = desktopNotesStore.getNoteById('n-bounds')
     expect(updated!.bounds.leftPercent).toBe(0.3)
     // 关键：dirty 不应被置为 true
     expect(updated!.sync.dirty).toBe(false)
     expect(updated!.sync.lastSyncedAt).toBe(123)
+    // 应调用 per-note key 写入，避免多窗口并发竞态
+    expect(mockSaveNoteBounds).toHaveBeenCalledWith('n-bounds', newBounds)
+  })
+
+  it('init() 应将 per-note bounds 合并覆盖 notes 数组中的旧 bounds', async () => {
+    const oldBounds = { leftPercent: 0.05, topPercent: 0.09, rightPercent: 0.22, bottomPercent: 0.35 }
+    const savedBounds = { leftPercent: 0.1, topPercent: 0.2, rightPercent: 0.4, bottomPercent: 0.6 }
+    const note = createTestNote({ id: 'n-merge', bounds: oldBounds })
+    mockGetDesktopNotes.mockResolvedValue([note])
+    // 模拟该便签的 per-note bounds 已被写入（如上次移动保存）
+    mockLoadNoteBounds.mockResolvedValue(savedBounds)
+    await desktopNotesStore.init()
+
+    const loaded = desktopNotesStore.getNoteById('n-merge')
+    // init() 应以 per-note key 中的最新 bounds 覆盖 notes 数组中的旧 bounds
+    expect(loaded!.bounds).toEqual(savedBounds)
   })
 
   it('pixelsToBounds 对屏幕外的无效坐标应自修为合法矩形', async () => {

@@ -29,6 +29,12 @@
   let geometryPaused = $state(false)
   // 已经进入关闭流程，用于避免重入
   let closing = false
+  /**
+   * 上次已保存位置时所在的 monitor ID（格式：`${x},${y}`）。
+   * 用于检测 OS 强制切换 monitor 事件（如断开显示器），跳过该次误触发保存，
+   * 防止便签被记录到非预期的 (0,0) 位置。
+   */
+  let lastMonitorId: string | null = null
 
   let unlistenTheme: UnlistenFn | null = null
   let unlistenMoved: UnlistenFn | null = null
@@ -54,6 +60,9 @@
   /**
    * 读取当前窗口几何并以百分比形式写回 store（仅本地持久化）。
    * 所有异常被吞掉，只记录 warn，绝不阻塞关闭/退出流程。
+   *
+   * Monitor 变更检测：当系统强制将便签移至不同 monitor 时（如断开外接显示器），
+   * 跳过此次保存以防止位置被记录到 (0,0) 等非预期坐标。
    */
   async function commitCurrentGeometry(): Promise<void> {
     if (!noteId || geometryPaused) {
@@ -67,6 +76,19 @@
         appWindow.scaleFactor(),
         currentMonitor(),
       ])
+
+      // 检测 monitor 切换：若 monitor 变了，说明是 OS 强制移位（断开显示器等），跳过保存
+      const currentMonitorId = monitor ? `${monitor.position.x},${monitor.position.y}` : null
+      if (lastMonitorId !== null && currentMonitorId !== null && currentMonitorId !== lastMonitorId) {
+        logger.info('Monitor change detected in sticky note, skipping position save to prevent OS-forced corruption', {
+          from: lastMonitorId,
+          to: currentMonitorId,
+        })
+        // 更新 lastMonitorId，确保下次在新 monitor 上的用户移动可以正常保存
+        lastMonitorId = currentMonitorId
+        return
+      }
+      lastMonitorId = currentMonitorId
 
       const logicalPos = physPosition.toLogical(scaleFactor)
       const logicalSize = physSize.toLogical(scaleFactor)
@@ -209,9 +231,6 @@
 
       await desktopNotesStore.refreshSession()
 
-      // 初始化后延迟一次几何回写，修正初始创建时的像素偏差
-      setTimeout(scheduleGeometrySync, 500)
-
       try {
         // 先注册 close 监听，避免其他监听失败导致关闭链路失效
         // 规范 Tauri v2 模式：preventDefault → 异步落盘 → destroy()
@@ -275,10 +294,10 @@
       }
 
       try {
-        // 托盘退出：只落盘，不销毁窗口（由 Rust 退出流程统一处理）
+        // 托盘退出：只落盘待写内容/颜色等变更，不重新读取几何（避免在 OS 强制移位后保存错误坐标）
+        // bounds 变更已通过 per-note key 实时写入，无需在此再次 commit。
         unlistenBeforeExit = await listen('app-before-exit', async () => {
           try {
-            await commitCurrentGeometry()
             await desktopNotesStore.flushPersistPublic()
           }
           catch (error) {

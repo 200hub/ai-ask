@@ -25,7 +25,7 @@ import {
   subscribeToRealtime,
   verifySchema,
 } from '$lib/utils/notes-sync'
-import { getDesktopNotes, saveDesktopNotes } from '$lib/utils/storage'
+import { deleteNoteBounds, getDesktopNotes, loadNoteBounds, saveDesktopNotes, saveNoteBounds } from '$lib/utils/storage'
 import {
   getSessionInfo,
   isSupabaseAvailable,
@@ -191,7 +191,18 @@ class DesktopNotesStore {
       return
     }
 
-    this.notes = await getDesktopNotes()
+    const notes = await getDesktopNotes()
+
+    // 合并 per-note bounds：每个便签窗口独立写自己的 bounds key，
+    // 启动时读回并覆盖 notes 数组中可能过期的 bounds，避免竞态导致位置丢失。
+    const mergedNotes = await Promise.all(
+      notes.map(async (note) => {
+        const savedBounds = await loadNoteBounds(note.id)
+        return savedBounds ? { ...note, bounds: savedBounds } : note
+      }),
+    )
+
+    this.notes = mergedNotes
     this.initialized = true
   }
 
@@ -381,6 +392,7 @@ class DesktopNotesStore {
 
   async updateNoteBounds(noteId: string, bounds: DesktopNoteBounds) {
     // 位置为设备本地状态：仅本地持久化，不参与云端 dirty/updatedAt 同步。
+    // 使用 per-note key 直接写入，避免多窗口并发 read-modify-write 竞态。
     let changed = false
 
     this.notes = this.notes.map((note) => {
@@ -396,7 +408,8 @@ class DesktopNotesStore {
     })
 
     if (changed) {
-      this.queuePersist(noteId)
+      // 直接写 per-note bounds key，Rust 侧串行化，无竞态
+      await saveNoteBounds(noteId, bounds)
     }
   }
 
@@ -530,6 +543,9 @@ class DesktopNotesStore {
     )
 
     await this.persistNow()
+
+    // 清理 per-note bounds key（避免孤立 key 占用存储）
+    void deleteNoteBounds(noteId)
 
     // 如果同步启用且已认证，触发自动同步以推送删除
     if (configStore.config.desktopNotesSyncEnabled && this.session.authenticated) {
