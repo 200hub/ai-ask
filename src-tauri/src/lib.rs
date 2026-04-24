@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconEvent,
-    Emitter, Manager, WindowEvent,
+    Emitter, Listener, Manager, WindowEvent,
 };
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -229,9 +229,28 @@ fn run_desktop() {
                         log::info!("Tray menu: quit application");
                         let app_handle = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            // 退出前广播事件，给便签窗口留出落盘机会
+                            // 退出前广播事件，给便签窗口/主窗口留出落盘与云同步机会。
+                            // 等待前端发送 `app-exit-ready` 回执（表示所有便签位置已落盘、内容已同步），
+                            // 最长等 3 秒超时，避免前端异常导致永久挂起。
+                            let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+                            let tx_shared = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+                            let tx_for_listener = tx_shared.clone();
+                            let listener_handle =
+                                app_handle.listen("app-exit-ready", move |_event| {
+                                    if let Ok(mut guard) = tx_for_listener.lock() {
+                                        if let Some(tx) = guard.take() {
+                                            let _ = tx.send(());
+                                        }
+                                    }
+                                });
                             let _ = app_handle.emit("app-before-exit", ());
-                            tokio::time::sleep(Duration::from_millis(400)).await;
+
+                            match tokio::time::timeout(Duration::from_secs(3), rx).await {
+                                Ok(Ok(())) => log::info!("Received app-exit-ready from frontend"),
+                                Ok(Err(_)) => log::warn!("app-exit-ready sender dropped"),
+                                Err(_) => log::warn!("Timed out waiting for app-exit-ready (3s)"),
+                            }
+                            app_handle.unlisten(listener_handle);
                             app_handle.exit(0);
                         });
                     }

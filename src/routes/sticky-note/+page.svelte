@@ -12,7 +12,7 @@
   import { logger } from '$lib/utils/logger'
   import { listen } from '@tauri-apps/api/event'
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
-  import { currentMonitor } from '@tauri-apps/api/window'
+  import { availableMonitors, currentMonitor } from '@tauri-apps/api/window'
   import { onMount } from 'svelte'
   import '$lib/styles/base.css'
 
@@ -43,6 +43,15 @@
   let unlistenClose: UnlistenFn | null = null
   let unlistenBeforeExit: UnlistenFn | null = null
   let geometryTimer: ReturnType<typeof setTimeout> | null = null
+  /**
+   * 显示器配置变化检测：
+   * 拔插外接显示器时 OS 会强制重排窗口，触发若干 onMoved/onResized，
+   * 这些位置并非用户意图；如果直接落盘会污染持久化，导致下次打开定位错乱。
+   * 所以一旦检测到 availableMonitors 变化，立刻暂停几何提交 3 秒，让系统稳定。
+   */
+  let monitorConfigCheckTimer: ReturnType<typeof setInterval> | null = null
+  let monitorConfigSettleTimer: ReturnType<typeof setTimeout> | null = null
+  let lastMonitorSignature: string | null = null
 
   const currentNote = $derived(noteId ? desktopNotesStore.getNoteById(noteId) : null)
   const previewHtml = $derived(renderDesktopNoteMarkdown(currentNote?.content ?? ''))
@@ -61,11 +70,17 @@
    * 读取当前窗口几何并以百分比形式写回 store（仅本地持久化）。
    * 所有异常被吞掉，只记录 warn，绝不阻塞关闭/退出流程。
    *
+   * 参数 `force`：为 true 时绕过 `geometryPaused` 与 monitor-change 拦截。
+   * 用于关闭路径 — 即使窗口刚换过颜色也必须落盘位置。
+   *
    * Monitor 变更检测：当系统强制将便签移至不同 monitor 时（如断开外接显示器），
    * 跳过此次保存以防止位置被记录到 (0,0) 等非预期坐标。
    */
-  async function commitCurrentGeometry(): Promise<void> {
-    if (!noteId || geometryPaused) {
+  async function commitCurrentGeometry(force = false): Promise<void> {
+    if (!noteId) {
+      return
+    }
+    if (!force && geometryPaused) {
       return
     }
 
@@ -77,14 +92,19 @@
         currentMonitor(),
       ])
 
-      // 检测 monitor 切换：若 monitor 变了，说明是 OS 强制移位（断开显示器等），跳过保存
-      const currentMonitorId = monitor ? `${monitor.position.x},${monitor.position.y}` : null
-      if (lastMonitorId !== null && currentMonitorId !== null && currentMonitorId !== lastMonitorId) {
+      // monitor 信息缺失时直接跳过 — 不下用主屏尺寸 fallback，
+      // 避免副屏上负坐标被 clamp 为 0 导致下次打开定位在左上角。
+      if (!monitor) {
+        logger.warn('currentMonitor() returned null, skipping geometry commit', { noteId })
+        return
+      }
+
+      const currentMonitorId = `${monitor.position.x},${monitor.position.y}`
+      if (!force && lastMonitorId !== null && currentMonitorId !== lastMonitorId) {
         logger.info('Monitor change detected in sticky note, skipping position save to prevent OS-forced corruption', {
           from: lastMonitorId,
           to: currentMonitorId,
         })
-        // 更新 lastMonitorId，确保下次在新 monitor 上的用户移动可以正常保存
         lastMonitorId = currentMonitorId
         return
       }
@@ -93,17 +113,11 @@
       const logicalPos = physPosition.toLogical(scaleFactor)
       const logicalSize = physSize.toLogical(scaleFactor)
 
-      let monitorLogicalWidth = screen.width
-      let monitorLogicalHeight = screen.height
-      let monitorOriginX = 0
-      let monitorOriginY = 0
-      if (monitor) {
-        const monitorScale = monitor.scaleFactor ?? scaleFactor
-        monitorLogicalWidth = Math.round(monitor.size.width / monitorScale)
-        monitorLogicalHeight = Math.round(monitor.size.height / monitorScale)
-        monitorOriginX = Math.round(monitor.position.x / monitorScale)
-        monitorOriginY = Math.round(monitor.position.y / monitorScale)
-      }
+      const monitorScale = monitor.scaleFactor ?? scaleFactor
+      const monitorLogicalWidth = Math.round(monitor.size.width / monitorScale)
+      const monitorLogicalHeight = Math.round(monitor.size.height / monitorScale)
+      const monitorOriginX = Math.round(monitor.position.x / monitorScale)
+      const monitorOriginY = Math.round(monitor.position.y / monitorScale)
 
       const localX = logicalPos.x - monitorOriginX
       const localY = logicalPos.y - monitorOriginY
@@ -206,6 +220,61 @@
     colorPanelOpen = !colorPanelOpen
   }
 
+  /**
+   * 计算当前显示器配置签名（位置 + 尺寸），用于检测拔插显示器。
+   */
+  async function computeMonitorSignature(): Promise<string> {
+    try {
+      const monitors = await availableMonitors()
+      return monitors
+        .map(m => `${m.position.x},${m.position.y},${m.size.width}x${m.size.height}`)
+        .sort()
+        .join('|')
+    }
+    catch {
+      return ''
+    }
+  }
+
+  /**
+   * 启动显示器配置变化监听。
+   *
+   * 定时轮询 availableMonitors 签名，检测到变化立即暂停几何提交 3 秒，
+   * 避开 OS 因拔插/分辨率变化强制重排窗口期间的脏坐标。
+   */
+  function startMonitorConfigWatcher() {
+    void computeMonitorSignature().then((sig) => {
+      lastMonitorSignature = sig
+    })
+
+    monitorConfigCheckTimer = setInterval(() => {
+      void (async () => {
+        const sig = await computeMonitorSignature()
+        if (!sig || lastMonitorSignature === null) {
+          lastMonitorSignature = sig || lastMonitorSignature
+          return
+        }
+        if (sig !== lastMonitorSignature) {
+          logger.info('Monitor configuration changed, pausing geometry commits', {
+            from: lastMonitorSignature,
+            to: sig,
+          })
+          geometryPaused = true
+          // 重置 per-commit 监视器 ID 守卫，避免切换后立即 resume 时触发首次误保存
+          lastMonitorId = null
+          if (monitorConfigSettleTimer) {
+            clearTimeout(monitorConfigSettleTimer)
+          }
+          monitorConfigSettleTimer = setTimeout(() => {
+            geometryPaused = false
+            monitorConfigSettleTimer = null
+          }, DESKTOP_NOTES.MONITOR_CONFIG_SETTLE_MS)
+        }
+        lastMonitorSignature = sig
+      })()
+    }, DESKTOP_NOTES.MONITOR_CONFIG_CHECK_INTERVAL_MS)
+  }
+
   onMount(() => {
     const handleGlobalDoubleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
@@ -243,7 +312,9 @@
           event.preventDefault()
 
           try {
-            await commitCurrentGeometry()
+            // 关闭路径：force=true 绕过 geometryPaused 与 monitor-change 拦截，
+            // 确保即使颜色刚切换也能落盘最后一次位置
+            await commitCurrentGeometry(true)
             if (noteId) {
               await desktopNotesStore.markNoteHiddenLocally(noteId)
             }
@@ -334,6 +405,9 @@
       catch (error) {
         logger.warn('Failed to register blur listener for sticky note', error)
       }
+
+      // 启动显示器配置监听：热插拔时避开 OS 强制重排造成的脏坐标
+      startMonitorConfigWatcher()
     })()
 
     return () => {
@@ -346,6 +420,12 @@
       unlistenBeforeExit?.()
       if (geometryTimer) {
         clearTimeout(geometryTimer)
+      }
+      if (monitorConfigCheckTimer) {
+        clearInterval(monitorConfigCheckTimer)
+      }
+      if (monitorConfigSettleTimer) {
+        clearTimeout(monitorConfigSettleTimer)
       }
     }
   })

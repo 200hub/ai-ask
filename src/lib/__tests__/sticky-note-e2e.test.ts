@@ -427,3 +427,63 @@ describe('sticky note e2e - 数据修复', () => {
     expect(result.height).toBeLessThanOrEqual(1080)
   })
 })
+
+// ==================== 场景 15：打开时位置权威来源 ====================
+
+describe('sticky note e2e - openNoteWindow 位置来源', () => {
+  it('openNoteWindow 必须优先使用 per-note key 中的最新 bounds，忽略内存中陈旧值', async () => {
+    // 模拟场景：主窗口内存中 bounds 是陈旧值（例如启动时的初值），
+    // 用户之前通过便签窗口拖拽后保存到 per-note key，此时主窗口重新 open 必须使用最新值。
+    const staleBounds = { leftPercent: 0.05, topPercent: 0.05, rightPercent: 0.25, bottomPercent: 0.35 }
+    const freshBounds = { leftPercent: 0.5, topPercent: 0.5, rightPercent: 0.8, bottomPercent: 0.9 }
+    const note = createTestNote({ id: 'n-source', bounds: staleBounds })
+    mockGetDesktopNotes.mockResolvedValue([note])
+    // 关键：init 时尚未保存 fresh，init 后才 saveNoteBounds；模拟为 loadNoteBounds 第二次返回 fresh
+    mockLoadNoteBounds.mockResolvedValueOnce(null) // init
+    mockLoadNoteBounds.mockResolvedValueOnce(freshBounds) // openNoteWindow
+    await desktopNotesStore.init()
+
+    await desktopNotesStore.openNoteWindow('n-source')
+
+    const ensureCall = mockInvoke.mock.calls.find(([cmd]) => cmd === 'ensure_desktop_note_window')
+    expect(ensureCall).toBeDefined()
+    const payload = (ensureCall![1] as { payload: { bounds: { x: number, y: number } } }).payload
+    // 使用 fresh bounds 中的 leftPercent=0.5 在 1920 屏幕上应该在 x>=800（不是陈旧的 x~=96）
+    expect(payload.bounds.x).toBeGreaterThan(500)
+  })
+
+  it('openNoteWindow 在 per-note key 为空时回退使用内存 bounds', async () => {
+    const memBounds = { leftPercent: 0.3, topPercent: 0.3, rightPercent: 0.6, bottomPercent: 0.7 }
+    const note = createTestNote({ id: 'n-fallback', bounds: memBounds })
+    mockGetDesktopNotes.mockResolvedValue([note])
+    mockLoadNoteBounds.mockResolvedValue(null) // per-note key 始终为空
+    await desktopNotesStore.init()
+
+    await desktopNotesStore.openNoteWindow('n-fallback')
+
+    const ensureCall = mockInvoke.mock.calls.find(([cmd]) => cmd === 'ensure_desktop_note_window')
+    expect(ensureCall).toBeDefined()
+    const payload = (ensureCall![1] as { payload: { bounds: { x: number, y: number, width: number, height: number } } }).payload
+    // 0.3 * 1920 ≈ 576
+    expect(payload.bounds.x).toBeGreaterThan(400)
+    expect(payload.bounds.width).toBeGreaterThan(100)
+  })
+
+  it('openNoteWindow 在内存 bounds 也无效时使用默认 bounds，不定位到 (0,0,0,0)', async () => {
+    // 构造全零无效 bounds
+    const zeroBounds = { leftPercent: 0, topPercent: 0, rightPercent: 0, bottomPercent: 0 }
+    const note = createTestNote({ id: 'n-zero', bounds: zeroBounds })
+    mockGetDesktopNotes.mockResolvedValue([note])
+    mockLoadNoteBounds.mockResolvedValue(null)
+    await desktopNotesStore.init()
+
+    await desktopNotesStore.openNoteWindow('n-zero')
+
+    const ensureCall = mockInvoke.mock.calls.find(([cmd]) => cmd === 'ensure_desktop_note_window')
+    expect(ensureCall).toBeDefined()
+    const payload = (ensureCall![1] as { payload: { bounds: { x: number, y: number, width: number, height: number } } }).payload
+    // 默认 bounds 应该产生合理宽高（至少 MIN_WIDTH/MIN_HEIGHT），且位置不是 (0,0)
+    expect(payload.bounds.width).toBeGreaterThanOrEqual(100)
+    expect(payload.bounds.height).toBeGreaterThanOrEqual(100)
+  })
+})

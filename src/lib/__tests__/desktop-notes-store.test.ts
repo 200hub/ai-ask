@@ -259,6 +259,21 @@ describe('desktopNotesStore', () => {
       // 公开方法应可调用且不抛异常
       await expect(desktopNotesStore.flushPersistPublic()).resolves.not.toThrow()
     })
+
+    it('should not write full notes array when no pending changes', async () => {
+      // 回归保护：主窗口在 app-before-exit 调用 flushPersistPublic 时，
+      // 如果 pendingNoteIds 为空，绝不能用陈旧内存快照覆盖磁盘上
+      // 其他窗口（便签窗口）刚写入的 visible=false。
+      const note = createTestNote({ id: 'regression-note', visible: true })
+      mockGetDesktopNotes.mockResolvedValue([note])
+
+      await desktopNotesStore.init()
+      mockSaveDesktopNotes.mockClear()
+
+      await desktopNotesStore.flushPersistPublic()
+
+      expect(mockSaveDesktopNotes).not.toHaveBeenCalled()
+    })
   })
 
   describe('signOut', () => {

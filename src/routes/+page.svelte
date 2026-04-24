@@ -15,7 +15,7 @@
   import { logger } from '$lib/utils/logger'
   import { preloadDefaultPlatforms } from '$lib/utils/preload'
   import { executeExplanation, executeTranslation } from '$lib/utils/selection-actions'
-  import { listen } from '@tauri-apps/api/event'
+  import { emit, listen } from '@tauri-apps/api/event'
   /**
    * AI Ask 主页面
    */
@@ -30,6 +30,7 @@
   let selectionExplainUnlisten: UnlistenFn | null = null
   let selectionCollectUnlisten: UnlistenFn | null = null
   let openPlatformUnlisten: UnlistenFn | null = null
+  let beforeExitUnlisten: UnlistenFn | null = null
   /** 屏幕尺寸变化检测定时器 & 上次记录的屏幕尺寸 */
   let screenCheckTimer: ReturnType<typeof setInterval> | null = null
   let lastScreenWidth = 0
@@ -54,6 +55,7 @@
     void registerTranslationHotkeyListener()
     void registerSelectionToolbarListeners()
     void registerOpenPlatformListener()
+    void registerBeforeExitListener()
     void initializeStores()
   })
 
@@ -75,6 +77,9 @@
 
     openPlatformUnlisten?.()
     openPlatformUnlisten = null
+
+    beforeExitUnlisten?.()
+    beforeExitUnlisten = null
 
     if (screenCheckTimer) {
       clearInterval(screenCheckTimer)
@@ -297,6 +302,50 @@
     }
     catch (error) {
       logger.error('Failed to listen for open-settings event:', error)
+    }
+  }
+
+  /**
+   * 注册应用退出前监听：在 Rust 发出 `app-before-exit` 后，
+   * 完成便签待写数据落盘 + 云同步（如启用），然后回发 `app-exit-ready` 让 Rust 退出。
+   * Rust 端最长等待 3 秒；超时会强制退出。
+   */
+  async function registerBeforeExitListener() {
+    try {
+      beforeExitUnlisten = await listen('app-before-exit', async () => {
+        try {
+          // 1) 先 flush 本地待写数据（内容、颜色、visible 等）
+          await desktopNotesStore.flushPersistPublic()
+
+          // 2) 如果云同步启用，执行一次完整同步（关闭便签产生的 visible=false 也会被推送）
+          if (
+            configStore.config.desktopNotesSyncEnabled
+            && desktopNotesStore.session.authenticated
+          ) {
+            try {
+              await desktopNotesStore.syncWithSupabase()
+            }
+            catch (error) {
+              logger.warn('Pre-exit desktop notes sync failed', error)
+            }
+          }
+        }
+        catch (error) {
+          logger.warn('Pre-exit flush failed', error)
+        }
+        finally {
+          // 无论成功失败都通知 Rust 可以退出了
+          try {
+            await emit('app-exit-ready')
+          }
+          catch (error) {
+            logger.warn('Failed to emit app-exit-ready', error)
+          }
+        }
+      })
+    }
+    catch (error) {
+      logger.error('Failed to listen for app-before-exit event:', error)
     }
   }
 

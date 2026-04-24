@@ -380,6 +380,13 @@ export const DESKTOP_NOTES = {
   SETTINGS_REFRESH_INTERVAL_MS: 2000,
   /** 屏幕尺寸变化检测间隔（毫秒），用于多屏切换时自动重定位便签 */
   SCREEN_CHANGE_CHECK_INTERVAL_MS: 2000,
+  /** 便签窗口显示器配置（availableMonitors）轮询间隔（毫秒） */
+  MONITOR_CONFIG_CHECK_INTERVAL_MS: 1000,
+  /**
+   * 检测到显示器配置变化后暂停几何提交的冷却时间（毫秒）。
+   * 拔插外接显示器时 OS 会强制重排窗口，此期间落盘的位置是脏数据。
+   */
+  MONITOR_CONFIG_SETTLE_MS: 3000,
 } as const
 
 /**

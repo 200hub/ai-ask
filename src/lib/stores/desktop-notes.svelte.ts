@@ -153,6 +153,44 @@ function createEmptyNote(index: number): DesktopNote {
   }
 }
 
+/**
+ * 判断 bounds 是否有效（非零面积、百分比合法）。
+ *
+ * 用于 openNoteWindow 打开前校验持久化 bounds，
+ * 避免兼容区数据/竞态派生的空矩形导致便签被打开在屏幕左上角。
+ */
+function isValidBounds(bounds: DesktopNoteBounds | null | undefined): bounds is DesktopNoteBounds {
+  if (!bounds) {
+    return false
+  }
+  const { leftPercent, topPercent, rightPercent, bottomPercent } = bounds
+  if ([leftPercent, topPercent, rightPercent, bottomPercent].some(v => !Number.isFinite(v))) {
+    return false
+  }
+  // 宽/高至少要有 3% 屏幕，防止百分比闭合导致像素计算后近乎为零
+  return (rightPercent - leftPercent) > 0.03 && (bottomPercent - topPercent) > 0.03
+}
+
+/**
+ * 获取指定便签打开时应该使用的有效 bounds（百分比）。
+ *
+ * 优先级：
+ * 1. per-note key 中最新保存的 bounds（便签窗口拖拽/改大小后的全权威来源）
+ * 2. 内存中的 note.bounds（可能来自列表同步，但在主窗口中常常是陈旧值）
+ * 3. 默认 bounds（仅当 1/2 都无效时，防止位置丢失使便签无法打开）
+ */
+async function resolveOpenBounds(noteId: string, inMemory: DesktopNoteBounds): Promise<DesktopNoteBounds> {
+  const saved = await loadNoteBounds(noteId)
+  if (isValidBounds(saved)) {
+    return saved
+  }
+  if (isValidBounds(inMemory)) {
+    return inMemory
+  }
+  logger.warn('No valid bounds found for note, falling back to default', { noteId })
+  return createDefaultBounds(0)
+}
+
 class DesktopNotesStore {
   notes = $state<DesktopNote[]>([])
   initialized = $state(false)
@@ -277,6 +315,12 @@ class DesktopNotesStore {
 
   /**
    * 执行持久化；若有 pendingNoteIds 则只做增量读写
+   *
+   * 关键：pendingNoteIds 为空时直接返回，不做全量写。
+   * 否则当主窗口在 app-before-exit 调用 flushPersistPublic 时，
+   * 会用其陈旧的内存快照（未感知便签窗口刚写的 visible=false）
+   * 覆盖磁盘最新状态，导致重启后关闭/打开状态失效。
+   * 全量写请使用 persistNow（仅限 create/delete/sync 等显式路径）。
    */
   private async flushPersist() {
     if (this.saveTimer) {
@@ -288,8 +332,6 @@ class DesktopNotesStore {
     this.pendingNoteIds.clear()
 
     if (changedIds.size === 0) {
-      // 无增量标记 —— 全量保存（sync / create / delete 等场景）
-      await saveDesktopNotes(this.notes)
       return
     }
 
@@ -422,12 +464,18 @@ class DesktopNotesStore {
       return
     }
 
-    // 将百分比 bounds 转换为当前屏幕的绝对像素坐标
+    // 关键：从 per-note key 读取最新保存的 bounds（便签窗口写入的权威来源）。
+    // 主窗口内存中的 note.bounds 不会因便签窗口的位置变化而更新，
+    // 必须从持久化 key 读取最新值，否则多次关闭/打开后会恢复到旧位置。
+    const effectiveBounds = await resolveOpenBounds(noteId, note.bounds)
+
+    // 将百分比 bounds 转换为当前主屏像素坐标
     const { width: screenW, height: screenH } = getScreenLogicalSize()
-    const pixelBounds = boundsToPixels(note.bounds, screenW, screenH)
+    const pixelBounds = boundsToPixels(effectiveBounds, screenW, screenH)
     logger.debug('Opening note window', {
       noteId,
-      bounds: note.bounds,
+      source: isValidBounds(note.bounds) && JSON.stringify(effectiveBounds) === JSON.stringify(note.bounds) ? 'memory' : 'per-note-key',
+      bounds: effectiveBounds,
       screen: { width: screenW, height: screenH },
       pixelBounds,
     })
@@ -437,6 +485,9 @@ class DesktopNotesStore {
         bounds: pixelBounds,
       },
     })
+
+    // 同步回内存及 note.bounds，确保列表页 UI / 下次 restore 使用正确值
+    this.notes = this.notes.map(n => (n.id === noteId ? { ...n, bounds: effectiveBounds } : n))
 
     // 无论主窗口内存中 visible 状态如何（可能因便签窗口自行关闭而滞后），
     // 打开便签时始终更新 visible=true 并触发同步，确保跨设备状态一致。
