@@ -73,7 +73,7 @@ function createLocalNote(overrides: Partial<DesktopNote> = {}): DesktopNote {
     content: overrides.content ?? 'Hello',
     color: overrides.color ?? 'sunny',
     visible: overrides.visible ?? true,
-    bounds: overrides.bounds ?? { leftPercent: 0.05, topPercent: 0.09, rightPercent: 0.22, bottomPercent: 0.35 },
+    bounds: overrides.bounds ?? { x: 96, y: 97, width: 326, height: 281 },
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
     deletedAt: overrides.deletedAt ?? null,
@@ -90,7 +90,7 @@ function createRemoteRow(overrides: Partial<DesktopNoteRow> = {}): DesktopNoteRo
     title: overrides.title ?? 'Remote Note',
     content: overrides.content ?? 'Remote Content',
     color: overrides.color ?? 'mint',
-    bounds: overrides.bounds ?? { leftPercent: 0.1, topPercent: 0.18, rightPercent: 0.31, bottomPercent: 0.51 },
+    bounds: overrides.bounds ?? { x: 192, y: 194, width: 403, height: 356 },
     created_at: overrides.created_at ?? now,
     updated_at: overrides.updated_at ?? now,
     deleted_at: overrides.deleted_at ?? null,
@@ -186,8 +186,8 @@ describe('mergeRemoteIntoLocal', () => {
   })
 
   it('should preserve local bounds when remote overwrites', () => {
-    const localBounds = { leftPercent: 0.03, topPercent: 0.05, rightPercent: 0.24, bottomPercent: 0.33 }
-    const remoteBoundsData = { leftPercent: 0.5, topPercent: 0.5, rightPercent: 0.55, bottomPercent: 0.6 }
+    const localBounds = { x: 58, y: 54, width: 403, height: 302 }
+    const remoteBoundsData = { x: 960, y: 540, width: 240, height: 180 }
     const localNotes: DesktopNote[] = [
       createLocalNote({ id: 'note-1', bounds: localBounds, updatedAt: 1000 }),
     ]
@@ -206,7 +206,7 @@ describe('mergeRemoteIntoLocal', () => {
   })
 
   it('should use default local bounds for new notes when no local', () => {
-    const remoteBounds = { leftPercent: 0.26, topPercent: 0.46, rightPercent: 0.57, bottomPercent: 0.83 }
+    const remoteBounds = { x: 499, y: 497, width: 595, height: 400 }
 
     const merged = syncModule.mergeRemoteIntoLocal([], [
       createRemoteRow({ id: 'new-note', bounds: remoteBounds }),
@@ -214,10 +214,10 @@ describe('mergeRemoteIntoLocal', () => {
 
     expect(merged).toHaveLength(1)
     expect(merged[0].bounds).toEqual({
-      leftPercent: 100 / 1920,
-      topPercent: 100 / 1080,
-      rightPercent: 420 / 1920,
-      bottomPercent: 380 / 1080,
+      x: 100,
+      y: 100,
+      width: 320,
+      height: 280,
     })
   })
 
@@ -508,7 +508,7 @@ describe('performFullSync', () => {
     const remoteRow = createRemoteRow({
       id: 'note-1',
       content: 'remote updated',
-      bounds: { leftPercent: 0.3, topPercent: 0.3, rightPercent: 0.7, bottomPercent: 0.7 },
+      bounds: { x: 576, y: 324, width: 768, height: 432 },
       updated_at: 500, // 远端比本地旧，但 preferRemote=true 时仍覆盖
     })
 
@@ -524,7 +524,7 @@ describe('performFullSync', () => {
       createLocalNote({
         id: 'note-1',
         content: 'local version',
-        bounds: { leftPercent: 0.05, topPercent: 0.09, rightPercent: 0.22, bottomPercent: 0.35 },
+        bounds: { x: 96, y: 97, width: 326, height: 281 },
         updatedAt: 2000,
         sync: { dirty: false, lastSyncedAt: 1000 },
       }),
@@ -540,7 +540,7 @@ describe('performFullSync', () => {
     // preferRemote=true → 远端数据覆盖本地（即使本地 updatedAt 更大）
     expect(notes[0].content).toBe('remote updated')
     // bounds 应保留本地版本（位置不跨设备同步）
-    expect(notes[0].bounds.leftPercent).toBe(0.05)
+    expect(notes[0].bounds.x).toBe(96)
     // fullPull 时 pullSince 为 null → 不应有 gt 过滤
     expect(pullChain.order).toHaveBeenCalled()
   })

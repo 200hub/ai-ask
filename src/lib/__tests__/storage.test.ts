@@ -253,8 +253,9 @@ describe('storage utilities', () => {
     const notes = await getDesktopNotes()
 
     expect(notes).toHaveLength(1)
-    expect(notes[0].bounds.leftPercent).toBe(0.01)
-    expect(notes[0].bounds.rightPercent).toBe(0.11)
+    // 旧版百分比数据迁移到新像素坐标：x=0.01*1920=19, width=(0.11-0.01)*1920=192 → 钳到 MIN_WIDTH=240
+    expect(notes[0].bounds.x).toBe(19)
+    expect(notes[0].bounds.width).toBe(240)
     expect(notes[0].color).toBe('sky')
   })
 
@@ -267,10 +268,10 @@ describe('storage utilities', () => {
         color: 'sky',
         visible: true,
         bounds: {
-          leftPercent: 1.3,
-          topPercent: -0.2,
-          rightPercent: 0.2,
-          bottomPercent: -1,
+          x: Number.NaN,
+          y: Number.NaN,
+          width: -10,
+          height: 0,
         },
         createdAt: 1,
         updatedAt: 2,
@@ -281,12 +282,11 @@ describe('storage utilities', () => {
 
     const notes = await getDesktopNotes()
     expect(notes).toHaveLength(1)
-    expect(notes[0].bounds.leftPercent).toBeGreaterThanOrEqual(0)
-    expect(notes[0].bounds.topPercent).toBeGreaterThanOrEqual(0)
-    expect(notes[0].bounds.rightPercent).toBeLessThanOrEqual(1)
-    expect(notes[0].bounds.bottomPercent).toBeLessThanOrEqual(1)
-    expect(notes[0].bounds.rightPercent).toBeGreaterThan(notes[0].bounds.leftPercent)
-    expect(notes[0].bounds.bottomPercent).toBeGreaterThan(notes[0].bounds.topPercent)
+    // 非法字段降级为默认值，width/height 至少满足最小尺寸
+    expect(Number.isFinite(notes[0].bounds.x)).toBe(true)
+    expect(Number.isFinite(notes[0].bounds.y)).toBe(true)
+    expect(notes[0].bounds.width).toBeGreaterThanOrEqual(240)
+    expect(notes[0].bounds.height).toBeGreaterThanOrEqual(180)
   })
 
   it('persists desktop notes through the shared store', async () => {
@@ -297,7 +297,7 @@ describe('storage utilities', () => {
         content: '- item',
         color: 'mint',
         visible: true,
-        bounds: { leftPercent: 0.02, topPercent: 0.04, rightPercent: 0.18, bottomPercent: 0.3 },
+        bounds: { x: 38, y: 43, width: 307, height: 281 },
         createdAt: 10,
         updatedAt: 11,
         deletedAt: null,

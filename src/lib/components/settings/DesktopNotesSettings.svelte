@@ -87,11 +87,9 @@
     return `background:${preset.background}; border-color:${preset.accent}; color:${preset.text};`
   }
 
-  /** 将百分比 bounds 转换为近似像素尺寸（用于设置页显示） */
+  /** 将逻辑像素 bounds 转换为显示标签 */
   function noteSizeLabel(bounds: DesktopNoteBounds): string {
-    const w = Math.round((bounds.rightPercent - bounds.leftPercent) * DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH)
-    const h = Math.round((bounds.bottomPercent - bounds.topPercent) * DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT)
-    return `${w}×${h}`
+    return `${Math.round(bounds.width)}×${Math.round(bounds.height)}`
   }
 
   async function handleFeatureToggle(event: Event) {

@@ -38,42 +38,53 @@ function normalizeDesktopNoteColor(value: unknown): DesktopNoteColor {
 }
 
 function normalizeNoteBounds(value: unknown): DesktopNoteBounds {
-  const candidate = value as Partial<DesktopNoteBounds> | null | undefined
-  const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
-  const minWidthPercent = DESKTOP_NOTES.MIN_WIDTH / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH
-  const minHeightPercent = DESKTOP_NOTES.MIN_HEIGHT / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT
+  const candidate = value as Partial<DesktopNoteBounds> & {
+    leftPercent?: number
+    topPercent?: number
+    rightPercent?: number
+    bottomPercent?: number
+  } | null | undefined
 
-  const lp = Number(candidate?.leftPercent)
-  const tp = Number(candidate?.topPercent)
-  const rp = Number(candidate?.rightPercent)
-  const bp = Number(candidate?.bottomPercent)
-
-  let left = Number.isFinite(lp) ? clamp01(lp) : DESKTOP_NOTES.DEFAULT_OFFSET_X / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH
-  let top = Number.isFinite(tp) ? clamp01(tp) : DESKTOP_NOTES.DEFAULT_OFFSET_Y / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT
-  let right = Number.isFinite(rp) ? clamp01(rp) : (DESKTOP_NOTES.DEFAULT_OFFSET_X + DESKTOP_NOTES.DEFAULT_WIDTH) / DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH
-  let bottom = Number.isFinite(bp) ? clamp01(bp) : (DESKTOP_NOTES.DEFAULT_OFFSET_Y + DESKTOP_NOTES.DEFAULT_HEIGHT) / DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT
-
-  if (right <= left) {
-    right = Math.min(1, left + minWidthPercent)
-    if (right <= left) {
-      left = Math.max(0, 1 - minWidthPercent)
-      right = 1
-    }
+  // 默认 bounds（逻辑像素）
+  const defaultBounds: DesktopNoteBounds = {
+    x: DESKTOP_NOTES.DEFAULT_OFFSET_X,
+    y: DESKTOP_NOTES.DEFAULT_OFFSET_Y,
+    width: DESKTOP_NOTES.DEFAULT_WIDTH,
+    height: DESKTOP_NOTES.DEFAULT_HEIGHT,
   }
 
-  if (bottom <= top) {
-    bottom = Math.min(1, top + minHeightPercent)
-    if (bottom <= top) {
-      top = Math.max(0, 1 - minHeightPercent)
-      bottom = 1
+  if (!candidate) {
+    return defaultBounds
+  }
+
+  const x = Number(candidate.x)
+  const y = Number(candidate.y)
+  const width = Number(candidate.width)
+  const height = Number(candidate.height)
+
+  // 旧版百分比数据迁移：把百分比按默认参考屏幕尺寸还原为像素
+  if (
+    [x, y, width, height].some(v => !Number.isFinite(v))
+    && [candidate.leftPercent, candidate.topPercent, candidate.rightPercent, candidate.bottomPercent]
+      .every(v => typeof v === 'number' && Number.isFinite(v))
+  ) {
+    const lp = candidate.leftPercent as number
+    const tp = candidate.topPercent as number
+    const rp = candidate.rightPercent as number
+    const bp = candidate.bottomPercent as number
+    return {
+      x: Math.round(lp * DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH),
+      y: Math.round(tp * DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT),
+      width: Math.max(Math.round((rp - lp) * DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH), DESKTOP_NOTES.MIN_WIDTH),
+      height: Math.max(Math.round((bp - tp) * DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT), DESKTOP_NOTES.MIN_HEIGHT),
     }
   }
 
   return {
-    leftPercent: left,
-    topPercent: top,
-    rightPercent: right,
-    bottomPercent: bottom,
+    x: Number.isFinite(x) ? Math.round(x) : defaultBounds.x,
+    y: Number.isFinite(y) ? Math.round(y) : defaultBounds.y,
+    width: Number.isFinite(width) ? Math.max(Math.round(width), DESKTOP_NOTES.MIN_WIDTH) : defaultBounds.width,
+    height: Number.isFinite(height) ? Math.max(Math.round(height), DESKTOP_NOTES.MIN_HEIGHT) : defaultBounds.height,
   }
 }
 

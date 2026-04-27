@@ -11,7 +11,6 @@
   import { platformsStore } from '$lib/stores/platforms.svelte'
   import { translationStore } from '$lib/stores/translation.svelte'
   import { copyTextToClipboard } from '$lib/utils/clipboard'
-  import { DESKTOP_NOTES } from '$lib/utils/constants'
   import { logger } from '$lib/utils/logger'
   import { preloadDefaultPlatforms } from '$lib/utils/preload'
   import { executeExplanation, executeTranslation } from '$lib/utils/selection-actions'
@@ -31,10 +30,6 @@
   let selectionCollectUnlisten: UnlistenFn | null = null
   let openPlatformUnlisten: UnlistenFn | null = null
   let beforeExitUnlisten: UnlistenFn | null = null
-  /** 屏幕尺寸变化检测定时器 & 上次记录的屏幕尺寸 */
-  let screenCheckTimer: ReturnType<typeof setInterval> | null = null
-  let lastScreenWidth = 0
-  let lastScreenHeight = 0
 
   type SelectionToolbarEventPayload = {
     text?: string
@@ -80,11 +75,6 @@
 
     beforeExitUnlisten?.()
     beforeExitUnlisten = null
-
-    if (screenCheckTimer) {
-      clearInterval(screenCheckTimer)
-      screenCheckTimer = null
-    }
   })
 
   function extractSelectionText(payload: SelectionToolbarEventPayload | null | undefined): string | null {
@@ -253,11 +243,9 @@
         }
 
         // 同步后恢复窗口：仅恢复 visible=true 的便签（visible 状态已跨设备同步）
+        // 设计上不再做屏幕切换重定位 — 钉死保存的逻辑像素坐标，
+        // 用户拔插显示器、切换主屏的处理交给 OS。
         await desktopNotesStore.restoreVisibleWindows({ recoverHidden: false })
-
-        // 启动屏幕尺寸变化检测：定时对比 screen.width/height，
-        // 检测到变化时自动重定位所有可见便签（应对多屏切换、分辨率变化等场景）
-        startScreenChangeMonitor()
       }
 
       // 预加载默认平台（异步，不阻塞初始化）
@@ -266,32 +254,6 @@
     catch (error) {
       logger.error('Failed to initialize application stores:', error)
     }
-  }
-
-  /**
-   * 启动屏幕尺寸变化检测
-   *
-   * 定期轮询 screen.width / screen.height，当检测到变化时
-   * 说明用户切换了主屏幕或调整了分辨率，此时自动重定位所有可见便签。
-   */
-  function startScreenChangeMonitor() {
-    lastScreenWidth = screen.width
-    lastScreenHeight = screen.height
-
-    screenCheckTimer = setInterval(() => {
-      const w = screen.width
-      const h = screen.height
-      if (w !== lastScreenWidth || h !== lastScreenHeight) {
-        logger.info('Screen dimensions changed, repositioning desktop notes', {
-          from: { width: lastScreenWidth, height: lastScreenHeight },
-          to: { width: w, height: h },
-        })
-        lastScreenWidth = w
-        lastScreenHeight = h
-        // 重定位所有可见便签窗口（openNoteWindow 会重新计算像素坐标）
-        void desktopNotesStore.restoreVisibleWindows({ recoverHidden: false })
-      }
-    }, DESKTOP_NOTES.SCREEN_CHANGE_CHECK_INTERVAL_MS)
   }
 
   async function registerOpenSettingsListener() {

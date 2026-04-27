@@ -44,94 +44,13 @@ function generateNoteId(): string {
   return `note-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
 }
 
-/**
- * 获取当前屏幕逻辑尺寸（CSS 像素）
- *
- * 使用 DOM `screen` 对象，返回逻辑像素分辨率，
- * 与 Tauri LogicalPosition / LogicalSize 坐标系一致。
- */
-function getScreenLogicalSize(): { width: number, height: number } {
-  const w = typeof screen !== 'undefined' ? screen.width : 0
-  const h = typeof screen !== 'undefined' ? screen.height : 0
-  return {
-    width: w > 0 ? w : DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH,
-    height: h > 0 ? h : DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT,
-  }
-}
-
-/**
- * 将百分比 bounds 转换为绝对像素坐标（用于传递给 Rust 创建窗口）
- *
- * 百分比会被钳位到 [0, 1] 范围内，确保便签始终在当前屏幕可见区域内。
- * 这样即使便签原来在副屏，切换到单屏后也能正确显示。
- */
-export function boundsToPixels(
-  bounds: DesktopNoteBounds,
-  screenW: number,
-  screenH: number,
-): { x: number, y: number, width: number, height: number } {
-  const lp = Math.max(0, Math.min(1, bounds.leftPercent))
-  const tp = Math.max(0, Math.min(1, bounds.topPercent))
-  const rp = Math.max(0, Math.min(1, bounds.rightPercent))
-  const bp = Math.max(0, Math.min(1, bounds.bottomPercent))
-
-  const x = Math.round(lp * screenW)
-  const y = Math.round(tp * screenH)
-  const w = Math.max(Math.round((rp - lp) * screenW), DESKTOP_NOTES.MIN_WIDTH)
-  const h = Math.max(Math.round((bp - tp) * screenH), DESKTOP_NOTES.MIN_HEIGHT)
-  return { x, y, width: w, height: h }
-}
-
-/**
- * 将绝对像素坐标转换为百分比 bounds（用于保存便签位置）
- */
-export function pixelsToBounds(
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  screenW: number,
-  screenH: number,
-): DesktopNoteBounds {
-  const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
-  const minWidthPercent = DESKTOP_NOTES.MIN_WIDTH / screenW
-  const minHeightPercent = DESKTOP_NOTES.MIN_HEIGHT / screenH
-
-  let left = clamp01(x / screenW)
-  let top = clamp01(y / screenH)
-  let right = clamp01((x + width) / screenW)
-  let bottom = clamp01((y + height) / screenH)
-
-  // 防止出现 right <= left / bottom <= top 的无效区域，避免重启后位置错乱
-  if (right <= left) {
-    right = Math.min(1, left + minWidthPercent)
-    if (right <= left) {
-      left = Math.max(0, 1 - minWidthPercent)
-      right = 1
-    }
-  }
-
-  if (bottom <= top) {
-    bottom = Math.min(1, top + minHeightPercent)
-    if (bottom <= top) {
-      top = Math.max(0, 1 - minHeightPercent)
-      bottom = 1
-    }
-  }
-
-  return {
-    leftPercent: left,
-    topPercent: top,
-    rightPercent: right,
-    bottomPercent: bottom,
-  }
-}
-
 function createDefaultBounds(index: number): DesktopNoteBounds {
-  const { width: sw, height: sh } = getScreenLogicalSize()
-  const x = DESKTOP_NOTES.DEFAULT_OFFSET_X + index * 24
-  const y = DESKTOP_NOTES.DEFAULT_OFFSET_Y + index * 24
-  return pixelsToBounds(x, y, DESKTOP_NOTES.DEFAULT_WIDTH, DESKTOP_NOTES.DEFAULT_HEIGHT, sw, sh)
+  return {
+    x: DESKTOP_NOTES.DEFAULT_OFFSET_X + index * 24,
+    y: DESKTOP_NOTES.DEFAULT_OFFSET_Y + index * 24,
+    width: DESKTOP_NOTES.DEFAULT_WIDTH,
+    height: DESKTOP_NOTES.DEFAULT_HEIGHT,
+  }
 }
 
 function createEmptyNote(index: number): DesktopNote {
@@ -154,21 +73,20 @@ function createEmptyNote(index: number): DesktopNote {
 }
 
 /**
- * 判断 bounds 是否有效（非零面积、百分比合法）。
+ * 判断 bounds 是否有效（非零面积、有限值）。
  *
  * 用于 openNoteWindow 打开前校验持久化 bounds，
- * 避免兼容区数据/竞态派生的空矩形导致便签被打开在屏幕左上角。
+ * 避免兼容区数据/竞态派生的零矩形导致便签被打开为不可见。
  */
 function isValidBounds(bounds: DesktopNoteBounds | null | undefined): bounds is DesktopNoteBounds {
   if (!bounds) {
     return false
   }
-  const { leftPercent, topPercent, rightPercent, bottomPercent } = bounds
-  if ([leftPercent, topPercent, rightPercent, bottomPercent].some(v => !Number.isFinite(v))) {
+  const { x, y, width, height } = bounds
+  if ([x, y, width, height].some(v => !Number.isFinite(v))) {
     return false
   }
-  // 宽/高至少要有 3% 屏幕，防止百分比闭合导致像素计算后近乎为零
-  return (rightPercent - leftPercent) > 0.03 && (bottomPercent - topPercent) > 0.03
+  return width >= DESKTOP_NOTES.MIN_WIDTH && height >= DESKTOP_NOTES.MIN_HEIGHT
 }
 
 /**
@@ -469,20 +387,14 @@ class DesktopNotesStore {
     // 必须从持久化 key 读取最新值，否则多次关闭/打开后会恢复到旧位置。
     const effectiveBounds = await resolveOpenBounds(noteId, note.bounds)
 
-    // 将百分比 bounds 转换为当前主屏像素坐标
-    const { width: screenW, height: screenH } = getScreenLogicalSize()
-    const pixelBounds = boundsToPixels(effectiveBounds, screenW, screenH)
     logger.debug('Opening note window', {
       noteId,
-      source: isValidBounds(note.bounds) && JSON.stringify(effectiveBounds) === JSON.stringify(note.bounds) ? 'memory' : 'per-note-key',
       bounds: effectiveBounds,
-      screen: { width: screenW, height: screenH },
-      pixelBounds,
     })
     await invoke('ensure_desktop_note_window', {
       payload: {
         noteId: note.id,
-        bounds: pixelBounds,
+        bounds: effectiveBounds,
       },
     })
 

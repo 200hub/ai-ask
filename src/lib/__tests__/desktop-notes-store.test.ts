@@ -49,7 +49,7 @@ function createTestNote(overrides: Partial<DesktopNote> = {}): DesktopNote {
     content: overrides.content ?? '',
     color: overrides.color ?? 'sunny',
     visible: overrides.visible ?? true,
-    bounds: overrides.bounds ?? { leftPercent: 0.05, topPercent: 0.09, rightPercent: 0.22, bottomPercent: 0.35 },
+    bounds: overrides.bounds ?? { x: 96, y: 97, width: 326, height: 281 },
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
     deletedAt: overrides.deletedAt ?? null,
@@ -95,7 +95,7 @@ describe('desktopNotesStore', () => {
 
       await desktopNotesStore.init()
 
-      const newBounds = { leftPercent: 0.1, topPercent: 0.18, rightPercent: 0.31, bottomPercent: 0.51 }
+      const newBounds = { x: 192, y: 194, width: 403, height: 356 }
       await desktopNotesStore.updateNoteBounds('test-note-1', newBounds)
 
       const updated = desktopNotesStore.getNoteById('test-note-1')
@@ -287,90 +287,5 @@ describe('desktopNotesStore', () => {
       // 退出登录应重置同步时间戳，确保下次登录全量拉取
       expect(mockSetDesktopNotesLastSyncedAt).toHaveBeenCalledWith(null)
     })
-  })
-})
-
-describe('boundsToPixels & pixelsToBounds', () => {
-  let boundsToPixels: (typeof import('$lib/stores/desktop-notes.svelte'))['boundsToPixels']
-  let pixelsToBounds: (typeof import('$lib/stores/desktop-notes.svelte'))['pixelsToBounds']
-
-  beforeEach(async () => {
-    ({ boundsToPixels, pixelsToBounds } = await import('$lib/stores/desktop-notes.svelte'))
-  })
-
-  it('should convert percentage bounds to pixel coordinates', () => {
-    const bounds = { leftPercent: 0.1, topPercent: 0.2, rightPercent: 0.4, bottomPercent: 0.5 }
-    const result = boundsToPixels(bounds, 1920, 1080)
-    expect(result.x).toBe(192)
-    expect(result.y).toBe(216)
-    expect(result.width).toBe(576)
-    expect(result.height).toBe(324)
-  })
-
-  it('should enforce MIN_WIDTH and MIN_HEIGHT', () => {
-    // 非常小的百分比区域 → 宽/高不足时应 clamp 到最小值
-    const bounds = { leftPercent: 0.5, topPercent: 0.5, rightPercent: 0.51, bottomPercent: 0.51 }
-    const result = boundsToPixels(bounds, 1920, 1080)
-    expect(result.width).toBeGreaterThanOrEqual(240)
-    expect(result.height).toBeGreaterThanOrEqual(180)
-  })
-
-  it('should convert pixel coordinates to percentage bounds', () => {
-    const result = pixelsToBounds(192, 216, 576, 324, 1920, 1080)
-    expect(result.leftPercent).toBe(0.1)
-    expect(result.topPercent).toBe(0.2)
-    expect(result.rightPercent).toBe(0.4)
-    expect(result.bottomPercent).toBe(0.5)
-  })
-
-  it('should round-trip correctly', () => {
-    const original = { leftPercent: 0.25, topPercent: 0.15, rightPercent: 0.6, bottomPercent: 0.75 }
-    const screenW = 1920
-    const screenH = 1080
-    const pixels = boundsToPixels(original, screenW, screenH)
-    const restored = pixelsToBounds(pixels.x, pixels.y, pixels.width, pixels.height, screenW, screenH)
-
-    // 因为 Math.round，可能有微小误差
-    expect(Math.abs(restored.leftPercent - original.leftPercent)).toBeLessThan(0.001)
-    expect(Math.abs(restored.topPercent - original.topPercent)).toBeLessThan(0.001)
-    expect(Math.abs(restored.rightPercent - original.rightPercent)).toBeLessThan(0.001)
-    expect(Math.abs(restored.bottomPercent - original.bottomPercent)).toBeLessThan(0.001)
-  })
-
-  it('should handle different screen sizes consistently', () => {
-    // 在 1920x1080 保存的百分比，在 2560x1440 上还原
-    const percentBounds = pixelsToBounds(960, 540, 320, 280, 1920, 1080)
-    const on1080p = boundsToPixels(percentBounds, 1920, 1080)
-    const on1440p = boundsToPixels(percentBounds, 2560, 1440)
-
-    // 两个屏幕上的相对位置应一致（即百分比相同），但绝对像素不同
-    expect(on1080p.x).toBe(960)
-    expect(on1080p.y).toBe(540)
-    expect(on1440p.x).toBe(1280)
-    expect(on1440p.y).toBe(720)
-  })
-
-  it('should clamp out-of-range percentages to [0, 1]', () => {
-    // 模拟旧数据或副屏便签：百分比 > 1.0 或 < 0 时应被钳位到合法范围
-    const outOfRange = { leftPercent: 1.3, topPercent: -0.1, rightPercent: 1.5, bottomPercent: 0.5 }
-    const result = boundsToPixels(outOfRange, 1920, 1080)
-    // leftPercent clamped to 1.0, topPercent clamped to 0
-    expect(result.x).toBe(1920)
-    expect(result.y).toBe(0)
-    // width = (1.0 - 1.0) * 1920 → 0 → clamped to MIN_WIDTH (240)
-    expect(result.width).toBe(240)
-    // height = (0.5 - 0) * 1080 = 540
-    expect(result.height).toBe(540)
-  })
-
-  it('should sanitize invalid pixel-derived bounds to a valid rectangle', () => {
-    // 模拟异常几何：窗口位置远超屏幕，导致 right/left、bottom/top 可能无效
-    const result = pixelsToBounds(2600, 1400, 10, 10, 1920, 1080)
-    expect(result.leftPercent).toBeGreaterThanOrEqual(0)
-    expect(result.topPercent).toBeGreaterThanOrEqual(0)
-    expect(result.rightPercent).toBeLessThanOrEqual(1)
-    expect(result.bottomPercent).toBeLessThanOrEqual(1)
-    expect(result.rightPercent).toBeGreaterThan(result.leftPercent)
-    expect(result.bottomPercent).toBeGreaterThan(result.topPercent)
   })
 })

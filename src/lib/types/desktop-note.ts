@@ -10,20 +10,20 @@
 export type DesktopNoteColor = 'sunny' | 'mint' | 'sky' | 'lavender' | 'rose' | 'slate'
 
 /**
- * 便签位置/大小 —— 以屏幕百分比 (0~1) 存储
+ * 便签位置/大小 —— 逻辑像素（CSS 像素，相对虚拟桌面原点）
  *
- * 存储便签左上角和右下角在屏幕上的相对位置，
- * 恢复时按当前屏幕尺寸乘以百分比即可还原为像素坐标。
+ * 设计上不做任何屏幕/显示器感知：保存什么坐标就还原什么坐标。
+ * 用户拔插显示器、切换主屏的处理交给 OS（OS 自己会把窗口拉回可见区域）。
  */
 export interface DesktopNoteBounds {
-  /** 左上角 x 占屏幕宽度的百分比 (0~1) */
-  leftPercent: number
-  /** 左上角 y 占屏幕高度的百分比 (0~1) */
-  topPercent: number
-  /** 右下角 x 占屏幕宽度的百分比 (0~1) */
-  rightPercent: number
-  /** 右下角 y 占屏幕高度的百分比 (0~1) */
-  bottomPercent: number
+  /** 逻辑像素 x 坐标（相对虚拟桌面原点） */
+  x: number
+  /** 逻辑像素 y 坐标（相对虚拟桌面原点） */
+  y: number
+  /** 逻辑像素宽度 */
+  width: number
+  /** 逻辑像素高度 */
+  height: number
 }
 
 /**
