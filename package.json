@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "check:i18n": "node scripts/check-i18n-parity.mjs",
     "test": "pnpm run test:frontend && pnpm run test:rust",
     "test:frontend": "vitest run",
     "test:rust": "cd src-tauri && cargo test",

@@ -713,11 +713,11 @@
     }
 
     .sync-indicator[data-status='success'] {
-        color: #23a56b;
+        color: var(--success-color);
     }
 
     .sync-indicator[data-status='error'] {
-        color: #e64980;
+        color: var(--error-color);
     }
 
     .empty-shell {

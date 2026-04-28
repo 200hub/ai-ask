@@ -239,6 +239,7 @@ export const koKR = {
     errorOrder: '순서를 업데이트할 수 없습니다. 다시 시도하세요.',
     errorAdd: '플랫폼을 추가할 수 없습니다. 다시 시도하세요.',
     iconOptionalHint: '선택 사항입니다. 비워두면 기본 아이콘이 사용됩니다.',
+    onlyCustomDeletable: '사용자 정의 플랫폼만 삭제할 수 있습니다',
     // 신규: 사전 로드 관련
     preload: '사전 로드',
     preloadTitle: '사전 로드 설정',

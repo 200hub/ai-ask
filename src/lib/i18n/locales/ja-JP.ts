@@ -27,20 +27,10 @@ export const jaJP = {
     custom: 'カスタム',
   },
 
-  selectionToolbar: {
-    translate: '翻訳',
-    explain: '説明',
-    collect: '収集',
-    tooltipTranslate: '選択したテキストを翻訳',
-    tooltipExplain: 'AIに説明を依頼',
-    tooltipCollect: 'クリップボードに保存',
-  },
-
   app: {
     name: 'AI Ask',
     title: 'AIアシスタント',
     description: 'シンプルで効率的なAI質問応答アシスタント',
-    collectFailed: 'クリップボードへのコピーに失敗しました。もう一度お試しください。',
   },
 
   sidebar: {
@@ -247,6 +237,7 @@ export const jaJP = {
     errorOrder: '並び順を更新できませんでした。もう一度お試しください。',
     errorAdd: 'プラットフォームを追加できませんでした。もう一度お試しください。',
     iconOptionalHint: '任意。空欄の場合はデフォルトアイコンを使用します。',
+    onlyCustomDeletable: 'カスタムプラットフォームのみ削除できます',
     // 新規：プリロード関連
     preload: 'プリロード',
     preloadTitle: 'プリロード設定',
@@ -459,6 +450,7 @@ export const jaJP = {
       explanationFailed: '説明に失敗しました',
       noTranslatorConfigured: 'まず翻訳プラットフォームを有効にしてください。',
       noAiPlatform: 'まず AI プラットフォームを有効にしてください。',
+      collectFailed: 'クリップボードへのコピーに失敗しました。もう一度お試しください。',
     },
   },
 

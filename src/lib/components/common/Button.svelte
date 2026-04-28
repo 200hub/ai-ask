@@ -126,7 +126,7 @@
     /* 变体 */
     .btn-primary {
         background-color: var(--accent-color);
-        color: #fff;
+        color: var(--text-on-accent);
     }
     .btn-primary:hover:not(:disabled) {
         background-color: var(--accent-hover);

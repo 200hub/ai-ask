@@ -276,7 +276,16 @@ fn run_desktop() {
                 let _ =
                     app.global_shortcut()
                         .on_shortcut(shortcut, move |_app, _event, _shortcut| {
-                            let mut last = throttle.lock().unwrap();
+                            // 锁中毒时仍然恢复内部状态，避免因一次 panic 永久禁用快捷键
+                            let mut last = match throttle.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => {
+                                    log::warn!(
+                                        "Shortcut throttle mutex poisoned, recovering inner state"
+                                    );
+                                    poisoned.into_inner()
+                                }
+                            };
                             let now = Instant::now();
                             if let Some(previous) = *last {
                                 let elapsed = now.duration_since(previous);

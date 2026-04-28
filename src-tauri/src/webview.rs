@@ -294,9 +294,16 @@ pub(crate) async fn ensure_child_webview(
                                 );
                             }
                         } else if path.starts_with("end") {
-                            let (expected, received, data) = {
-                                let mut s = agg_nav.lock().unwrap();
-                                (s.0, s.1, std::mem::take(&mut s.2))
+                            // 若 mutex 中毒，仍尝试取出内部状态以避免后续永久阻塞
+                            let (expected, received, data) = match agg_nav.lock() {
+                                Ok(mut s) => (s.0, s.1, std::mem::take(&mut s.2)),
+                                Err(poisoned) => {
+                                    log::warn!(
+                                        "[NAV-INTERCEPT] agg_nav mutex poisoned, recovering inner state"
+                                    );
+                                    let mut s = poisoned.into_inner();
+                                    (s.0, s.1, std::mem::take(&mut s.2))
+                                }
                             };
                             log::info!(
                                 "[NAV-INTERCEPT] End: expected={}, received={}, data_len={}",

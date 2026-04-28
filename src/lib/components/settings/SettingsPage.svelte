@@ -189,7 +189,7 @@
     .sidebar-tab.active {
         border-color: color-mix(in srgb, var(--accent-color) 70%, transparent);
         background: color-mix(in srgb, var(--accent-color) 18%, var(--bg-primary));
-        box-shadow: 0 10px 40px rgba(15, 23, 42, 0.15);
+        box-shadow: var(--shadow-modal);
     }
 
     .tab-icon {

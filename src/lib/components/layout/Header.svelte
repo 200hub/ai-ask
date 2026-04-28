@@ -317,7 +317,7 @@
   }
 
   .hover-close:hover {
-    background-color: #ef4444 !important;
-    color: white !important;
+    background-color: var(--error-color) !important;
+    color: var(--text-on-accent) !important;
   }
 </style>

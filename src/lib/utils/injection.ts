@@ -127,7 +127,8 @@ ${finderScript}.then(element => {
     ${
       triggerEvents
         ? `
-    try { element.focus(); } catch(e) {}
+    // focus() 在部分嵌入式上下文（iframe/沙箱）会抛错，此处忽略不影响后续事件派发
+    try { element.focus(); } catch (_focusErr) { /* ignored: non-critical */ }
     element.dispatchEvent(new Event('input', { bubbles: true }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
     console.log('[FILL] Events triggered');
@@ -167,7 +168,8 @@ ${finderScript}.then(element => {
     console.log('[CLICK] Element is visible');
     
     // Focus and dispatch full click sequence
-    try { element.focus(); } catch(e) {}
+    // focus() 失败不影响后续点击事件派发，因此忽略异常
+    try { element.focus(); } catch (_focusErr) { /* ignored: non-critical */ }
     
     const centerX = (rect.left + rect.right) / 2;
     const centerY = (rect.top + rect.bottom) / 2;
