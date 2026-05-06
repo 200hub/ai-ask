@@ -455,6 +455,24 @@ describe('sticky note e2e - openNoteWindow 位置来源', () => {
     expect(payload.bounds.width).toBeGreaterThan(100)
   })
 
+  it('openNoteWindow 应忽略 per-note key 中的脏坐标并回退到内存中的最后好位置', async () => {
+    const memBounds = { x: 576, y: 324, width: 576, height: 432 }
+    const corruptedBounds = { x: -21333, y: -21333, width: 240, height: 180 }
+    const note = createTestNote({ id: 'n-corrupted', bounds: memBounds })
+    mockGetDesktopNotes.mockResolvedValue([note])
+    mockLoadNoteBounds.mockResolvedValueOnce(null)
+    mockLoadNoteBounds.mockResolvedValueOnce(corruptedBounds)
+    await desktopNotesStore.init()
+
+    await desktopNotesStore.openNoteWindow('n-corrupted')
+
+    const ensureCall = mockInvoke.mock.calls.find(([cmd]) => cmd === 'ensure_desktop_note_window')
+    expect(ensureCall).toBeDefined()
+    const payload = (ensureCall![1] as { payload: { bounds: { x: number, y: number } } }).payload
+    expect(payload.bounds.x).toBe(576)
+    expect(payload.bounds.y).toBe(324)
+  })
+
   it('openNoteWindow 在内存 bounds 也无效时使用默认 bounds，不定位到 (0,0,0,0)', async () => {
     // 构造全零无效 bounds
     const zeroBounds = { x: 0, y: 0, width: 0, height: 0 }

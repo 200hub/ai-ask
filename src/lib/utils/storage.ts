@@ -12,6 +12,7 @@ import {
   DESKTOP_NOTE_COLOR_PRESETS,
   DESKTOP_NOTES,
 } from './constants'
+import { normalizeDesktopNoteBounds, normalizeStoredDesktopNoteBounds } from './desktop-note-bounds'
 import { logger } from './logger'
 
 /**
@@ -38,54 +39,7 @@ function normalizeDesktopNoteColor(value: unknown): DesktopNoteColor {
 }
 
 function normalizeNoteBounds(value: unknown): DesktopNoteBounds {
-  const candidate = value as Partial<DesktopNoteBounds> & {
-    leftPercent?: number
-    topPercent?: number
-    rightPercent?: number
-    bottomPercent?: number
-  } | null | undefined
-
-  // 默认 bounds（逻辑像素）
-  const defaultBounds: DesktopNoteBounds = {
-    x: DESKTOP_NOTES.DEFAULT_OFFSET_X,
-    y: DESKTOP_NOTES.DEFAULT_OFFSET_Y,
-    width: DESKTOP_NOTES.DEFAULT_WIDTH,
-    height: DESKTOP_NOTES.DEFAULT_HEIGHT,
-  }
-
-  if (!candidate) {
-    return defaultBounds
-  }
-
-  const x = Number(candidate.x)
-  const y = Number(candidate.y)
-  const width = Number(candidate.width)
-  const height = Number(candidate.height)
-
-  // 旧版百分比数据迁移：把百分比按默认参考屏幕尺寸还原为像素
-  if (
-    [x, y, width, height].some(v => !Number.isFinite(v))
-    && [candidate.leftPercent, candidate.topPercent, candidate.rightPercent, candidate.bottomPercent]
-      .every(v => typeof v === 'number' && Number.isFinite(v))
-  ) {
-    const lp = candidate.leftPercent as number
-    const tp = candidate.topPercent as number
-    const rp = candidate.rightPercent as number
-    const bp = candidate.bottomPercent as number
-    return {
-      x: Math.round(lp * DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH),
-      y: Math.round(tp * DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT),
-      width: Math.max(Math.round((rp - lp) * DESKTOP_NOTES.DEFAULT_SCREEN_WIDTH), DESKTOP_NOTES.MIN_WIDTH),
-      height: Math.max(Math.round((bp - tp) * DESKTOP_NOTES.DEFAULT_SCREEN_HEIGHT), DESKTOP_NOTES.MIN_HEIGHT),
-    }
-  }
-
-  return {
-    x: Number.isFinite(x) ? Math.round(x) : defaultBounds.x,
-    y: Number.isFinite(y) ? Math.round(y) : defaultBounds.y,
-    width: Number.isFinite(width) ? Math.max(Math.round(width), DESKTOP_NOTES.MIN_WIDTH) : defaultBounds.width,
-    height: Number.isFinite(height) ? Math.max(Math.round(height), DESKTOP_NOTES.MIN_HEIGHT) : defaultBounds.height,
-  }
+  return normalizeDesktopNoteBounds(value)
 }
 
 function normalizeDesktopNoteSync(value: unknown): DesktopNoteSyncState {
@@ -433,7 +387,7 @@ export async function saveDesktopNotes(notes: DesktopNote[]): Promise<void> {
 export async function saveNoteBounds(noteId: string, bounds: DesktopNoteBounds): Promise<void> {
   try {
     const storeInstance = await initStore()
-    await storeInstance.set(`note_bounds_${noteId}`, bounds)
+    await storeInstance.set(`note_bounds_${noteId}`, normalizeDesktopNoteBounds(bounds))
     await storeInstance.save()
   }
   catch (error) {
@@ -451,7 +405,12 @@ export async function loadNoteBounds(noteId: string): Promise<DesktopNoteBounds 
     if (!raw) {
       return null
     }
-    return normalizeNoteBounds(raw)
+    const normalized = normalizeStoredDesktopNoteBounds(raw)
+    if (!normalized) {
+      logger.warn('Ignoring invalid note bounds from storage', { noteId, raw })
+      return null
+    }
+    return normalized
   }
   catch (error) {
     logger.error('Failed to load note bounds', { noteId, error })

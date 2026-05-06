@@ -106,6 +106,28 @@ describe('desktopNotesStore', () => {
       // 应使用 per-note key 写入（不做 read-modify-write），避免多窗口竞态
       expect(mockSaveNoteBounds).toHaveBeenCalledWith('test-note-1', newBounds)
     })
+
+    it('should ignore absurd offscreen bounds and keep last good geometry', async () => {
+      const note = createTestNote({
+        id: 'test-note-invalid-bounds',
+        bounds: { x: 320, y: 240, width: 360, height: 280 },
+        sync: { dirty: false, lastSyncedAt: 1000 },
+      })
+      mockGetDesktopNotes.mockResolvedValue([note])
+
+      await desktopNotesStore.init()
+      await desktopNotesStore.updateNoteBounds('test-note-invalid-bounds', {
+        x: -21333,
+        y: -21333,
+        width: 240,
+        height: 180,
+      })
+
+      const updated = desktopNotesStore.getNoteById('test-note-invalid-bounds')
+      expect(updated).not.toBeNull()
+      expect(updated!.bounds).toEqual({ x: 320, y: 240, width: 360, height: 280 })
+      expect(mockSaveNoteBounds).not.toHaveBeenCalled()
+    })
   })
 
   describe('updateNoteContent', () => {

@@ -18,6 +18,12 @@ import type { SupabaseSessionInfo } from '$lib/utils/supabase'
 
 import { configStore } from '$lib/stores/config.svelte'
 import { DESKTOP_NOTES } from '$lib/utils/constants'
+import {
+  createDefaultDesktopNoteBounds,
+  isDesktopNoteBoundsUsable,
+  isDesktopNotePositionSane,
+  normalizeDesktopNoteBounds,
+} from '$lib/utils/desktop-note-bounds'
 import { logger } from '$lib/utils/logger'
 import {
   mergeRemoteIntoLocal,
@@ -45,12 +51,7 @@ function generateNoteId(): string {
 }
 
 function createDefaultBounds(index: number): DesktopNoteBounds {
-  return {
-    x: DESKTOP_NOTES.DEFAULT_OFFSET_X + index * 24,
-    y: DESKTOP_NOTES.DEFAULT_OFFSET_Y + index * 24,
-    width: DESKTOP_NOTES.DEFAULT_WIDTH,
-    height: DESKTOP_NOTES.DEFAULT_HEIGHT,
-  }
+  return createDefaultDesktopNoteBounds(index)
 }
 
 function createEmptyNote(index: number): DesktopNote {
@@ -79,18 +80,11 @@ function createEmptyNote(index: number): DesktopNote {
  * 避免兼容区数据/竞态派生的零矩形导致便签被打开为不可见。
  */
 function isValidBounds(bounds: DesktopNoteBounds | null | undefined): bounds is DesktopNoteBounds {
-  if (!bounds) {
-    return false
-  }
-  const { x, y, width, height } = bounds
-  if ([x, y, width, height].some(v => !Number.isFinite(v))) {
-    return false
-  }
-  return width >= DESKTOP_NOTES.MIN_WIDTH && height >= DESKTOP_NOTES.MIN_HEIGHT
+  return isDesktopNoteBoundsUsable(bounds)
 }
 
 /**
- * 获取指定便签打开时应该使用的有效 bounds（百分比）。
+ * 获取指定便签打开时应该使用的有效 bounds（逻辑像素）。
  *
  * 优先级：
  * 1. per-note key 中最新保存的 bounds（便签窗口拖拽/改大小后的全权威来源）
@@ -355,21 +349,60 @@ class DesktopNotesStore {
     // 使用 per-note key 直接写入，避免多窗口并发 read-modify-write 竞态。
     let changed = false
 
-    this.notes = this.notes.map((note) => {
+    this.notes = this.notes.map((note, index) => {
       if (note.id !== noteId) {
         return note
+      }
+
+      const fallbackBounds = isValidBounds(note.bounds) ? note.bounds : createDefaultBounds(index)
+
+      if (!isDesktopNotePositionSane(bounds.x, bounds.y)) {
+        logger.warn('Rejecting sticky note bounds update with absurd coordinates', {
+          noteId,
+          attemptedBounds: bounds,
+          fallbackBounds,
+        })
+        return note
+      }
+
+      const normalizedBounds = normalizeDesktopNoteBounds(bounds, fallbackBounds)
+
+      if (
+        normalizedBounds.x === note.bounds.x
+        && normalizedBounds.y === note.bounds.y
+        && normalizedBounds.width === note.bounds.width
+        && normalizedBounds.height === note.bounds.height
+      ) {
+        return note
+      }
+
+      if (
+        normalizedBounds.x !== bounds.x
+        || normalizedBounds.y !== bounds.y
+        || normalizedBounds.width !== bounds.width
+        || normalizedBounds.height !== bounds.height
+      ) {
+        logger.warn('Rejecting invalid sticky note bounds update, falling back to last good bounds', {
+          noteId,
+          attemptedBounds: bounds,
+          normalizedBounds,
+        })
       }
 
       changed = true
       return {
         ...note,
-        bounds,
+        bounds: normalizedBounds,
       }
     })
 
     if (changed) {
+      const updated = this.getNoteById(noteId)
+      if (!updated) {
+        return
+      }
       // 直接写 per-note bounds key，Rust 侧串行化，无竞态
-      await saveNoteBounds(noteId, bounds)
+      await saveNoteBounds(noteId, updated.bounds)
     }
   }
 

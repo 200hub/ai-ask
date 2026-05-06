@@ -366,11 +366,20 @@ export const DESKTOP_NOTES = {
   MIN_HEIGHT: 180,
   DEFAULT_OFFSET_X: 120,
   DEFAULT_OFFSET_Y: 120,
+  DEFAULT_OFFSET_STEP: 24,
   DEFAULT_COLOR: 'sunny',
   /** 默认参考屏幕逻辑宽度（测试/SSR 环境无 screen 对象时的回退值） */
   DEFAULT_SCREEN_WIDTH: 1920,
   /** 默认参考屏幕逻辑高度（测试/SSR 环境无 screen 对象时的回退值） */
   DEFAULT_SCREEN_HEIGHT: 1080,
+  /**
+   * 便签位置合理范围（逻辑像素）。
+   *
+   * 目的不是支持多屏推导，而是拦截明显脏掉的 OS 坐标，
+   * 比如窗口在关闭/隐藏阶段偶发返回的 `-21333`。
+   */
+  POSITION_SANITY_LIMIT_X: 7680,
+  POSITION_SANITY_LIMIT_Y: 4320,
   WINDOW_LABEL_PREFIX: 'desktop-note-',
   WINDOW_ROUTE: '/sticky-note',
   SAVE_DEBOUNCE_MS: 250,

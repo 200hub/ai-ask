@@ -79,8 +79,11 @@ vi.mock('$lib/utils/constants', () => ({
     MIN_HEIGHT: 180,
     DEFAULT_OFFSET_X: 120,
     DEFAULT_OFFSET_Y: 120,
+    DEFAULT_OFFSET_STEP: 24,
     DEFAULT_SCREEN_WIDTH: 1920,
     DEFAULT_SCREEN_HEIGHT: 1080,
+    POSITION_SANITY_LIMIT_X: 7680,
+    POSITION_SANITY_LIMIT_Y: 4320,
     DEFAULT_COLOR: 'sunny',
   },
   DESKTOP_NOTE_COLOR_PRESETS: [
@@ -103,6 +106,7 @@ let getTranslationPlatforms: (typeof import('$lib/utils/storage'))['getTranslati
 let resetToDefaults: (typeof import('$lib/utils/storage'))['resetToDefaults']
 let getDesktopNotes: (typeof import('$lib/utils/storage'))['getDesktopNotes']
 let saveDesktopNotes: (typeof import('$lib/utils/storage'))['saveDesktopNotes']
+let loadNoteBounds: (typeof import('$lib/utils/storage'))['loadNoteBounds']
 
 beforeEach(async () => {
   storeData = {}
@@ -120,6 +124,7 @@ beforeEach(async () => {
   resetToDefaults = storageModule.resetToDefaults
   getDesktopNotes = storageModule.getDesktopNotes
   saveDesktopNotes = storageModule.saveDesktopNotes
+  loadNoteBounds = storageModule.loadNoteBounds
 })
 
 describe('storage utilities', () => {
@@ -314,5 +319,13 @@ describe('storage utilities', () => {
         color: 'mint',
       }),
     ])
+  })
+
+  it('ignores corrupted per-note bounds instead of returning poisoned coordinates', async () => {
+    storeData.note_bounds_bad = { x: -21333, y: -21333, width: 240, height: 180 }
+
+    const bounds = await loadNoteBounds('bad')
+
+    expect(bounds).toBeNull()
   })
 })

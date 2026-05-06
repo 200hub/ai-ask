@@ -3,7 +3,7 @@
 //! 设计目标：
 //! 1. 保持窗口层轻量，只负责创建/更新/关闭便签窗口
 //! 2. 认证与同步由前端通过 Supabase JS SDK 完成，Rust 不参与
-//! 3. 便签位置以屏幕百分比存储在前端，打开时前端转换为像素坐标传入
+//! 3. 便签位置以前端保存的逻辑像素为准，但 Rust 仍做最后一层脏坐标保护
 
 use serde::Deserialize;
 use tauri::{
@@ -16,6 +16,8 @@ const DESKTOP_NOTE_WINDOW_ROUTE: &str = "/sticky-note";
 const DESKTOP_NOTE_WINDOW_TITLE: &str = "Sticky Note";
 const DESKTOP_NOTE_MIN_WIDTH: f64 = 240.0;
 const DESKTOP_NOTE_MIN_HEIGHT: f64 = 180.0;
+const DESKTOP_NOTE_POSITION_SANITY_LIMIT_X: f64 = 7680.0;
+const DESKTOP_NOTE_POSITION_SANITY_LIMIT_Y: f64 = 4320.0;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,19 +53,39 @@ fn set_note_window_geometry(
     window: &WebviewWindow,
     bounds: &DesktopNoteBoundsPayload,
 ) -> Result<(), String> {
+    let sane_x = if bounds.x.is_finite() && bounds.x.abs() <= DESKTOP_NOTE_POSITION_SANITY_LIMIT_X {
+        bounds.x
+    } else {
+        120.0
+    };
+    let sane_y = if bounds.y.is_finite() && bounds.y.abs() <= DESKTOP_NOTE_POSITION_SANITY_LIMIT_Y {
+        bounds.y
+    } else {
+        120.0
+    };
+    let sane_width = if bounds.width.is_finite() {
+        bounds.width.max(DESKTOP_NOTE_MIN_WIDTH)
+    } else {
+        320.0
+    };
+    let sane_height = if bounds.height.is_finite() {
+        bounds.height.max(DESKTOP_NOTE_MIN_HEIGHT)
+    } else {
+        280.0
+    };
+
     window
-        .set_position(Position::Logical(LogicalPosition::new(bounds.x, bounds.y)))
+        .set_position(Position::Logical(LogicalPosition::new(sane_x, sane_y)))
         .map_err(|error| error.to_string())?;
     window
-        .set_size(Size::Logical(LogicalSize::new(bounds.width, bounds.height)))
+        .set_size(Size::Logical(LogicalSize::new(sane_width, sane_height)))
         .map_err(|error| error.to_string())?;
     Ok(())
 }
 
 /// 确保便签窗口存在：已存在则显示，否则创建新窗口
 ///
-/// 前端负责将百分比 bounds 转换为当前屏幕的绝对像素坐标，
-/// Rust 端只需按给定坐标创建/显示窗口。
+/// 前端负责传入逻辑像素 bounds；Rust 端做最小尺寸和脏坐标兜底。
 #[tauri::command]
 pub async fn ensure_desktop_note_window(
     app: AppHandle,
