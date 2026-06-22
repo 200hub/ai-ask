@@ -107,6 +107,15 @@ pub(crate) struct ChildWebviewIdPayload {
 /// 支持通过系统默认程序打开的新窗口 URL Scheme
 const SUPPORTED_EXTERNAL_URL_SCHEMES: [&str; 4] = ["http", "https", "mailto", "tel"];
 
+/// 部分站点（如千问）在内嵌 WebView 环境下会基于 UA 进行兼容性限制。
+/// 为其使用标准桌面浏览器 UA，可提高页面可访问性。
+const CHILD_WEBVIEW_DESKTOP_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+fn should_use_desktop_user_agent(webview_id: &str, url: &str) -> bool {
+    webview_id.ends_with("qianwen") || url.contains("qianwen.com") || url.contains("tongyi.com")
+}
+
 fn should_open_in_default_browser(url: &Url) -> bool {
     SUPPORTED_EXTERNAL_URL_SCHEMES.contains(&url.scheme())
 }
@@ -238,6 +247,10 @@ pub(crate) async fn ensure_child_webview(
             payload.id.clone(),
             WebviewUrl::External(parse_external_url(&payload.url)?),
         );
+
+        if should_use_desktop_user_agent(&payload.id, &payload.url) {
+            builder = builder.user_agent(CHILD_WEBVIEW_DESKTOP_USER_AGENT);
+        }
 
         if let Some(proxy_url) = requested_proxy {
             builder = builder.proxy_url(parse_proxy_url(proxy_url)?);
@@ -731,7 +744,7 @@ pub(crate) async fn evaluate_child_webview_script(
 
 #[cfg(test)]
 mod tests {
-    use super::should_open_in_default_browser;
+    use super::{should_open_in_default_browser, should_use_desktop_user_agent};
     use tauri::Url;
 
     #[test]
@@ -759,5 +772,21 @@ mod tests {
 
         let javascript = Url::parse("javascript:alert('x')").unwrap();
         assert!(!should_open_in_default_browser(&javascript));
+    }
+
+    #[test]
+    fn enables_desktop_ua_for_qianwen_routes() {
+        assert!(should_use_desktop_user_agent(
+            "ai-chat-qianwen",
+            "https://www.qianwen.com"
+        ));
+        assert!(should_use_desktop_user_agent(
+            "ai-chat-custom",
+            "https://www.tongyi.com"
+        ));
+        assert!(!should_use_desktop_user_agent(
+            "ai-chat-chatgpt",
+            "https://chatgpt.com"
+        ));
     }
 }

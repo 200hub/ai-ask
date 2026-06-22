@@ -373,14 +373,14 @@ export const COPILOT_TEMPLATES: InjectionTemplate[] = [
 ]
 
 /**
- * 千问 (Qianwen) injection templates - qianwen.com
+ * 千问 (Qianwen) injection templates - qianwen.com / tongyi.com
  */
 export const QIANWEN_TEMPLATES: InjectionTemplate[] = [
   {
     platformId: 'qianwen',
     name: 'Send Message',
     description: '向千问发送消息并提取回复',
-    urlPattern: 'https://(www\\.)?qianwen\\.com.*',
+    urlPattern: 'https://((www\\.)?qianwen\\.com|(www\\.)?tongyi\\.com).*',
     actions: [
       {
         type: 'fill',

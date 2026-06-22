@@ -148,7 +148,8 @@ export const BUILT_IN_AI_PLATFORMS: AIPlatform[] = [
     id: 'qianwen',
     name: '千问',
     icon: qianwenIcon,
-    url: 'https://qianwen.com',
+    // 使用 www 入口，兼容部分网络环境下 apex 域名解析/跳转异常
+    url: 'https://www.qianwen.com',
     enabled: true,
     isCustom: false,
     sortOrder: 13,
