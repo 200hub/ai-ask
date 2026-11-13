@@ -19,7 +19,7 @@ import type {
   FillTextAction,
   InjectionAction,
 } from '$lib/types/injection'
-import { DEFAULT_EXTRACT_OUTPUT_FORMAT, DEFAULT_INJECTION_TIMEOUT } from './constants'
+import { DEFAULT_EXTRACT_OUTPUT_FORMAT, DEFAULT_INJECTION_TIMEOUT, SELECTION_RESULT_WINDOW } from './constants'
 import { logger } from './logger'
 
 /**
@@ -42,7 +42,7 @@ function escapeJs(value: string): string {
  * Returns a Promise that resolves to the found element
  */
 // 生成元素查找脚本：轮询 querySelector，直到找到或超时（用于后续动作引用）
-function generateFinderScript(selector: string, timeout?: number): string {
+function generateFinderScript(selector: string, timeout?: number, accept?: string): string {
   const timeoutMs = timeout || DEFAULT_INJECTION_TIMEOUT
   const escapedSelector = escapeJs(selector)
 
@@ -54,7 +54,9 @@ function generateFinderScript(selector: string, timeout?: number): string {
     
     function findElement() {
         try {
-            const element = document.querySelector('${escapedSelector}');
+            const element = ${accept
+              ? `Array.from(document.querySelectorAll('${escapedSelector}')).find(${accept})`
+              : `document.querySelector('${escapedSelector}')`};
             if (element) {
                 console.log('[FINDER] Element found:', '${escapedSelector}');
                 resolve(element);
@@ -93,6 +95,22 @@ export function generateFillScript(action: FillTextAction): string {
   const triggerEvents = action.triggerEvents ?? true
 
   const finderScript = generateFinderScript(action.selector, action.timeout)
+  const slateEdit = action.slateEditor
+    ? `if (element.matches('[data-slate-editor="true"][contenteditable="true"]')) {
+        element.focus();
+        const selection = document.getSelection();
+        if (!selection) throw new Error('Editor selection is unavailable');
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        const handled = !element.dispatchEvent(new InputEvent('beforeinput', {
+            bubbles: true, cancelable: true, inputType: 'insertText', data: value
+        }));
+        if (!handled) throw new Error('Editor did not accept the input');
+        return { success: true, message: 'Text filled' };
+    }`
+    : ''
 
   return `
 ${finderScript}.then(element => {
@@ -100,7 +118,7 @@ ${finderScript}.then(element => {
     if (!element) throw new Error('Element not found');
     
     const value = '${content}';
-    console.log('[FILL] Filling with value:', value.substring(0, 50) + (value.length > 50 ? '...' : ''));
+    ${slateEdit}
     
     // Handle different element types
     if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
@@ -148,24 +166,19 @@ ${finderScript}.then(element => {
  */
 // 生成点击脚本：派发 pointer 与 mouse 事件，确保框架/库能捕获到完整序列
 export function generateClickScript(action: ClickAction): string {
-  const finderScript = generateFinderScript(action.selector, action.timeout)
+  const finderScript = generateFinderScript(action.selector, action.timeout, `element => {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden'
+          && style.display !== 'none' && !element.disabled && element.getAttribute('aria-disabled') !== 'true';
+  }`)
 
   return `
 ${finderScript}.then(element => {
     console.log('[CLICK] Starting click operation');
     if (!element) throw new Error('Element not found');
     
-    // Get element rect once and reuse
     const rect = element.getBoundingClientRect();
-    
-    // Check visibility
-    const style = window.getComputedStyle(element);
-    if (rect.width === 0 || rect.height === 0 || 
-        style.visibility === 'hidden' || style.display === 'none') {
-        console.error('[CLICK] Element not visible');
-        throw new Error('Element not visible');
-    }
-    console.log('[CLICK] Element is visible');
     
     // Focus and dispatch full click sequence
     // focus() 失败不影响后续点击事件派发，因此忽略异常
@@ -199,7 +212,7 @@ ${finderScript}.then(element => {
  * Continuously polls for content until non-empty or timeout
  */
 // 生成提取脚本：轮询执行用户提供的 extractScript，直到有内容或超时
-export function generateExtractScript(action: ExtractAction): string {
+export function generateExtractScript(action: ExtractAction, baseline?: string): string {
   const timeout = action.timeout || 10000 // 默认 10 秒
   const pollInterval = action.pollInterval || 500 // 默认 500ms 轮询
   const extractScript = action.extractScript || ''
@@ -210,6 +223,8 @@ export function generateExtractScript(action: ExtractAction): string {
     const startTime = Date.now();
     const timeout = ${timeout};
     const pollInterval = ${pollInterval};
+    let lastContent = null;
+    let stableSince = 0;
 
     function normalizeExtractResult(raw) {
         if (typeof raw === 'string') {
@@ -225,8 +240,6 @@ export function generateExtractScript(action: ExtractAction): string {
 
     function tryExtract() {
         try {
-            console.log('[EXTRACT] Attempting extraction...');
-            
             // Execute custom extraction script
             const extractFn = ${extractScript};
             const raw = extractFn();
@@ -234,7 +247,14 @@ export function generateExtractScript(action: ExtractAction): string {
             const textContent = (normalized.text || '').trim();
             const htmlContent = (normalized.html || '').trim();
             
-            if (textContent.length > 0 || htmlContent.length > 0) {
+            const signature = textContent || htmlContent;
+            if (signature !== lastContent) {
+                lastContent = signature;
+                stableSince = Date.now();
+            }
+            if (signature && ${baseline
+              ? `signature !== ${baseline} && Date.now() - stableSince >= ${SELECTION_RESULT_WINDOW.RESPONSE_STABILITY_MS}`
+              : 'true'}) {
                 console.log('[EXTRACT] Content found:', textContent.length || htmlContent.length, 'chars');
                 resolve({ success: true, content: textContent, html: htmlContent, format: '${outputFormat}' });
                 return;
@@ -249,7 +269,6 @@ export function generateExtractScript(action: ExtractAction): string {
             }
             
             // Retry
-            console.log('[EXTRACT] No content yet, retrying in', pollInterval, 'ms');
             setTimeout(tryExtract, pollInterval);
             
         } catch (error) {
@@ -272,8 +291,13 @@ export function generateExtractScript(action: ExtractAction): string {
  * Generate complete injection script with multiple actions
  */
 // 聚合多个动作生成最终注入脚本：顺序执行并分片回传结果
-export function generateInjectionScript(actions: InjectionAction[]): string {
+export function generateInjectionScript(
+  actions: InjectionAction[],
+  options: { requestId?: number, waitForFreshResult?: boolean, reuseSameTranslation?: boolean } = {},
+): string {
   const scriptParts: string[] = []
+  const baselines: string[] = []
+  const fill = actions.find(action => action.type === 'fill')
 
   actions.forEach((action, index) => {
     let actionScript = ''
@@ -286,7 +310,24 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
         actionScript = generateClickScript(action)
         break
       case 'extract':
-        actionScript = generateExtractScript(action)
+        if (options.waitForFreshResult) {
+          const baseline = `baseline${index}`
+          const sameSource = options.reuseSameTranslation && fill
+            ? `const source = document.querySelector(${JSON.stringify(fill.selector)});
+                if ((source?.value ?? source?.innerText) === ${JSON.stringify(fill.content)}) return '';`
+            : ''
+          baselines.push(`const ${baseline} = (() => {
+            try {
+              ${sameSource}
+              const value = (${action.extractScript})();
+              return (typeof value === 'string' ? value : value?.text || value?.html || '').trim();
+            } catch (_) { return ''; }
+          })();`)
+          actionScript = generateExtractScript(action, baseline)
+        }
+        else {
+          actionScript = generateExtractScript(action)
+        }
         break
       default:
         logger.warn('Unknown action type')
@@ -316,6 +357,7 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
     console.log('[INJECTION] Starting ${actions.length} actions');
     const results = [];
     const startTime = Date.now();
+    const requestQuery = ${JSON.stringify(options.requestId === undefined ? '' : `&r=${options.requestId}`)};
     
     async function __sendResultLarge(obj) {
         try {
@@ -328,12 +370,16 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
             
             // Split into chunks to avoid URL length limits (safe limit: 1800 chars per chunk)
             const CHUNK_SIZE = 1800;
+            if (b64u.length <= CHUNK_SIZE) {
+                window.location.href = 'http://injection.localhost/result?d=' + b64u + requestQuery;
+                return;
+            }
             const totalChunks = Math.ceil(b64u.length / CHUNK_SIZE) || 1;
             console.log('[SEND-RESULT] Transmitting', b64u.length, 'bytes in', totalChunks, 'chunks');
             
             // Signal: begin
             try { 
-                window.location.href = 'http://injection.localhost/begin?t=' + totalChunks; 
+                window.location.href = 'http://injection.localhost/begin?t=' + totalChunks + requestQuery;
             } catch (e) { 
                 console.error('[SEND-RESULT] Begin signal failed:', e); 
             }
@@ -343,7 +389,7 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
             for (let i = 0; i < totalChunks; i++) {
                 const chunk = b64u.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
                 try { 
-                    window.location.href = 'http://injection.localhost/chunk?i=' + i + '&t=' + totalChunks + '&d=' + chunk; 
+                    window.location.href = 'http://injection.localhost/chunk?i=' + i + '&t=' + totalChunks + '&d=' + chunk + requestQuery;
                 } catch (e) { 
                     console.error('[SEND-RESULT] Chunk', i, 'failed:', e); 
                 }
@@ -352,7 +398,7 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
             
             // Signal: end
             try { 
-                window.location.href = 'http://injection.localhost/end?t=' + totalChunks; 
+                window.location.href = 'http://injection.localhost/end?t=' + totalChunks + requestQuery;
             } catch (e) { 
                 console.error('[SEND-RESULT] End signal failed:', e); 
             }
@@ -362,7 +408,7 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
             // Attempt to send error signal
             try { 
                 const msg = encodeURIComponent(String((e && e.message) || e)); 
-                window.location.href = 'http://injection.localhost/error?m=' + msg; 
+                window.location.href = 'http://injection.localhost/error?m=' + msg + requestQuery;
             } catch (_) {
                 // Silent fail - nothing more we can do
             }
@@ -370,10 +416,11 @@ export function generateInjectionScript(actions: InjectionAction[]): string {
     }
     
     try {
+        ${baselines.join('\n        ')}
         ${scriptParts.join('\n\t\t')}
         
         const duration = Date.now() - startTime;
-        console.log('[INJECTION] All actions completed', { duration, results });
+        console.log('[INJECTION] All actions completed', { duration, count: results.length });
         const result = {
             success: true,
             duration,

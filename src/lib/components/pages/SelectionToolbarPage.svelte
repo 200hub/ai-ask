@@ -231,6 +231,7 @@
 
 <div
   class='toolbar-container'
+  role='group'
   onpointerenter={handlePointerEnter}
   onpointerleave={handlePointerLeave}
 >

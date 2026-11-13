@@ -20,6 +20,10 @@ export interface FillTextAction {
    */
   content: string
   /**
+   * Let Slate process the edit through beforeinput, preserving its document model.
+   */
+  slateEditor?: boolean
+  /**
    * Whether to trigger input events (default: true)
    */
   triggerEvents?: boolean

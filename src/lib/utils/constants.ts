@@ -549,6 +549,7 @@ export const SELECTION_TOOLBAR = {
  * 划词浮动结果窗口配置常量
  */
 export const SELECTION_RESULT_WINDOW = {
+  PROVIDER_READY_TIMEOUT_MS: 20_000,
   /** 结果窗口宽度（逻辑像素） */
   WINDOW_WIDTH: 360,
   /** 结果窗口默认高度（逻辑像素） */

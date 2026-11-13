@@ -108,7 +108,6 @@
 
     const selection = window.getSelection()
     const selectedText = selection?.toString().trim()
-    const initialPreview = (selectedText ?? '').replace(/\s+/g, ' ').slice(0, 80)
 
     const isLeftButton = event.button === 0
     const isPlainSelection = isLeftButton && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
@@ -117,7 +116,6 @@
       stage: 'mouseup',
       isPlainSelection,
       textLength: selectedText?.length ?? 0,
-      preview: initialPreview,
     }
     logger.debug('Selection monitor mouseup', mouseupPayload)
 
@@ -131,12 +129,10 @@
       selectionTimeout = null
       const debouncedSelection = window.getSelection()
       const debouncedText = debouncedSelection?.toString().trim()
-      const debouncedPreview = (debouncedText ?? '').replace(/\s+/g, ' ').slice(0, 80)
 
       const debouncedPayload = {
         stage: 'debounce',
         textLength: debouncedText?.length ?? 0,
-        preview: debouncedPreview,
       }
       logger.debug('Selection monitor debounced selection', debouncedPayload)
 

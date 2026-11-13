@@ -5,7 +5,7 @@ import type { ViewType } from '../types/config'
 import type { AIPlatform } from '../types/platform'
 
 import { logger } from '$lib/utils/logger'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 
 /**
  * 应用状态类
@@ -66,15 +66,12 @@ class AppState {
    */
   async openSettings() {
     // 首先确保隐藏所有子 webviews
-    if (
-      typeof window !== 'undefined'
-      && typeof (window as unknown as { __TAURI_IPC__?: unknown }).__TAURI_IPC__ === 'function'
-    ) {
+    if (isTauri()) {
       try {
         await invoke('hide_all_child_webviews')
         logger.debug('All child webviews hidden before opening settings')
       }
- catch (error) {
+      catch (error) {
         logger.warn('Failed to invoke hide_all_child_webviews', error)
       }
     }

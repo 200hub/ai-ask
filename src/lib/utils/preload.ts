@@ -8,10 +8,10 @@
 import { configStore } from '$lib/stores/config.svelte'
 import { platformsStore } from '$lib/stores/platforms.svelte'
 import { translationStore } from '$lib/stores/translation.svelte'
-import { calculateChildWebviewBounds, ChildWebviewProxy } from '$lib/utils/childWebview'
+import { ChildWebviewProxy } from '$lib/utils/childWebview'
+import { TIMING } from '$lib/utils/constants'
 import { logger } from '$lib/utils/logger'
 import { resolveProxyUrl } from '$lib/utils/proxy'
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 
 /** 平台预加载配置 */
 interface PreloadConfig {
@@ -29,14 +29,12 @@ async function preloadPlatformWebview(config: PreloadConfig): Promise<void> {
   const proxyUrl = resolveProxyUrl(configStore.config.proxy)
   const proxy = new ChildWebviewProxy(webviewId, url, proxyUrl)
 
-  const mainWindow = getCurrentWebviewWindow()
-  const bounds = await calculateChildWebviewBounds(mainWindow)
-
   // 创建但不显示 WebView
-  await proxy.ensure(bounds)
-
-  // 等待页面加载完成，确保预加载真正有效
-  await proxy.waitForLoadFinished()
+  await proxy.ensure()
+  if (!await proxy.waitForLoadFinished()) {
+    logger.debug('Platform preload reached its load timeout', { platformId, webviewId })
+    return
+  }
 
   logger.info(`${platformType === 'translation' ? 'Translation' : 'AI'} platform preloaded`, {
     platformId,
@@ -57,7 +55,7 @@ export async function preloadDefaultPlatforms(): Promise<void> {
   }
 
   // 等待一小段时间，避免影响应用启动速度
-  await new Promise(resolve => setTimeout(resolve, 1000))
+  await new Promise(resolve => setTimeout(resolve, TIMING.PLATFORM_PRELOAD_DELAY_MS))
 
   logger.info('Starting platform preloading')
 
