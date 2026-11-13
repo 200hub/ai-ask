@@ -1083,6 +1083,46 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
   }
 })
 
+test('manual Windows resume display acceptance after restart', async () => {
+  test.skip(process.env.AI_ASK_E2E_MANUAL_DESKTOP !== 'resume', 'Requires the saved two-display test profile')
+  test.setTimeout(6 * 60_000)
+  await requireInputDesktop()
+  const testInfo = test.info()
+  const app = await openApp(testInfo)
+  try {
+    const note = await findWindow(app.context, 'desktop-note-')
+    const label = (await getLabel(note))!
+    const noteId = new URL(note.url()).searchParams.get('noteId')
+    const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
+    const saved = config[`note_bounds_${noteId}`]
+    const original = await displayTopology()
+    const verify = async (display: PhysicalDisplay, id: string) => {
+      const geometry = saved.monitorBounds[id]
+      const expected = {
+        x: display.workArea.x + Math.round(geometry.x * display.dpi.x / 96),
+        y: display.workArea.y + Math.round(geometry.y * display.dpi.y / 96),
+      }
+      await expect.poll(() => invoke(note, 'plugin:window|outer_position', { label })).toEqual(expected)
+      await expect(note.getByRole('checkbox', { name: '切换完成状态' })).toBeChecked()
+    }
+    if (original.mode === 'internal') {
+      await verify(original.monitors[0], saved.monitor)
+    }
+    await writeFile(testInfo.outputPath('next-step.json'), JSON.stringify({ name: 'restore-extension' }))
+    let external: PhysicalDisplay | undefined
+    await expect.poll(async () => {
+      const current = await displayTopology()
+      external = current.monitors.find(display => display.targetIds.some(id => `windows:${id.toLowerCase()}` === saved.preferredMonitor))
+      return current.mode === 'extend' && Boolean(external)
+    }, { timeout: 4 * 60_000, intervals: [1200, 1600] }).toBe(true)
+    await verify(external!, saved.preferredMonitor)
+    await screenshot(note, testInfo, 'external-position-after-restart')
+  }
+  finally {
+    await app.close()
+  }
+})
+
 test('native translation and explanation display the current request', async () => {
   const testInfo = test.info()
   await seedConfig()
