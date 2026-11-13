@@ -260,6 +260,16 @@ interface NativeRect {
   bottom: number
 }
 
+interface NativePoint {
+  x: number
+  y: number
+}
+
+interface NativeDrag {
+  from: NativePoint
+  to: NativePoint
+}
+
 interface DesktopState {
   foregroundHwnd: number
   foregroundClassName: string
@@ -302,8 +312,8 @@ async function openDesktopProbe(pid: number) {
   try {
     expect(await nextLine()).toEqual({ ready: true })
     return {
-      async inspect(action = 'Inspect', screenshotPath?: string): Promise<DesktopState> {
-        probe.stdin.write(`${JSON.stringify({ action, screenshotPath, settleMs: 180 })}\n`)
+      async inspect(action = 'Inspect', screenshotPath?: string, drag?: NativeDrag): Promise<DesktopState> {
+        probe.stdin.write(`${JSON.stringify({ action, screenshotPath, settleMs: 180, ...drag })}\n`)
         const state = await nextLine() as DesktopState | { error: string }
         if ('error' in state) {
           throw new Error(state.error)
@@ -663,9 +673,11 @@ test('native Todo and Markdown notes survive pause and restart', async () => {
 })
 
 test('native Todo sorts, hides completed tasks and persists manual ordering', async () => {
+  await requireInputDesktop()
   const testInfo = test.info()
   await seedConfig()
   let app = await openApp(testInfo)
+  let probe: Awaited<ReturnType<typeof openDesktopProbe>> | undefined
   try {
     await openSettings(app.main)
     await app.main.getByRole('button', { name: /桌面便签/ }).press('Enter')
@@ -697,8 +709,8 @@ test('native Todo sorts, hides completed tasks and persists manual ordering', as
     await rows.nth(1).getByRole('checkbox', { name: '切换完成状态' }).check()
     await priority(0, '低')
     await priority(2, '高')
-    await deadline(2, '2026-11-25')
-    await deadline(3, '2026-11-20')
+    await deadline(2, '2026-11-20')
+    await deadline(3, '2026-11-25')
     const hidden = todo.getByRole('checkbox', { name: '隐藏已完成' })
     const sort = todo.getByRole('combobox', { name: '排序' })
     await hidden.check()
@@ -706,23 +718,40 @@ test('native Todo sorts, hides completed tasks and persists manual ordering', as
     await sort.selectOption('priority')
     await order([second, first, third])
     await screenshot(todo, testInfo, 'todo-priority-and-filter')
-    await sort.selectOption('deadline')
-    await order([third, second, first])
+    await sort.press('End')
+    await expect(sort).toHaveValue('deadline')
+    await order([second, third, first])
     await screenshot(todo, testInfo, 'todo-deadline')
 
     await sort.selectOption('manual')
     await order([first, second, third])
     const reorder = todo.getByRole('button', { name: '拖动排序，或用上下方向键移动' })
-    const target = await rows.first().boundingBox()
+    const [source, target, scale] = await Promise.all([
+      reorder.last().boundingBox(),
+      rows.first().boundingBox(),
+      todo.evaluate(() => window.devicePixelRatio),
+    ])
+    expect(source).not.toBeNull()
     expect(target).not.toBeNull()
-    await reorder.last().dragTo(rows.first(), { targetPosition: { x: target!.width / 2, y: 2 } })
+    const point = (x: number, y: number) => ({ x: Math.round(x * scale), y: Math.round(y * scale) })
+    await invoke(app.main, 'hide_window')
+    probe = await openDesktopProbe(app.processHandle.pid!)
+    await probe.inspect('DragNote', undefined, {
+      from: point(source!.x + source!.width / 2, source!.y + source!.height / 2),
+      to: point(target!.x + target!.width / 2, target!.y + 4),
+    })
     await order([third, first, second])
+    await probe.close()
+    probe = undefined
     await reorder.last().press('ArrowUp')
     await order([third, second, first])
     await hidden.uncheck()
     await order([third, second, first, fourth])
     await hidden.check()
     await sort.selectOption('deadline')
+    const viewOrder = (page: Page) => expect(page.locator('.todo-items > li .todo-text')).toHaveText([second, third, first])
+    await todo.getByRole('button', { name: '完成编辑' }).press('Enter')
+    await viewOrder(todo)
 
     const noteId = new URL(todo.url()).searchParams.get('noteId')
     await expect.poll(async () => {
@@ -740,16 +769,18 @@ test('native Todo sorts, hides completed tasks and persists manual ordering', as
     const restored = await findWindow(app.context, label)
     await expect(restored.getByRole('checkbox', { name: '隐藏已完成' })).toHaveCount(0)
     await expect(restored.getByRole('combobox', { name: '排序' })).toHaveCount(0)
+    await viewOrder(restored)
     await restored.locator('.view-edit-shortcut').press('F2')
     await expect(restored.getByRole('checkbox', { name: '隐藏已完成' })).toBeChecked()
     await expect(restored.getByRole('combobox', { name: '排序' })).toHaveValue('deadline')
-    await order([third, second, first], restored)
+    await order([second, third, first], restored)
     await restored.getByRole('combobox', { name: '排序' }).selectOption('manual')
     await restored.getByRole('checkbox', { name: '隐藏已完成' }).uncheck()
     await order([third, second, first, fourth], restored)
     await screenshot(restored, testInfo, 'todo-manual-restored')
   }
   finally {
+    await probe?.close()
     await app.close()
   }
 })

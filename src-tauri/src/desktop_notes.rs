@@ -577,6 +577,10 @@ pub async fn ensure_desktop_note_window(
         .visible(false)
         .focused(false);
 
+        // Let WebView2 deliver HTML drag and drop events to the Todo editor.
+        #[cfg(target_os = "windows")]
+        let builder = builder.disable_drag_drop_handler();
+
         #[cfg(target_os = "macos")]
         let builder = builder.visible_on_all_workspaces(true);
 

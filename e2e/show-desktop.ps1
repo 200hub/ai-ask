@@ -92,6 +92,8 @@ public static class ShowDesktopProbe {
     private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
     [DllImport("user32.dll")]
     private static extern IntPtr WindowFromPoint(Point point);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")]
@@ -183,6 +185,51 @@ public static class ShowDesktopProbe {
             Input[] release = { Key(LetterD, KeyUp), Key(LeftWin, KeyUp) };
             SendInput((uint)release.Length, release, size);
             throw new Win32Exception(error, "Could not send the complete Win+D shortcut.");
+        }
+    }
+
+    private static void SendMouseButton(uint flags) {
+        Input[] input = {
+            new Input { Type = MouseType, Data = new InputUnion { Mouse = new MouseInput { Flags = flags } } }
+        };
+        if (SendInput(1, input, Marshal.SizeOf(typeof(Input))) != 1)
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not send test mouse input.");
+    }
+
+    public static void DragWithinWindow(IntPtr hwnd, int fromX, int fromY, int toX, int toY) {
+        FocusWindow(hwnd, false);
+        IntPtr previousDpi = SetThreadDpiAwarenessContext(new IntPtr(-4));
+        Point cursor;
+        bool hadCursor = GetCursorPos(out cursor);
+        try {
+            Point from = new Point { X = fromX, Y = fromY };
+            Point to = new Point { X = toX, Y = toY };
+            if (!ClientToScreen(hwnd, ref from) || !ClientToScreen(hwnd, ref to))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not map test drag coordinates.");
+            if (GetAncestor(WindowFromPoint(from), Root) != hwnd || GetAncestor(WindowFromPoint(to), Root) != hwnd)
+                throw new InvalidOperationException("Both drag points must be exposed inside the test note.");
+            if (!SetCursorPos(from.X, from.Y))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not move to the drag handle.");
+            SendMouseButton(LeftDown);
+            try {
+                const int steps = 14;
+                for (int step = 1; step <= steps; step++) {
+                    Thread.Sleep(25);
+                    if (!SetCursorPos(from.X + (to.X - from.X) * step / steps, from.Y + (to.Y - from.Y) * step / steps))
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not move the dragged item.");
+                }
+                // WebView2 enters its native drag loop after the threshold is crossed.
+                // Move once more in the target row so the drop is based on a dragover there.
+                Thread.Sleep(75);
+                SetCursorPos(to.X + 1, to.Y);
+                Thread.Sleep(75);
+            } finally {
+                SendMouseButton(LeftUp);
+                Thread.Sleep(100);
+            }
+        } finally {
+            if (hadCursor) SetCursorPos(cursor.X, cursor.Y);
+            if (previousDpi != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpi);
         }
     }
 
@@ -293,7 +340,7 @@ function Read-WindowState([long] $Handle) {
     }
 }
 
-function Invoke-Probe([string] $Mode, [int] $WaitMs, [string] $CapturePath, [long] $NoteHandle, [long] $MainHandle) {
+function Invoke-Probe([string] $Mode, [int] $WaitMs, [string] $CapturePath, [long] $NoteHandle, [long] $MainHandle, $Request) {
     Get-Process -Id $ProcessId -ErrorAction Stop | Out-Null
     if ($NoteHandle -eq 0) {
         $NoteHandle = [ShowDesktopProbe]::FindWindowByTitle($ProcessId, 'Sticky Note')
@@ -325,6 +372,14 @@ function Invoke-Probe([string] $Mode, [int] $WaitMs, [string] $CapturePath, [lon
                 [ShowDesktopProbe]::FocusWindow([IntPtr]::new($MainHandle), $true)
             }
             'FocusNote' { [ShowDesktopProbe]::FocusWindow([IntPtr]::new($NoteHandle), $false) }
+            'DragNote' {
+                if (-not $Request.from -or -not $Request.to) { throw 'DragNote requires client coordinates.' }
+                [ShowDesktopProbe]::DragWithinWindow(
+                    [IntPtr]::new($NoteHandle),
+                    [int]$Request.from.x, [int]$Request.from.y,
+                    [int]$Request.to.x, [int]$Request.to.y
+                )
+            }
             default { throw "Unknown action $Mode." }
         }
         Start-Sleep -Milliseconds $WaitMs
@@ -362,7 +417,7 @@ if ($Interactive) {
             $capture = if ($request.screenshotPath) { $request.screenshotPath } else { $ScreenshotPath }
             $note = if ($null -ne $request.noteHwnd) { [long]$request.noteHwnd } else { $NoteHwnd }
             $main = if ($null -ne $request.mainHwnd) { [long]$request.mainHwnd } else { $MainHwnd }
-            $response = Invoke-Probe $mode $wait $capture $note $main
+            $response = Invoke-Probe $mode $wait $capture $note $main $request
         }
         catch {
             $response = @{ error = $_.Exception.Message }
