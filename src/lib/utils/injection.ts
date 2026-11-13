@@ -251,7 +251,7 @@ ${finderScript}.then(async element => {
 
     ${composer
       ? `
-    const deadline = Date.now() + ${INJECTION.SUBMISSION_CONFIRM_TIMEOUT_MS};
+    const deadline = Date.now() + ${action.confirmationTimeout ?? INJECTION.SUBMISSION_CONFIRM_TIMEOUT_MS};
     for (;;) {
         const currentComposer = composer.isConnected ? composer : [...document.querySelectorAll(${JSON.stringify(composer.selector)})]
             .find(editor => editor.getClientRects().length > 0);

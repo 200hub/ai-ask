@@ -54,6 +54,8 @@ export interface ClickAction {
    * Wait timeout in milliseconds (default: 5000)
    */
   timeout?: number
+  /** Time to wait for the composer to acknowledge this submission. */
+  confirmationTimeout?: number
 }
 
 /**

@@ -9,6 +9,7 @@
  */
 
 import type { InjectionTemplate } from '$lib/types/injection'
+import { INJECTION } from '$lib/utils/constants'
 
 /**
  * ChatGPT injection templates
@@ -182,17 +183,18 @@ export const GEMINI_TEMPLATES: InjectionTemplate[] = [
       {
         type: 'fill',
         selector:
-          'rich-textarea .ql-editor, div[contenteditable="true"][aria-label*="输入"], div[contenteditable="true"][data-placeholder], textarea',
+          'rich-textarea .ql-editor[contenteditable="true"], rich-textarea [role="textbox"][contenteditable="true"]',
         content: '',
         triggerEvents: true,
         delay: 300,
-        timeout: 5000,
+        timeout: INJECTION.GEMINI_COMPOSER_TIMEOUT_MS,
       },
       {
         type: 'click',
         selector:
-          'button[aria-label*="发送"], button[aria-label*="Send"], button.send-button, button[type="submit"]',
+          'button[aria-label="发送消息"], button[aria-label="Send message"], button.send-button',
         timeout: 3000,
+        confirmationTimeout: INJECTION.GEMINI_COMPOSER_TIMEOUT_MS,
       },
       {
         type: 'extract',

@@ -447,6 +447,7 @@ pub(crate) async fn run_selection_injection(
     payload: EvaluateScriptPayload,
     request_id: u32,
     timeout_ms: u64,
+    document_timeout_ms: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     let gate = {
         let webviews = state.webviews.lock().map_err(|error| error.to_string())?;
@@ -458,13 +459,38 @@ pub(crate) async fn run_selection_injection(
     let key = (payload.id.clone(), request_id);
     let result = tokio::time::timeout(Duration::from_millis(timeout_ms), async {
         let _guard = gate.lock().await;
+        let document = if let Some(timeout_ms) = document_timeout_ms {
+            let (webview, requested_url) = {
+                let webviews = state.webviews.lock().map_err(|error| error.to_string())?;
+                let entry = webviews
+                    .get(&payload.id)
+                    .filter(|entry| Arc::ptr_eq(&entry.injection_gate, &gate))
+                    .ok_or_else(|| format!("child webview changed: {}", payload.id))?;
+                (entry.webview.clone(), entry.requested_url.clone())
+            };
+            Some(wait_for_provider_document(webview, requested_url, timeout_ms).await?)
+        } else {
+            None
+        };
         let (reply, result) = oneshot::channel();
         state
             .pending_injections
             .lock()
             .map_err(|error| error.to_string())?
             .insert(key.clone(), reply);
-        evaluate_child_webview_script(state.clone(), payload).await?;
+        if let Some((webview, condition)) = document {
+            // Verify the active document again in the same task that starts the injection.
+            // This also covers a navigation between the native URL check and script execution.
+            let script = format!(
+                "(() => {{ if (!({condition})) return false; {}; return true; }})()",
+                payload.script
+            );
+            if !eval_provider_boolean(&webview, script).await? {
+                return Err(PROVIDER_DOCUMENT_TIMEOUT.into());
+            }
+        } else {
+            evaluate_child_webview_script(state.clone(), payload).await?;
+        }
         result.await.map_err(|error| error.to_string())?
     })
     .await;
@@ -472,6 +498,65 @@ pub(crate) async fn run_selection_injection(
         injections.remove(&key);
     }
     result.unwrap_or_else(|_| Err("EXTRACT_TIMEOUT".into()))
+}
+
+const PROVIDER_DOCUMENT_TIMEOUT: &str = "WEBVIEW_READY_TIMEOUT";
+const PROVIDER_DOCUMENT_POLL: Duration = Duration::from_millis(125);
+const PROVIDER_EVAL_TIMEOUT: Duration = Duration::from_millis(500);
+const MAX_PROVIDER_DOCUMENT_WAIT_MS: u64 = 20_000;
+
+fn provider_document_condition(requested_url: &Url) -> Option<String> {
+    if !matches!(requested_url.scheme(), "http" | "https") {
+        return None;
+    }
+    let origin = serde_json::to_string(&requested_url.origin().ascii_serialization()).ok()?;
+    Some(format!(
+        "window.location.origin === {origin} && document.readyState !== 'loading'"
+    ))
+}
+
+async fn eval_provider_boolean(webview: &Webview, script: String) -> Result<bool, String> {
+    let (send, receive) = oneshot::channel();
+    let send = Mutex::new(Some(send));
+    webview
+        .eval_with_callback(script, move |value| {
+            if let Ok(mut send) = send.lock() {
+                if let Some(send) = send.take() {
+                    let _ = send.send(value == "true");
+                }
+            }
+        })
+        .map_err(|error| error.to_string())?;
+    receive.await.map_err(|error| error.to_string())
+}
+
+async fn wait_for_provider_document(
+    webview: Webview,
+    requested_url: Url,
+    timeout_ms: u64,
+) -> Result<(Webview, String), String> {
+    let Some(condition) = provider_document_condition(&requested_url) else {
+        return Err(PROVIDER_DOCUMENT_TIMEOUT.into());
+    };
+    let origin = requested_url.origin();
+    let timeout = Duration::from_millis(timeout_ms.min(MAX_PROVIDER_DOCUMENT_WAIT_MS));
+    tokio::time::timeout(timeout, async {
+        loop {
+            if webview.url().is_ok_and(|url| url.origin() == origin)
+                && tokio::time::timeout(
+                    PROVIDER_EVAL_TIMEOUT,
+                    eval_provider_boolean(&webview, condition.clone()),
+                )
+                .await
+                .is_ok_and(|result| result.unwrap_or(false))
+            {
+                return (webview, condition);
+            }
+            tokio::time::sleep(PROVIDER_DOCUMENT_POLL).await;
+        }
+    })
+    .await
+    .map_err(|_| PROVIDER_DOCUMENT_TIMEOUT.into())
 }
 
 /// Observe the current native load state even when the WebView finished before the caller subscribed.
@@ -787,6 +872,16 @@ pub(crate) async fn evaluate_child_webview_script(
 mod tests {
     use super::*;
     use tauri::Url;
+
+    #[test]
+    fn provider_document_probe_is_limited_to_the_configured_http_origin() {
+        let url = Url::parse("https://gemini.google.com/app?account=example").unwrap();
+        let condition = provider_document_condition(&url).unwrap();
+        assert!(condition.contains("window.location.origin === \"https://gemini.google.com\""));
+        assert!(condition.contains("document.readyState !== 'loading'"));
+        assert!(!condition.contains("account"));
+        assert!(provider_document_condition(&Url::parse("about:blank").unwrap()).is_none());
+    }
 
     #[test]
     fn result_chunks_require_the_matching_request_and_sequence() {

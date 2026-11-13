@@ -411,6 +411,7 @@ export const SUPABASE = {
 export const INJECTION = {
   DOM_POLL_MS: 100,
   SUBMISSION_CONFIRM_TIMEOUT_MS: 5000,
+  GEMINI_COMPOSER_TIMEOUT_MS: 12_000,
   /** 默认选择器超时时间（毫秒） */
   DEFAULT_TIMEOUT_MS: 5000,
   /** 默认最大重试次数 */
@@ -557,6 +558,7 @@ export const SELECTION_TOOLBAR = {
  */
 export const SELECTION_RESULT_WINDOW = {
   PROVIDER_READY_TIMEOUT_MS: 20_000,
+  GEMINI_DOCUMENT_FALLBACK_DELAY_MS: 4_000,
   /** 结果窗口宽度（逻辑像素） */
   WINDOW_WIDTH: 360,
   /** 结果窗口默认高度（逻辑像素） */

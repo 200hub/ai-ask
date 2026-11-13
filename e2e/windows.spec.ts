@@ -37,6 +37,7 @@ const chatPage = `<!doctype html><meta charset="utf-8"><title>AI fixture</title>
 <output id="sent-prompts" hidden>[]</output>
 <output id="composed-prompt" hidden></output>
 <output id="submit-attempts" hidden>0</output>
+<output id="submission-document-state" hidden></output>
 <script>
 const form = document.querySelector('#composer');
 const editor = document.querySelector('#prompt-textarea');
@@ -44,6 +45,7 @@ const send = document.querySelector('[data-testid="send-button"]');
 const sentPrompts = document.querySelector('#sent-prompts');
 const composedPrompt = document.querySelector('#composed-prompt');
 const submitAttempts = document.querySelector('#submit-attempts');
+const submissionDocumentState = document.querySelector('#submission-document-state');
 const submitted = [];
 let allowSend = true;
 let acceptSubmit = true;
@@ -66,6 +68,7 @@ form.addEventListener('submit', event => {
   submitAttempts.textContent = String(Number(submitAttempts.textContent) + 1);
   if (!acceptSubmit || send.disabled || !composerState.trim() || readComposer() !== composerState) return;
   const text = composerState;
+  submissionDocumentState.textContent = document.readyState;
   submitted.push(text);
   sentPrompts.textContent = JSON.stringify(submitted);
   composerState = '';
@@ -195,7 +198,7 @@ async function screenshot(page: Page, testInfo: TestInfo, name: string) {
   await testInfo.attach(name, { path, contentType: 'image/png' })
 }
 
-async function seedConfig() {
+async function seedConfig(selectionPlatformId = 'chatgpt') {
   if (!dataDirectory!.endsWith('windows-profile')) {
     throw new Error('Expected a dedicated windows-profile test data directory')
   }
@@ -208,7 +211,7 @@ async function seedConfig() {
       preloadDefaultPlatforms: false,
       selectionToolbarEnabled: true,
       selectionToolbarUseFloatingWindow: true,
-      selectionToolbarDefaultPlatformId: 'chatgpt',
+      selectionToolbarDefaultPlatformId: selectionPlatformId,
       desktopNotesEnabled: false,
       globalHotkey: occupied,
       translationHotkey: translation,
@@ -1334,6 +1337,71 @@ test('native floating explanation does not retry an unconfirmed submission', asy
     expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
   }
   finally {
+    await app.close()
+  }
+})
+
+test('native Gemini sends the explanation before unrelated page resources finish', async () => {
+  const testInfo = test.info()
+  await seedConfig('gemini')
+  const app = await openApp(testInfo)
+  let releasePendingImage: (() => void) | undefined
+  let pendingImageRequested = false
+  let pendingImageCompleted = false
+  const pendingImage = new Promise<void>((resolve) => {
+    releasePendingImage = resolve
+  })
+  try {
+    const geminiPage = chatPage
+      .replace('<div id="prompt-textarea" class="ProseMirror"', '<rich-textarea><div id="prompt-textarea" class="ql-editor"')
+      .replace('<p><br></p></div>', '<p><br></p></div></rich-textarea>')
+      .replace('type="submit" disabled>Send', 'type="submit" aria-label="Send message" disabled>Send')
+      .replace(
+        '<div class="markdown"><p></p></div>',
+        '<message-content class="markdown"><p></p></message-content>',
+      )
+    await app.context.route('https://gemini.google.com/ai-ask-pending-image.png', async (route) => {
+      pendingImageRequested = true
+      await pendingImage
+      await route.abort().catch(() => {})
+    })
+    app.context.on('requestfinished', (request) => {
+      if (request.url() === 'https://gemini.google.com/ai-ask-pending-image.png') {
+        pendingImageCompleted = true
+      }
+    })
+    app.context.on('requestfailed', (request) => {
+      if (request.url() === 'https://gemini.google.com/ai-ask-pending-image.png') {
+        pendingImageCompleted = true
+      }
+    })
+    await app.context.route('https://gemini.google.com/', route => route.fulfill({
+      contentType: 'text/html',
+      body: `${geminiPage}<img src="/ai-ask-pending-image.png" alt="">`,
+    }))
+    await invoke(app.main, 'hide_window')
+    await expect.poll(() => isVisible(app.main)).toBe(false)
+
+    const text = 'A triangle has three sides.'
+    const expectedPrompt = `请解释以下内容：\n\n${text}`
+    await invoke(app.main, 'show_selection_toolbar', { text, position: { x: 400, y: 360 } })
+    const toolbar = await findWindow(app.context, 'selection-toolbar')
+    const explain = toolbar.getByRole('button', { name: '解释', exact: true })
+    await expect(explain).toBeEnabled()
+    await explain.dispatchEvent('click')
+    const result = await findWindow(app.context, 'selection-result')
+    const provider = await findWindow(app.context, 'ai-chat-gemini')
+    await expect.poll(() => provider.evaluate(() => document.readyState)).toBe('interactive')
+    await expect(result.locator('.result-markdown')).toHaveText(`解释 ${text}`)
+    expect(await provider.locator('#submission-document-state').textContent()).toBe('interactive')
+    expect(pendingImageRequested).toBe(true)
+    expect(pendingImageCompleted).toBe(false)
+    expect(JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')).toEqual([expectedPrompt])
+    expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
+    await screenshot(result, testInfo, 'floating-gemini-before-full-load')
+  }
+  finally {
+    releasePendingImage?.()
     await app.close()
   }
 })
