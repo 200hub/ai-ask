@@ -1355,7 +1355,7 @@ test('native Gemini sends the explanation before unrelated page resources finish
     const geminiPage = chatPage
       .replace('<div id="prompt-textarea" class="ProseMirror"', '<rich-textarea><div id="prompt-textarea" class="ql-editor"')
       .replace('<p><br></p></div>', '<p><br></p></div></rich-textarea>')
-      .replace('type="submit" disabled>Send', 'type="submit" aria-label="Send message" disabled>Send')
+      .replace('type="submit" disabled>Send', 'type="submit" aria-label="发送" disabled>Send')
       .replace(
         '<div class="markdown"><p></p></div>',
         '<message-content class="markdown"><p></p></message-content>',

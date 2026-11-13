@@ -192,7 +192,7 @@ export const GEMINI_TEMPLATES: InjectionTemplate[] = [
       {
         type: 'click',
         selector:
-          'button[aria-label="发送消息"], button[aria-label="Send message"], button.send-button',
+          'button[aria-label="发送"], button[aria-label="发送消息"], button[aria-label="Send message" i], button.send-button',
         timeout: 3000,
         confirmationTimeout: INJECTION.GEMINI_COMPOSER_TIMEOUT_MS,
       },
