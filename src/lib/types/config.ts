@@ -1,3 +1,9 @@
+import {
+  AVAILABLE_SHORTCUTS,
+  SELECTION_TOOLBAR_SHORTCUTS,
+  TRANSLATION_SHORTCUTS,
+} from '../utils/constants'
+
 /**
  * 应用配置接口
  */
@@ -83,9 +89,9 @@ export interface WindowPosition {
 export const DEFAULT_CONFIG: AppConfig = {
   theme: 'system',
   locale: 'zh-CN',
-  globalHotkey: 'CommandOrControl+Shift+A',
-  translationHotkey: 'CommandOrControl+Shift+T',
-  selectionToolbarHotkey: 'CommandOrControl+Shift+S',
+  globalHotkey: AVAILABLE_SHORTCUTS[0],
+  translationHotkey: TRANSLATION_SHORTCUTS[0],
+  selectionToolbarHotkey: SELECTION_TOOLBAR_SHORTCUTS[0],
   autoStart: false,
   autoUpdateEnabled: false,
   defaultPlatform: null,

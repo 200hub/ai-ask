@@ -1,9 +1,10 @@
 import type { AppConfig, ProxyConfig } from '../types/config'
-import type { DesktopNote, DesktopNoteBounds, DesktopNoteColor, DesktopNoteSyncState } from '../types/desktop-note'
+import type { DesktopNote, DesktopNoteBounds, DesktopNoteColor, DesktopNotePatch, DesktopNoteSyncState } from '../types/desktop-note'
 import type { AIPlatform, TranslationPlatform } from '../types/platform'
 /**
  * 存储工具类 - 用于配置的持久化
  */
+import { invoke } from '@tauri-apps/api/core'
 import { Store } from '@tauri-apps/plugin-store'
 import { DEFAULT_CONFIG } from '../types/config'
 import {
@@ -11,6 +12,7 @@ import {
   BUILT_IN_TRANSLATION_PLATFORMS,
   DESKTOP_NOTE_COLOR_PRESETS,
   DESKTOP_NOTES,
+  GLOBAL_SHORTCUT_SETTINGS,
 } from './constants'
 import { normalizeDesktopNoteBounds, normalizeStoredDesktopNoteBounds } from './desktop-note-bounds'
 import { logger } from './logger'
@@ -25,6 +27,7 @@ const STORAGE_KEYS = {
   CUSTOM_PLATFORMS: 'custom_platforms',
   DESKTOP_NOTES: 'desktop_notes',
 }
+const NOTE_BOUNDS_PREFIX = 'note_bounds_'
 
 const DESKTOP_NOTE_COLOR_IDS = new Set<DesktopNoteColor>(
   DESKTOP_NOTE_COLOR_PRESETS.map(item => item.id),
@@ -76,6 +79,7 @@ function createDefaultDesktopNote(partial?: Partial<DesktopNote>): DesktopNote {
     id: partial?.id ?? `note-${now}`,
     title: partial?.title ?? '',
     content: partial?.content ?? '',
+    ...(partial?.kind === 'todo' ? { kind: 'todo' } : {}),
     color: normalizeDesktopNoteColor(partial?.color),
     visible: partial?.visible ?? true,
     bounds: normalizeNoteBounds(partial?.bounds),
@@ -227,6 +231,13 @@ function areStringArraysEqual(a: string[], b: string[]): boolean {
  * Store实例
  */
 let store: Store | null = null
+let configWrites = Promise.resolve()
+
+export function withConfigWrite<T>(write: () => Promise<T>): Promise<T> {
+  const result = configWrites.then(write)
+  configWrites = result.then(() => {}, () => {})
+  return result
+}
 
 /**
  * 初始化Store
@@ -259,6 +270,12 @@ export async function getConfig(): Promise<AppConfig> {
     merged.proxy = normalizeProxyConfig(config?.proxy ?? merged.proxy)
 
     let needsSave = false
+    for (const { kind } of GLOBAL_SHORTCUT_SETTINGS) {
+      if (typeof merged[kind] !== 'string') {
+        merged[kind] = DEFAULT_CONFIG[kind]
+        needsSave = true
+      }
+    }
 
     const normalizedIgnored = normalizeIgnoredAppsConfig(
       rawConfig.selectionToolbarIgnoredApps ?? merged.selectionToolbarIgnoredApps,
@@ -315,30 +332,20 @@ export async function saveConfig(config: AppConfig): Promise<void> {
 /**
  * 更新配置的部分字段
  */
-export async function updateConfig(updates: Partial<AppConfig>): Promise<AppConfig> {
-  try {
-    const currentConfig = await getConfig()
-
-    // 深度合并配置，确保 proxy 字段正确更新
-    const newConfig: AppConfig = {
-      ...currentConfig,
-      ...updates,
+export function updateConfig(updates: Partial<AppConfig>): Promise<AppConfig> {
+  return withConfigWrite(async () => {
+    try {
+      const currentConfig = await getConfig()
+      const newConfig: AppConfig = { ...currentConfig, ...updates }
+      newConfig.proxy = normalizeProxyConfig(newConfig.proxy)
+      await saveConfig(newConfig)
+      return newConfig
     }
-
-    // 如果 updates 中明确包含 proxy，则覆盖
-    if ('proxy' in updates) {
-      newConfig.proxy = updates.proxy
+    catch (error) {
+      logger.error('Failed to update config', error)
+      throw error
     }
-
-    newConfig.proxy = normalizeProxyConfig(newConfig.proxy)
-
-    await saveConfig(newConfig)
-    return newConfig
-  }
-  catch (error) {
-    logger.error('Failed to update config', error)
-    throw error
-  }
+  })
 }
 
 /**
@@ -348,13 +355,7 @@ export async function getDesktopNotes(): Promise<DesktopNote[]> {
   try {
     const storeInstance = await initStore()
     const raw = await storeInstance.get<DesktopNote[]>(STORAGE_KEYS.DESKTOP_NOTES)
-    const normalized = normalizeDesktopNotes(raw)
-
-    if (JSON.stringify(raw ?? []) !== JSON.stringify(normalized)) {
-      await saveDesktopNotes(normalized)
-    }
-
-    return normalized
+    return normalizeDesktopNotes(raw)
   }
   catch (error) {
     logger.error('Failed to get desktop notes', error)
@@ -362,20 +363,20 @@ export async function getDesktopNotes(): Promise<DesktopNote[]> {
   }
 }
 
+export async function watchDesktopNotes(onChange: () => void): Promise<() => void> {
+  const storeInstance = await initStore()
+  return storeInstance.onChange((key) => {
+    if (key === STORAGE_KEYS.DESKTOP_NOTES || key.startsWith(NOTE_BOUNDS_PREFIX)) {
+      onChange()
+    }
+  })
+}
+
 /**
  * 保存桌面便签列表
  */
-export async function saveDesktopNotes(notes: DesktopNote[]): Promise<void> {
-  try {
-    const normalized = normalizeDesktopNotes(notes)
-    const storeInstance = await initStore()
-    await storeInstance.set(STORAGE_KEYS.DESKTOP_NOTES, normalized)
-    await storeInstance.save()
-  }
-  catch (error) {
-    logger.error('Failed to save desktop notes', error)
-    throw error
-  }
+export async function saveDesktopNotePatches(patches: DesktopNotePatch[]): Promise<void> {
+  await invoke('persist_desktop_note_patches', { patches })
 }
 
 /**
@@ -387,7 +388,7 @@ export async function saveDesktopNotes(notes: DesktopNote[]): Promise<void> {
 export async function saveNoteBounds(noteId: string, bounds: DesktopNoteBounds): Promise<void> {
   try {
     const storeInstance = await initStore()
-    await storeInstance.set(`note_bounds_${noteId}`, normalizeDesktopNoteBounds(bounds))
+    await storeInstance.set(`${NOTE_BOUNDS_PREFIX}${noteId}`, normalizeDesktopNoteBounds(bounds))
     await storeInstance.save()
   }
   catch (error) {
@@ -401,7 +402,7 @@ export async function saveNoteBounds(noteId: string, bounds: DesktopNoteBounds):
 export async function loadNoteBounds(noteId: string): Promise<DesktopNoteBounds | null> {
   try {
     const storeInstance = await initStore()
-    const raw = await storeInstance.get<unknown>(`note_bounds_${noteId}`)
+    const raw = await storeInstance.get<unknown>(`${NOTE_BOUNDS_PREFIX}${noteId}`)
     if (!raw) {
       return null
     }
@@ -424,7 +425,7 @@ export async function loadNoteBounds(noteId: string): Promise<DesktopNoteBounds 
 export async function deleteNoteBounds(noteId: string): Promise<void> {
   try {
     const storeInstance = await initStore()
-    await storeInstance.delete(`note_bounds_${noteId}`)
+    await storeInstance.delete(`${NOTE_BOUNDS_PREFIX}${noteId}`)
     await storeInstance.save()
   }
   catch (error) {

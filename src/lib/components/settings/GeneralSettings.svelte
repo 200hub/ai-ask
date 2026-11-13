@@ -1,14 +1,14 @@
 <script lang='ts'>
   import type { Locale } from '$lib/i18n'
+  import type { ShortcutFailure, ShortcutKind } from '$lib/types/shortcut'
   import { i18n, SUPPORTED_LOCALES } from '$lib/i18n'
   import { configStore } from '$lib/stores/config.svelte'
   import { platformsStore } from '$lib/stores/platforms.svelte'
   import { translationStore } from '$lib/stores/translation.svelte'
   import { clearChildWebviewCache } from '$lib/utils/childWebview'
   import {
-    AVAILABLE_SHORTCUTS,
-    SELECTION_TOOLBAR_SHORTCUTS,
-    TRANSLATION_SHORTCUTS,
+    GLOBAL_SHORTCUT_OPTIONS,
+    GLOBAL_SHORTCUT_SETTINGS,
   } from '$lib/utils/constants'
   import { logger } from '$lib/utils/logger'
   /**
@@ -20,6 +20,8 @@
 
   let isSaving = $state(false)
   let currentLocale = $state<Locale>(i18n.locale.get())
+  let changingShortcut = $state<ShortcutKind | null>(null)
+  const shortcutErrors = $state<Partial<Record<ShortcutKind, { reason: ShortcutFailure, accelerator: string }>>>({})
 
   // 划词工具栏忽略应用输入框的值
   let ignoreInput = $state('')
@@ -147,6 +149,7 @@
   }
 
   onMount(() => {
+    void configStore.refreshShortcuts()
     // 启动倒计时定时器，每秒更新一次剩余时间显示
     updateDisableCountdown()
     countdownTimer = window.setInterval(updateDisableCountdown, 1000)
@@ -187,52 +190,29 @@
     }
   }
 
-  /**
-   * 更新全局快捷键
-   */
-  async function handleHotkeyChange(event: Event) {
-    const target = event.target as HTMLSelectElement
-    const hotkey = target.value
-
+  async function handleShortcutChange(kind: ShortcutKind, accelerator: string, select?: HTMLSelectElement) {
+    changingShortcut = kind
+    delete shortcutErrors[kind]
     try {
-      await configStore.setGlobalHotkey(hotkey)
-    // TODO: 重新注册全局快捷键
+      await configStore.setShortcut(kind, accelerator)
     }
     catch (error) {
-      logger.error('Failed to change hotkey', error)
+      logger.warn('Could not change global shortcut', { kind, accelerator, error })
+      const reason = error === 'unavailable' || error === 'duplicate' || error === 'invalid'
+        ? error
+        : 'failed'
+      shortcutErrors[kind] = { reason, accelerator }
+      if (select) {
+        select.value = configStore.config[kind]
+      }
+    }
+    finally {
+      changingShortcut = null
     }
   }
 
-  /**
-   * 更新翻译快捷键
-   */
-  async function handleTranslationHotkeyChange(event: Event) {
-    const target = event.target as HTMLSelectElement
-    const hotkey = target.value
-
-    try {
-      await configStore.setTranslationHotkey(hotkey)
-    // TODO: 重新注册翻译快捷键
-    }
-    catch (error) {
-      logger.error('Failed to change translation hotkey', error)
-    }
-  }
-
-  /**
-   * 更新划词工具栏快捷键
-   */
-  async function handleSelectionToolbarHotkeyChange(event: Event) {
-    const target = event.target as HTMLSelectElement
-    const hotkey = target.value
-
-    try {
-      await configStore.setSelectionToolbarHotkey(hotkey)
-    // TODO: 重新注册划词工具栏快捷键
-    }
-    catch (error) {
-      logger.error('Failed to change selection toolbar hotkey', error)
-    }
+  function shortcutError(reason: ShortcutFailure, accelerator: string) {
+    return formatTranslation(`general.shortcutErrors.${reason}`, { shortcut: formatHotkey(accelerator) })
   }
 
   /**
@@ -409,9 +389,7 @@
   function formatHotkey(hotkey: string): string {
     return hotkey
       .replace('CommandOrControl', 'Ctrl/Cmd')
-      .replace('Alt', 'Alt')
-      .replace('Shift', 'Shift')
-      .replace('+', ' + ')
+      .replaceAll('+', ' + ')
   }
 
   /**
@@ -743,57 +721,45 @@
   <div class='setting-group'>
     <h3 class='group-title'>{t('general.shortcuts')}</h3>
 
-    <div class='setting-item'>
-      <div class='setting-label'>
-        <span class='label-text'>{t('general.globalHotkey')}</span>
-        <span class='label-description'>{t('general.globalHotkeyDescription')}</span>
+    {#each GLOBAL_SHORTCUT_SETTINGS as { kind, options } (kind)}
+      {@const accelerator = configStore.config[kind]}
+      {@const status = configStore.shortcutStatuses[kind]}
+      {@const suggestions = [...new Set([...options, ...GLOBAL_SHORTCUT_OPTIONS, accelerator])]}
+      {@const error = shortcutErrors[kind] ?? (status?.failure ? { reason: status.failure, accelerator: status.accelerator } : undefined)}
+      <div class='setting-item'>
+        <div class='setting-label'>
+          <label for={kind} class='label-text'>{t(`general.${kind}`)}</label>
+          <span id={`${kind}-description`} class='label-description'>{t(`general.${kind}Description`)}</span>
+          {#if error}
+            <span id={`${kind}-error`} class='shortcut-error' role='status'>{shortcutError(error.reason, error.accelerator)}</span>
+          {/if}
+        </div>
+        <div class='shortcut-controls'>
+          <select
+            id={kind}
+            class='setting-select'
+            value={accelerator}
+            disabled={changingShortcut !== null}
+            aria-describedby={error ? `${kind}-description ${kind}-error` : `${kind}-description`}
+            onchange={event => handleShortcutChange(kind, event.currentTarget.value, event.currentTarget)}
+          >
+            {#each suggestions as shortcut (shortcut)}
+              <option value={shortcut}>{formatHotkey(shortcut)}</option>
+            {/each}
+          </select>
+          {#if status?.failure}
+            <button
+              type='button'
+              class='btn-clear-cache'
+              disabled={changingShortcut !== null}
+              onclick={() => handleShortcutChange(kind, accelerator)}
+            >
+              {t('general.shortcutRetry')}
+            </button>
+          {/if}
+        </div>
       </div>
-      <select
-        class='setting-select'
-        value={configStore.config.globalHotkey}
-        onchange={handleHotkeyChange}
-      >
-        {#each AVAILABLE_SHORTCUTS as shortcut (shortcut)}
-          <option value={shortcut}>{formatHotkey(shortcut)}</option>
-        {/each}
-      </select>
-    </div>
-
-    <div class='setting-item'>
-      <div class='setting-label'>
-        <span class='label-text'>{t('general.translationHotkey')}</span>
-        <span class='label-description'>
-          {t('general.translationHotkeyDescription')}
-        </span>
-      </div>
-      <select
-        class='setting-select'
-        value={configStore.config.translationHotkey}
-        onchange={handleTranslationHotkeyChange}
-      >
-        {#each TRANSLATION_SHORTCUTS as shortcut (shortcut)}
-          <option value={shortcut}>{formatHotkey(shortcut)}</option>
-        {/each}
-      </select>
-    </div>
-
-    <div class='setting-item'>
-      <div class='setting-label'>
-        <span class='label-text'>{t('general.selectionToolbarHotkey')}</span>
-        <span class='label-description'>
-          {t('general.selectionToolbarHotkeyDescription')}
-        </span>
-      </div>
-      <select
-        class='setting-select'
-        value={configStore.config.selectionToolbarHotkey}
-        onchange={handleSelectionToolbarHotkeyChange}
-      >
-        {#each SELECTION_TOOLBAR_SHORTCUTS as shortcut (shortcut)}
-          <option value={shortcut}>{formatHotkey(shortcut)}</option>
-        {/each}
-      </select>
-    </div>
+    {/each}
   </div>
 
   <!-- 缓存管理 -->
@@ -1032,6 +998,18 @@
 
     .setting-select:hover {
         border-color: var(--accent-color);
+    }
+
+    .shortcut-controls {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .shortcut-error {
+        color: var(--error-color);
+        font-size: 0.8125rem;
     }
 
     .setting-select:focus {
