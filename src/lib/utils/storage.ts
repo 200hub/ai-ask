@@ -390,9 +390,11 @@ export async function saveDesktopNotePatches(patches: DesktopNotePatch[]): Promi
  */
 export async function saveNoteBounds(noteId: string, bounds: DesktopNoteBounds): Promise<void> {
   try {
-    const storeInstance = await initStore()
-    await storeInstance.set(`${NOTE_BOUNDS_PREFIX}${noteId}`, normalizeDesktopNoteBounds(bounds))
-    await storeInstance.save()
+    await withConfigWrite(async () => {
+      const storeInstance = await initStore()
+      await storeInstance.set(`${NOTE_BOUNDS_PREFIX}${noteId}`, normalizeDesktopNoteBounds(bounds))
+      await storeInstance.save()
+    })
   }
   catch (error) {
     logger.error('Failed to save note bounds', { noteId, error })

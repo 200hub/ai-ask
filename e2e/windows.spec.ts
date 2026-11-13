@@ -29,17 +29,63 @@ document.querySelector('textarea').addEventListener('input', ({ target }) => {
 </script>`
 
 const chatPage = `<!doctype html><meta charset="utf-8"><title>AI fixture</title>
-<textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button>
+<style>#prompt-textarea { white-space: pre-wrap; } #prompt-textarea p { margin: 0; }</style>
+<form id="composer">
+  <div id="prompt-textarea" class="ProseMirror" contenteditable="true" role="textbox" aria-label="Message" aria-multiline="true"><p><br></p></div>
+  <button id="composer-submit-button" data-testid="send-button" type="submit" disabled>Send</button>
+</form>
+<output id="sent-prompts" hidden>[]</output>
+<output id="composed-prompt" hidden></output>
+<output id="submit-attempts" hidden>0</output>
+<output id="submission-document-state" hidden></output>
 <script>
-document.querySelector('button').onclick = () => {
-  const text = document.querySelector('textarea').value;
+const form = document.querySelector('#composer');
+const editor = document.querySelector('#prompt-textarea');
+const send = document.querySelector('[data-testid="send-button"]');
+const sentPrompts = document.querySelector('#sent-prompts');
+const composedPrompt = document.querySelector('#composed-prompt');
+const submitAttempts = document.querySelector('#submit-attempts');
+const submissionDocumentState = document.querySelector('#submission-document-state');
+const submitted = [];
+let allowSend = true;
+let acceptSubmit = true;
+let composerState = '';
+window.addEventListener('allow-send', event => {
+  allowSend = event.detail;
+  send.disabled = !allowSend || !composerState.trim();
+});
+window.addEventListener('accept-submit', event => { acceptSubmit = event.detail; });
+// The model separates paragraphs from rendered block boundaries.
+const readComposer = () => editor.innerText.replace(/\\n{2,}/g, '\\n\\n');
+editor.addEventListener('input', event => {
+  if (!(event instanceof InputEvent) || !event.inputType.startsWith('insert')) return;
+  composerState = readComposer();
+  composedPrompt.textContent = composerState;
+  send.disabled = !allowSend || !composerState.trim();
+});
+form.addEventListener('submit', event => {
+  event.preventDefault();
+  submitAttempts.textContent = String(Number(submitAttempts.textContent) + 1);
+  if (!acceptSubmit || send.disabled || !composerState.trim() || readComposer() !== composerState) return;
+  const text = composerState;
+  submissionDocumentState.textContent = document.readyState;
+  submitted.push(text);
+  sentPrompts.textContent = JSON.stringify(submitted);
+  composerState = '';
+  editor.innerHTML = '<p><br></p>';
+  send.disabled = true;
+  const message = document.createElement('article');
+  message.innerHTML = '<div data-message-author-role="assistant"><div class="markdown"><p></p></div></div>';
+  message.querySelector('p').textContent = '生成中';
+  document.body.append(message);
   setTimeout(() => {
-    const message = document.createElement('article');
-    message.innerHTML = '<div data-message-author-role="assistant"><div class="markdown"><p></p></div><button data-testid="good-response-turn-action-button">Like</button></div>';
-    message.querySelector('p').textContent = '解释 ' + text;
-    document.body.append(message);
+    message.querySelector('p').textContent = '解释 ' + text.split('\\n\\n').at(-1);
+    const done = document.createElement('button');
+    done.dataset.testid = 'good-response-turn-action-button';
+    done.textContent = 'Like';
+    message.querySelector('[data-message-author-role="assistant"]').append(done);
   }, 500);
-};
+});
 </script>`
 
 test.skip(process.platform !== 'win32' || !executable || !dataDirectory, 'Requires a Windows test build with isolated app data')
@@ -152,7 +198,7 @@ async function screenshot(page: Page, testInfo: TestInfo, name: string) {
   await testInfo.attach(name, { path, contentType: 'image/png' })
 }
 
-async function seedConfig() {
+async function seedConfig(selectionPlatformId = 'chatgpt') {
   if (!dataDirectory!.endsWith('windows-profile')) {
     throw new Error('Expected a dedicated windows-profile test data directory')
   }
@@ -165,7 +211,7 @@ async function seedConfig() {
       preloadDefaultPlatforms: false,
       selectionToolbarEnabled: true,
       selectionToolbarUseFloatingWindow: true,
-      selectionToolbarDefaultPlatformId: 'chatgpt',
+      selectionToolbarDefaultPlatformId: selectionPlatformId,
       desktopNotesEnabled: false,
       globalHotkey: occupied,
       translationHotkey: translation,
@@ -187,7 +233,12 @@ async function openSettings(page: Page) {
 }
 
 async function addTodo(page: Page, text: string) {
-  const input = page.getByRole('textbox', { name: '新待办事项' })
+  const editor = page.locator('.todo-editor')
+  await expect(editor).toBeVisible()
+  if (await editor.getAttribute('data-editing') === 'false') {
+    await editor.dispatchEvent('dblclick')
+  }
+  const input = page.getByRole('textbox', { name: '新待办事项，按回车添加' })
   await input.fill(text)
   await input.press('Enter')
 }
@@ -516,19 +567,22 @@ test('native Todo and Markdown notes survive pause and restart', async () => {
     const priorityButtons = todo.getByRole('button', { name: '优先级', exact: true })
     const deadlineButtons = todo.getByRole('button', { name: '截止日期', exact: true })
     await priorityButtons.nth(1).press('Enter')
-    await todo.getByRole('combobox', { name: '优先级', exact: true }).selectOption('high')
+    await todo.getByRole('button', { name: '高', exact: true }).press('Enter')
     await deadlineButtons.nth(1).press('Enter')
     await expect(todo.locator('input[type=date]')).toBeVisible()
     await screenshot(todo, testInfo, 'todo-details')
     await todo.locator('input[type=date]').fill('2026-11-20')
-    await todo.getByRole('textbox', { name: '新待办事项' }).focus()
+    await todo.getByRole('textbox', { name: '新待办事项，按回车添加' }).focus()
     await expect(todo.locator('time[datetime="2026-11-20"]')).toBeVisible()
     await screenshot(todo, testInfo, 'todo-note')
 
     const position = { x: 180, y: 200 }
     const noteId = new URL(todo.url()).searchParams.get('noteId')
-    await expect.poll(() => invoke(todo, 'capture_desktop_note_bounds')).not.toBeNull()
-    await invoke(todo, 'plugin:window|set_position', { label, value: { Physical: position } })
+    await expect.poll(async () => {
+      await invoke(todo, 'plugin:window|set_position', { label, value: { Physical: position } })
+      const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
+      return config[`note_bounds_${noteId}`]?.monitor
+    }, { intervals: [350, 650, 1000] }).toBeTruthy()
     await expect.poll(() => invoke(todo, 'plugin:window|outer_position', { label })).toEqual(position)
     await expect.poll(async () => {
       const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
@@ -580,11 +634,14 @@ test('native Todo and Markdown notes survive pause and restart', async () => {
     await expect.poll(() => isVisible(restored)).toBe(true)
     await expect.poll(() => invoke(restored, 'plugin:window|outer_position', { label })).toEqual(position)
     await expect(restored.getByRole('checkbox', { name: '切换完成状态' }).first()).toBeChecked()
+    await expect(restored.getByRole('combobox', { name: '排序' })).toHaveCount(0)
+    await expect(restored.getByRole('checkbox', { name: '隐藏已完成' })).toHaveCount(0)
+    await restored.locator('.view-edit-shortcut').press('F2')
     await expect(restored.getByRole('textbox', { name: '编辑待办事项' }).nth(1)).toHaveValue('并发保存时验证翻译和解释窗口')
     await expect(restored.locator('time[datetime="2026-11-20"]')).toBeVisible()
     await restored.getByRole('button', { name: '优先级', exact: true }).nth(1).press('Enter')
-    await expect(restored.getByRole('combobox', { name: '优先级', exact: true })).toHaveValue('high')
-    await restored.getByRole('textbox', { name: '新待办事项' }).focus()
+    await expect(restored.getByRole('button', { name: '高', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await restored.getByRole('button', { name: '完成编辑' }).press('Enter')
     const restoredMarkdown = await findWindow(app.context, markdownLabel)
     await expect(restoredMarkdown.getByRole('heading', { name: 'Markdown 便签' })).toBeVisible()
     await screenshot(restored, testInfo, 'todo-restored')
@@ -630,7 +687,7 @@ test('native Todo sorts, hides completed tasks and persists manual ordering', as
     const order = (expected: string[], page = todo) => expect.poll(() => taskValues(page)).toEqual(expected)
     async function priority(index: number, value: string) {
       await rows.nth(index).getByRole('button', { name: '优先级', exact: true }).press('Enter')
-      await todo.getByRole('combobox', { name: '优先级', exact: true }).selectOption(value)
+      await todo.getByRole('button', { name: value, exact: true }).press('Enter')
     }
     async function deadline(index: number, value: string) {
       await rows.nth(index).getByRole('button', { name: '截止日期', exact: true }).press('Enter')
@@ -638,8 +695,8 @@ test('native Todo sorts, hides completed tasks and persists manual ordering', as
     }
 
     await rows.nth(1).getByRole('checkbox', { name: '切换完成状态' }).check()
-    await priority(0, 'low')
-    await priority(2, 'high')
+    await priority(0, '低')
+    await priority(2, '高')
     await deadline(2, '2026-11-25')
     await deadline(3, '2026-11-20')
     const hidden = todo.getByRole('checkbox', { name: '隐藏已完成' })
@@ -681,6 +738,9 @@ test('native Todo sorts, hides completed tasks and persists manual ordering', as
     await app.close()
     app = await openApp(testInfo)
     const restored = await findWindow(app.context, label)
+    await expect(restored.getByRole('checkbox', { name: '隐藏已完成' })).toHaveCount(0)
+    await expect(restored.getByRole('combobox', { name: '排序' })).toHaveCount(0)
+    await restored.locator('.view-edit-shortcut').press('F2')
     await expect(restored.getByRole('checkbox', { name: '隐藏已完成' })).toBeChecked()
     await expect(restored.getByRole('combobox', { name: '排序' })).toHaveValue('deadline')
     await order([third, second, first], restored)
@@ -688,6 +748,79 @@ test('native Todo sorts, hides completed tasks and persists manual ordering', as
     await restored.getByRole('checkbox', { name: '隐藏已完成' }).uncheck()
     await order([third, second, first, fourth], restored)
     await screenshot(restored, testInfo, 'todo-manual-restored')
+  }
+  finally {
+    await app.close()
+  }
+})
+
+test('native Todo view keeps controls out of the list and preserves nested tasks', async () => {
+  const testInfo = test.info()
+  await seedConfig()
+  let app = await openApp(testInfo)
+  try {
+    await openSettings(app.main)
+    await app.main.getByRole('button', { name: /桌面便签/ }).press('Enter')
+    await app.main.getByRole('checkbox', { name: '启用桌面便签' }).press('Space')
+    const create = app.main.getByRole('button', { name: '新建待办便签' })
+    await expect(create).toBeEnabled()
+    await create.press('Enter')
+    const todo = await findWindow(app.context, 'desktop-note-')
+    const label = (await getLabel(todo))!
+    const view = todo.locator('.todo-editor')
+    const finish = todo.getByRole('button', { name: '完成编辑' })
+    const rootText = '发布演示版本'
+    const childText = '检查会议投影'
+    const grandchildText = '核对便签位置'
+    await expect(view).toHaveAttribute('data-editing', 'false')
+    await expect(todo.locator('.todo-controls')).toHaveCount(0)
+    const shortcut = await todo.locator('.view-edit-shortcut').boundingBox()
+    expect(shortcut?.width).toBeLessThanOrEqual(1)
+    await expect(todo.getByRole('combobox', { name: '排序' })).toHaveCount(0)
+    await view.dblclick({ position: { x: 20, y: 20 } })
+    await expect(view).toHaveAttribute('data-editing', 'true')
+    await addTodo(todo, rootText)
+    await expect(todo.getByRole('button', { name: '添加', exact: true })).toHaveCount(0)
+    for (const [depth, title] of [childText, grandchildText].entries()) {
+      const parent = todo.locator(`li[data-task-depth="${depth}"]`)
+      await parent.getByRole('button', { name: '添加子任务' }).press('Enter')
+      const input = todo.getByRole('textbox', { name: '新子任务，按回车添加' })
+      await input.fill(title)
+      await input.press('Enter')
+      await expect(todo.locator(`li[data-task-depth="${depth + 1}"] input.todo-text`).first()).toHaveValue(title)
+    }
+    await todo.locator('li[data-task-depth="2"]').getByRole('button', { name: '优先级', exact: true }).press('Enter')
+    await expect(todo.getByRole('button', { name: '高', exact: true })).toBeVisible()
+    await screenshot(todo, testInfo, 'todo-priority-picker')
+    await todo.getByRole('button', { name: '高', exact: true }).press('Enter')
+    await todo.locator('li[data-task-depth="1"]').getByRole('button', { name: '截止日期', exact: true }).press('Enter')
+    await screenshot(todo, testInfo, 'todo-deadline-picker')
+    await todo.locator('input[type=date]').fill('2026-11-25')
+    await screenshot(todo, testInfo, 'todo-nested-edit')
+    await finish.press('Enter')
+    await expect(view).toHaveAttribute('data-editing', 'false')
+    await expect(todo.getByRole('combobox', { name: '排序' })).toHaveCount(0)
+    await expect(todo.getByRole('checkbox', { name: '隐藏已完成' })).toHaveCount(0)
+    await expect(todo.getByRole('textbox')).toHaveCount(0)
+    await expect(todo.locator('li[data-task-depth="2"] .todo-text')).toHaveText(grandchildText)
+    const completed = todo.locator('li[data-task-depth="2"]').getByRole('checkbox', { name: '切换完成状态' })
+    await completed.check()
+    await expect(completed).toBeChecked()
+    await completed.dispatchEvent('dblclick', { bubbles: true })
+    await expect(view).toHaveAttribute('data-editing', 'false')
+    await screenshot(todo, testInfo, 'todo-nested-view')
+    await todo.getByText(rootText, { exact: true }).dblclick()
+    await expect(view).toHaveAttribute('data-editing', 'true')
+    await expect.poll(async () => {
+      const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
+      return config.desktop_notes?.find((note: { content: string }) => note.content.includes(rootText))?.content
+    }).toContain(`    - [x] ${grandchildText}`)
+    await app.close()
+    app = await openApp(testInfo)
+    const restored = await findWindow(app.context, label)
+    await expect(restored.locator('li[data-task-depth="1"] .todo-text')).toHaveText(childText)
+    await expect(restored.locator('li[data-task-depth="2"] input[type=checkbox]')).toBeChecked()
+    await expect(restored.locator('time[datetime="2026-11-25"]')).toBeVisible()
   }
   finally {
     await app.close()
@@ -787,6 +920,7 @@ interface PhysicalDisplay {
   workArea: DisplayArea
   dpi: { x: number, y: number }
   targetNames: string[]
+  targetIds: string[]
 }
 
 interface DisplayTopology {
@@ -829,7 +963,7 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
       && Math.abs(current.bottom - original.bottom) <= tolerance
   }
   await seedConfig()
-  const app = await openApp(testInfo)
+  let app = await openApp(testInfo)
   let probe: Awaited<ReturnType<typeof openDesktopProbe>> | undefined
   try {
     probe = await openDesktopProbe(app.processHandle.pid!)
@@ -848,23 +982,39 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
     const createTodo = app.main.getByRole('button', { name: '新建待办便签' })
     await expect(createTodo).toBeEnabled()
     await createTodo.press('Enter')
-    const note = await findWindow(app.context, 'desktop-note-')
+    let note = await findWindow(app.context, 'desktop-note-')
     const label = (await getLabel(note))!
     await addTodo(note, '实机验收：显示桌面后勾选这项')
     const completed = note.getByRole('checkbox', { name: '切换完成状态' })
-    const position = { x: workArea.x + 160, y: workArea.y + 120 }
-    await expect.poll(() => invoke(note, 'capture_desktop_note_bounds')).not.toBeNull()
-    await invoke(note, 'plugin:window|set_position', { label, value: { Physical: position } })
+    const position = { x: workArea.x + 163, y: workArea.y + 125 }
+    const noteId = new URL(note.url()).searchParams.get('noteId')
+    const readSavedBounds = async () => {
+      const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
+      return config[`note_bounds_${noteId}`] as {
+        monitor?: string
+        preferredMonitor?: string
+        monitorBounds?: Record<string, { x: number, y: number }>
+      } | undefined
+    }
+    const outerPosition = () => invoke<{ x: number, y: number }>(note, 'plugin:window|outer_position', { label })
+    const move = async (x: number, y: number) => {
+      const labelPayload = { label }
+      await invoke(note, 'plugin:window|set_position', { ...labelPayload, value: { Physical: { x: x + 13, y: y + 11 } } })
+      await expect.poll(outerPosition).toEqual({ x: x + 13, y: y + 11 })
+      await invoke(note, 'plugin:window|set_position', { ...labelPayload, value: { Physical: { x, y } } })
+    }
+    const device = (display: PhysicalDisplay) => `windows:${display.targetIds[0].toLowerCase()}`
+    await expect.poll(async () => {
+      await move(position.x, position.y)
+      return (await readSavedBounds())?.monitor?.toLowerCase()
+    }, { intervals: [350, 650, 1000] }).toBe(device(target!))
     await expect.poll(async () => {
       const state = (await probe!.inspect()).note
       return state.visible && !state.iconic && !state.cloakFlags && withinWindowArea(state, workArea)
     }).toBe(true)
-    const noteId = new URL(note.url()).searchParams.get('noteId')
-    const readSavedBounds = async () => {
-      const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
-      return config[`note_bounds_${noteId}`] as { monitor?: string, x: number, y: number } | undefined
-    }
-    await expect.poll(async () => (await readSavedBounds())?.monitor).toBe(target!.deviceName)
+    await expect.poll(async () => (await readSavedBounds())?.monitor?.toLowerCase()).toBe(device(target!))
+    await expect.poll(outerPosition).toEqual(position)
+    const originalOuter = await outerPosition()
     const baseline = (await probe.inspect()).note
     const saved = await readSavedBounds()
     evidence.baseline = { topology: original, note: baseline, saved }
@@ -908,6 +1058,20 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
     evidence.primaryOnly = { topology: single, desktop: await probe.inspect(), saved: await readSavedBounds() }
     expect(await readSavedBounds()).toEqual(saved)
 
+    const primary = single!.monitors[0]
+    const primaryPosition = { x: primary.workArea.x + 373, y: primary.workArea.y + 285 }
+    const primaryMonitor = device(primary)
+    const externalMonitor = device(target!)
+    await expect.poll(async () => {
+      await move(primaryPosition.x, primaryPosition.y)
+      return (await readSavedBounds())?.monitor?.toLowerCase()
+    }, { intervals: [350, 650, 1000] }).toBe(primaryMonitor)
+    await expect.poll(outerPosition).toEqual(primaryPosition)
+    const edited = await readSavedBounds()
+    expect(edited?.preferredMonitor?.toLowerCase()).toBe(externalMonitor)
+    expect(Object.keys(edited?.monitorBounds ?? {}).map(key => key.toLowerCase())).toEqual(expect.arrayContaining([primaryMonitor, externalMonitor]))
+    evidence.primaryEdited = { topology: single, desktop: await probe.inspect(), saved: edited }
+
     await checkpoint('edit-win-d', '在单屏模式按 Win+D，看到便签后，用鼠标勾选「实机验收：显示桌面后勾选这项」，先停在桌面。')
     await expect.poll(async () => {
       const state = await probe!.inspect()
@@ -932,13 +1096,75 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
         && frameMatches(state.rect, baseline.rect, tolerance)
     }).toBe(true)
     evidence.extendRestored = { topology: extended, desktop: await probe.inspect(), saved: await readSavedBounds() }
-    expect(await readSavedBounds()).toEqual(saved)
+    expect(await readSavedBounds()).toEqual(edited)
+    await expect.poll(outerPosition).toEqual(originalOuter)
     await expect(completed).toBeChecked()
-    await checkpoint('complete', '扩展模式已恢复，便签位置和编辑结果已核对。可以在任务视图里关闭刚创建的空虚拟桌面。')
+
+    await checkpoint('primary-again', '请再次按 Win+P 选择「仅电脑屏幕」，验证调整后的内屏位置仍在。')
+    await expect.poll(async () => (await displayTopology()).mode, manualWait).toBe('internal')
+    await expect.poll(outerPosition).toEqual(primaryPosition)
+    expect(await readSavedBounds()).toEqual(edited)
+    evidence.primaryRestored = { topology: await displayTopology(), desktop: await probe.inspect(), saved: edited }
+
+    await probe.close()
+    probe = undefined
+    await app.close()
+    app = await openApp(testInfo)
+    probe = await openDesktopProbe(app.processHandle.pid!)
+    note = await findWindow(app.context, label)
+    await expect.poll(outerPosition).toEqual(primaryPosition)
+    await expect(note.getByRole('checkbox', { name: '切换完成状态' })).toBeChecked()
+    evidence.primaryAfterRestart = { desktop: await probe.inspect(), saved: await readSavedBounds() }
+
+    await checkpoint('restore-extension', '请按 Win+P 恢复「扩展」。')
+    await expect.poll(async () => (await displayTopology()).mode, manualWait).toBe('extend')
+    await expect.poll(outerPosition).toEqual(originalOuter)
+    expect(await readSavedBounds()).toEqual(edited)
+    await checkpoint('complete', '扩展模式已恢复，内屏和外屏的独立位置均已核对。')
   }
   finally {
     await testInfo.attach('physical-display-and-virtual-desktop', { body: JSON.stringify(evidence, null, 2), contentType: 'application/json' })
     await probe?.close()
+    await app.close()
+  }
+})
+
+test('manual Windows resume display acceptance after restart', async () => {
+  test.skip(process.env.AI_ASK_E2E_MANUAL_DESKTOP !== 'resume', 'Requires the saved two-display test profile')
+  test.setTimeout(6 * 60_000)
+  await requireInputDesktop()
+  const testInfo = test.info()
+  const app = await openApp(testInfo)
+  try {
+    const note = await findWindow(app.context, 'desktop-note-')
+    const label = (await getLabel(note))!
+    const noteId = new URL(note.url()).searchParams.get('noteId')
+    const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
+    const saved = config[`note_bounds_${noteId}`]
+    const original = await displayTopology()
+    const verify = async (display: PhysicalDisplay, id: string) => {
+      const geometry = saved.monitorBounds[id]
+      const expected = {
+        x: display.workArea.x + Math.round(geometry.x * display.dpi.x / 96),
+        y: display.workArea.y + Math.round(geometry.y * display.dpi.y / 96),
+      }
+      await expect.poll(() => invoke(note, 'plugin:window|outer_position', { label })).toEqual(expected)
+      await expect(note.getByRole('checkbox', { name: '切换完成状态' })).toBeChecked()
+    }
+    if (original.mode === 'internal') {
+      await verify(original.monitors[0], saved.monitor)
+    }
+    await writeFile(testInfo.outputPath('next-step.json'), JSON.stringify({ name: 'restore-extension' }))
+    let external: PhysicalDisplay | undefined
+    await expect.poll(async () => {
+      const current = await displayTopology()
+      external = current.monitors.find(display => display.targetIds.some(id => `windows:${id.toLowerCase()}` === saved.preferredMonitor))
+      return current.mode === 'extend' && Boolean(external)
+    }, { timeout: 4 * 60_000, intervals: [1200, 1600] }).toBe(true)
+    await verify(external!, saved.preferredMonitor)
+    await screenshot(note, testInfo, 'external-position-after-restart')
+  }
+  finally {
     await app.close()
   }
 })
@@ -975,8 +1201,12 @@ test('native translation and explanation display the current request', async () 
     for (const [action, text, output] of [
       ['翻译', 'first translation', '译文 first translation'],
       ['翻译', 'second translation', '译文 second translation'],
-      ['解释', 'selection from another app', '解释 请解释以下内容'],
+      ['解释', 'selection from another app', '解释 selection from another app'],
     ]) {
+      if (action === '解释') {
+        await invoke(app.main, 'hide_window')
+        await expect.poll(() => isVisible(app.main)).toBe(false)
+      }
       await invoke(app.main, 'show_selection_toolbar', { text, position: { x: 400, y: 360 } })
       const toolbar = await findWindow(app.context, 'selection-toolbar')
       const button = toolbar.getByRole('button', { name: action, exact: true })
@@ -989,7 +1219,25 @@ test('native translation and explanation display the current request', async () 
       const result = await findWindow(app.context, resultLabel)
       requestIndex++
       await expect(result.locator('.original-content')).toHaveText(text)
-      await expect(result.locator('.result-markdown')).toContainText(output)
+      if (action === '解释') {
+        const provider = await findWindow(app.context, 'ai-chat-chatgpt')
+        const expectedPrompt = `请解释以下内容：\n\n${text}`
+        const readSubmitted = async () => JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')
+        await expect.poll(readSubmitted).toEqual([expectedPrompt])
+        expect(await provider.locator('#composed-prompt').textContent()).toBe(expectedPrompt)
+        await expect(provider.getByRole('textbox', { name: 'Message' })).toHaveText('')
+        await expect(provider.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+        await expect(result.locator('.result-markdown')).toHaveText(output)
+        expect(await readSubmitted()).toEqual([expectedPrompt])
+        expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
+        await testInfo.attach('floating-explanation-submission', {
+          body: JSON.stringify({ composed: expectedPrompt, submitted: await readSubmitted() }, null, 2),
+          contentType: 'application/json',
+        })
+      }
+      else {
+        await expect(result.locator('.result-markdown')).toContainText(output)
+      }
       if (text === 'first translation') {
         await result.getByRole('button', { name: '钉住', exact: true }).press('Enter')
         await expect(result.getByRole('button', { name: '取消钉住' })).toBeVisible()
@@ -1004,6 +1252,156 @@ test('native translation and explanation display the current request', async () 
     }
   }
   finally {
+    await app.close()
+  }
+})
+
+test('native floating explanation retries a definitely unsent prompt in the main window', async () => {
+  const testInfo = test.info()
+  await seedConfig()
+  const app = await openApp(testInfo)
+  try {
+    await app.context.route(/^https:\/\/(?:chat\.openai\.com|chatgpt\.com)\//, route => route.fulfill({ contentType: 'text/html', body: chatPage }))
+    await app.main.getByRole('button', { name: 'ChatGPT', exact: true }).press('Enter')
+    const provider = await findWindow(app.context, 'ai-chat-chatgpt')
+    await expect(provider.getByRole('textbox', { name: 'Message' })).toBeVisible()
+    const allowSend = (allow: boolean) => provider.evaluate(allow => window.dispatchEvent(new CustomEvent('allow-send', { detail: allow })), allow)
+    await allowSend(false)
+
+    const text = 'Explain this once after the Send control is available.'
+    const expectedPrompt = `请解释以下内容：\n\n${text}`
+    await invoke(app.main, 'hide_window')
+    await expect.poll(() => isVisible(app.main)).toBe(false)
+    await invoke(app.main, 'show_selection_toolbar', { text, position: { x: 400, y: 360 } })
+    const toolbar = await findWindow(app.context, 'selection-toolbar')
+    await expect(toolbar.getByRole('button', { name: '解释', exact: true })).toBeEnabled()
+    await toolbar.getByRole('button', { name: '解释', exact: true }).dispatchEvent('click')
+    const result = await findWindow(app.context, 'selection-result')
+    const retry = result.getByRole('button', { name: '在主窗口重试发送', exact: true })
+    await expect(retry).toBeVisible()
+    expect(await provider.locator('#composed-prompt').textContent()).toBe(expectedPrompt)
+    expect(JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')).toEqual([])
+    expect(await provider.locator('#submit-attempts').textContent()).toBe('0')
+
+    await allowSend(true)
+    await retry.press('Enter')
+    await expect.poll(async () => JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')).toEqual([expectedPrompt])
+    await expect(provider.locator('[data-message-author-role="assistant"] .markdown')).toHaveText(`解释 ${text}`)
+    await expect(provider.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+    expect(JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')).toEqual([expectedPrompt])
+    expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
+    await expect.poll(() => isVisible(result)).toBe(false)
+    await expect.poll(() => isVisible(app.main)).toBe(true)
+  }
+  finally {
+    await app.close()
+  }
+})
+
+test('native floating explanation does not retry an unconfirmed submission', async () => {
+  const testInfo = test.info()
+  await seedConfig()
+  const app = await openApp(testInfo)
+  try {
+    await app.context.route(/^https:\/\/(?:chat\.openai\.com|chatgpt\.com)\//, route => route.fulfill({ contentType: 'text/html', body: chatPage }))
+    await app.main.getByRole('button', { name: 'ChatGPT', exact: true }).press('Enter')
+    const provider = await findWindow(app.context, 'ai-chat-chatgpt')
+    await expect(provider.getByRole('textbox', { name: 'Message' })).toBeVisible()
+    await provider.evaluate(() => window.dispatchEvent(new CustomEvent('accept-submit', { detail: false })))
+
+    const text = 'The provider does not acknowledge this submission.'
+    const expectedPrompt = `请解释以下内容：\n\n${text}`
+    await invoke(app.main, 'hide_window')
+    await expect.poll(() => isVisible(app.main)).toBe(false)
+    await invoke(app.main, 'show_selection_toolbar', { text, position: { x: 400, y: 360 } })
+    const toolbar = await findWindow(app.context, 'selection-toolbar')
+    await expect(toolbar.getByRole('button', { name: '解释', exact: true })).toBeEnabled()
+    await toolbar.getByRole('button', { name: '解释', exact: true }).dispatchEvent('click')
+    const result = await findWindow(app.context, 'selection-result')
+    const open = result.getByRole('button', { name: '在主窗口中打开', exact: true })
+    await expect(open).toBeVisible()
+    await expect(result.getByRole('button', { name: '在主窗口重试发送', exact: true })).toHaveCount(0)
+    expect(await provider.locator('#composed-prompt').textContent()).toBe(expectedPrompt)
+    expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
+
+    await provider.evaluate(() => window.dispatchEvent(new CustomEvent('accept-submit', { detail: true })))
+    await open.press('Enter')
+    await expect.poll(() => isVisible(result)).toBe(false)
+    await expect.poll(() => isVisible(app.main)).toBe(true)
+    await expect.poll(async () =>
+      // Rendered paragraphs retain the prompt line breaks; textContent concatenates them.
+      // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+      (await provider.getByRole('textbox', { name: 'Message' }).innerText()).replace(/\n{2,}/g, '\n\n'),
+    ).toBe(expectedPrompt)
+    expect(JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')).toEqual([])
+    expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
+  }
+  finally {
+    await app.close()
+  }
+})
+
+test('native Gemini sends the explanation before unrelated page resources finish', async () => {
+  const testInfo = test.info()
+  await seedConfig('gemini')
+  const app = await openApp(testInfo)
+  let releasePendingImage: (() => void) | undefined
+  let pendingImageRequested = false
+  let pendingImageCompleted = false
+  const pendingImage = new Promise<void>((resolve) => {
+    releasePendingImage = resolve
+  })
+  try {
+    const geminiPage = chatPage
+      .replace('<div id="prompt-textarea" class="ProseMirror"', '<rich-textarea><div id="prompt-textarea" class="ql-editor"')
+      .replace('<p><br></p></div>', '<p><br></p></div></rich-textarea>')
+      .replace('type="submit" disabled>Send', 'type="submit" aria-label="发送" disabled>Send')
+      .replace(
+        '<div class="markdown"><p></p></div>',
+        '<message-content class="markdown"><p></p></message-content>',
+      )
+    await app.context.route('https://gemini.google.com/ai-ask-pending-image.png', async (route) => {
+      pendingImageRequested = true
+      await pendingImage
+      await route.abort().catch(() => {})
+    })
+    app.context.on('requestfinished', (request) => {
+      if (request.url() === 'https://gemini.google.com/ai-ask-pending-image.png') {
+        pendingImageCompleted = true
+      }
+    })
+    app.context.on('requestfailed', (request) => {
+      if (request.url() === 'https://gemini.google.com/ai-ask-pending-image.png') {
+        pendingImageCompleted = true
+      }
+    })
+    await app.context.route('https://gemini.google.com/', route => route.fulfill({
+      contentType: 'text/html',
+      body: `${geminiPage}<img src="/ai-ask-pending-image.png" alt="">`,
+    }))
+    await invoke(app.main, 'hide_window')
+    await expect.poll(() => isVisible(app.main)).toBe(false)
+
+    const text = 'A triangle has three sides.'
+    const expectedPrompt = `请解释以下内容：\n\n${text}`
+    await invoke(app.main, 'show_selection_toolbar', { text, position: { x: 400, y: 360 } })
+    const toolbar = await findWindow(app.context, 'selection-toolbar')
+    const explain = toolbar.getByRole('button', { name: '解释', exact: true })
+    await expect(explain).toBeEnabled()
+    await explain.dispatchEvent('click')
+    const result = await findWindow(app.context, 'selection-result')
+    const provider = await findWindow(app.context, 'ai-chat-gemini')
+    await expect.poll(() => provider.evaluate(() => document.readyState)).toBe('interactive')
+    await expect(result.locator('.result-markdown')).toHaveText(`解释 ${text}`)
+    expect(await provider.locator('#submission-document-state').textContent()).toBe('interactive')
+    expect(pendingImageRequested).toBe(true)
+    expect(pendingImageCompleted).toBe(false)
+    expect(JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')).toEqual([expectedPrompt])
+    expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
+    await screenshot(result, testInfo, 'floating-gemini-before-full-load')
+  }
+  finally {
+    releasePendingImage?.()
     await app.close()
   }
 })

@@ -9,6 +9,7 @@
  */
 
 import type { InjectionTemplate } from '$lib/types/injection'
+import { INJECTION } from '$lib/utils/constants'
 
 /**
  * ChatGPT injection templates
@@ -22,7 +23,7 @@ export const CHATGPT_TEMPLATES: InjectionTemplate[] = [
     actions: [
       {
         type: 'fill',
-        selector: '#prompt-textarea',
+        selector: '#prompt-textarea, textarea#mobile-composer-prompt',
         content: '',
         triggerEvents: true,
         delay: 300,
@@ -30,7 +31,7 @@ export const CHATGPT_TEMPLATES: InjectionTemplate[] = [
       },
       {
         type: 'click',
-        selector: 'button[data-testid="send-button"]',
+        selector: 'button[data-testid="send-button"], button#composer-submit-button:not([data-testid="stop-button"])',
         delay: 500, // 等待发送按钮在内容填入后显示
         timeout: 5000,
       },
@@ -40,42 +41,20 @@ export const CHATGPT_TEMPLATES: InjectionTemplate[] = [
         pollInterval: 1000,
         outputFormat: 'markdown',
         extractScript: `() => {
-                    // Wait for the good response button to appear (indicates generation is complete)
-                    // 等待“好评”按钮出现，标记回答已经完毕（避免截取到未结束的流式内容）
-                    // The good response button appears only after the assistant finishes streaming
-                    const respButtonSelectors = [
-                        'button[data-testid="good-response-turn-action-button"]',
-                    ];
-                    
-                    let respButton = null;
-                    for (const sel of respButtonSelectors) {
-                        // Get the last good response button (latest assistant message)
-                        const buttons = document.querySelectorAll(sel);
-                        if (buttons.length > 0) {
-                            respButton = buttons[buttons.length - 1];
-                            break;
-                        }
-                    }
-                    
-                    if (!respButton) {
-                        return ''; // Good response not found, generation may still be in progress
-                    }
-                    
-                    // 从消息容器直接提取文本或 HTML（用于后续 HTML -> Markdown 转换）
-                    // Find the parent message container of the good response button
-                    let messageContainer = respButton.closest('[data-message-author-role="assistant"]');
-                    if (!messageContainer) {
-                        // Try alternative selectors
-                        const allMessages = document.querySelectorAll('[data-message-author-role="assistant"]');
-                        if (allMessages.length > 0) {
-                            messageContainer = allMessages[allMessages.length - 1];
-                        }
-                    }
-                    
+                    const allMessages = document.querySelectorAll('[data-message-author-role="assistant"]');
+                    const messageContainer = allMessages[allMessages.length - 1];
                     if (!messageContainer) {
                         return '';
                     }
-                    
+                    const turn = messageContainer.closest('article, [data-testid^="conversation-turn-"]') || messageContainer;
+                    const completion = turn.querySelector(
+                        'button[data-testid="good-response-turn-action-button"], button[data-testid="copy-turn-action-button"]'
+                    );
+                    const generating = document.querySelector('button[data-testid="stop-button"]');
+                    if (!completion || (generating && generating.getClientRects().length > 0)) {
+                        return '';
+                    }
+
                     // Try to get the markdown/prose content area
                     // This contains the formatted response
                     const contentSelectors = [
@@ -204,17 +183,18 @@ export const GEMINI_TEMPLATES: InjectionTemplate[] = [
       {
         type: 'fill',
         selector:
-          'rich-textarea .ql-editor, div[contenteditable="true"][aria-label*="输入"], div[contenteditable="true"][data-placeholder], textarea',
+          'rich-textarea .ql-editor[contenteditable="true"], rich-textarea [role="textbox"][contenteditable="true"]',
         content: '',
         triggerEvents: true,
         delay: 300,
-        timeout: 5000,
+        timeout: INJECTION.GEMINI_COMPOSER_TIMEOUT_MS,
       },
       {
         type: 'click',
         selector:
-          'button[aria-label*="发送"], button[aria-label*="Send"], button.send-button, button[type="submit"]',
+          'button[aria-label="发送"], button[aria-label="发送消息"], button[aria-label="Send message" i], button.send-button',
         timeout: 3000,
+        confirmationTimeout: INJECTION.GEMINI_COMPOSER_TIMEOUT_MS,
       },
       {
         type: 'extract',
@@ -393,7 +373,7 @@ export const QIANWEN_TEMPLATES: InjectionTemplate[] = [
       },
       {
         type: 'click',
-        selector: 'button[aria-label="发送消息"], button[aria-label="Send message"], button[class*="send"], button[class*="submit"], [class*="send-btn"], [class*="operateBtn"]',
+        selector: 'button[aria-label="发送消息"], button[aria-label="Send message"], button[class*="send"], button[class*="submit"], [role="button"][class*="send-btn"]',
         timeout: 3000,
       },
       {

@@ -21,6 +21,7 @@ import { configStore } from '$lib/stores/config.svelte'
 import { DESKTOP_NOTES } from '$lib/utils/constants'
 import {
   createDefaultDesktopNoteBounds,
+  desktopNoteBoundsEqual,
   isDesktopNoteBoundsUsable,
   isDesktopNotePositionSane,
   normalizeDesktopNoteBounds,
@@ -328,13 +329,7 @@ class DesktopNotesStore {
 
       const normalizedBounds = normalizeDesktopNoteBounds(bounds, fallbackBounds)
 
-      if (
-        normalizedBounds.x === note.bounds.x
-        && normalizedBounds.y === note.bounds.y
-        && normalizedBounds.width === note.bounds.width
-        && normalizedBounds.height === note.bounds.height
-        && normalizedBounds.monitor === note.bounds.monitor
-      ) {
+      if (desktopNoteBoundsEqual(normalizedBounds, note.bounds)) {
         return note
       }
 

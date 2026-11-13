@@ -19,7 +19,7 @@ import type {
   FillTextAction,
   InjectionAction,
 } from '$lib/types/injection'
-import { DEFAULT_EXTRACT_OUTPUT_FORMAT, DEFAULT_INJECTION_TIMEOUT, SELECTION_RESULT_WINDOW } from './constants'
+import { DEFAULT_EXTRACT_OUTPUT_FORMAT, DEFAULT_INJECTION_TIMEOUT, INJECTION, SELECTION_RESULT_WINDOW } from './constants'
 import { logger } from './logger'
 
 /**
@@ -69,13 +69,13 @@ function generateFinderScript(selector: string, timeout?: number, accept?: strin
                 return;
             }
             
-            setTimeout(findElement, 100);
+            setTimeout(findElement, ${INJECTION.DOM_POLL_MS});
         } catch (error) {
             if (Date.now() - startTime > timeout) {
                 console.error('[FINDER] Error:', error);
                 reject(error);
             } else {
-                setTimeout(findElement, 100);
+                setTimeout(findElement, ${INJECTION.DOM_POLL_MS});
             }
         }
     }
@@ -90,25 +90,23 @@ function generateFinderScript(selector: string, timeout?: number, accept?: strin
  * Supports: <input>, <textarea>, contenteditable elements
  */
 // 生成填充脚本：尝试属性 setter，兼容触发 input/change 事件（可选）
-export function generateFillScript(action: FillTextAction): string {
+export function generateFillScript(action: FillTextAction, trackComposer = false): string {
   const content = escapeJs(action.content)
   const triggerEvents = action.triggerEvents ?? true
 
-  const finderScript = generateFinderScript(action.selector, action.timeout)
+  const finderScript = generateFinderScript(action.selector, action.timeout, trackComposer
+    ? `element => !element.closest('[aria-hidden="true"],[inert]') && (element.isContentEditable || element.matches('input:not(:disabled):not([readonly]), textarea:not(:disabled):not([readonly])'))
+        && element.getClientRects().length > 0 && getComputedStyle(element).visibility === 'visible'`
+    : undefined)
+  const filled = trackComposer ? '{ success: true, message: \'Text filled\', composer: element }' : '{ success: true, message: \'Text filled\' }'
   const slateEdit = action.slateEditor
     ? `if (element.matches('[data-slate-editor="true"][contenteditable="true"]')) {
-        element.focus();
-        const selection = document.getSelection();
-        if (!selection) throw new Error('Editor selection is unavailable');
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        selection.removeAllRanges();
-        selection.addRange(range);
+        selectComposerText();
         const handled = !element.dispatchEvent(new InputEvent('beforeinput', {
             bubbles: true, cancelable: true, inputType: 'insertText', data: value
         }));
         if (!handled) throw new Error('Editor did not accept the input');
-        return { success: true, message: 'Text filled' };
+        return ${filled};
     }`
     : ''
 
@@ -118,6 +116,15 @@ ${finderScript}.then(element => {
     if (!element) throw new Error('Element not found');
     
     const value = '${content}';
+    function selectComposerText() {
+        element.focus();
+        const selection = document.getSelection();
+        if (!selection) throw new Error('Editor selection is unavailable');
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }
     ${slateEdit}
     
     // Handle different element types
@@ -134,7 +141,18 @@ ${finderScript}.then(element => {
         }
         console.log('[FILL] Filled input/textarea element');
     } else if (element.isContentEditable) {
-        // ContentEditable: set innerText
+        ${triggerEvents && trackComposer
+          ? `
+        selectComposerText();
+        // Native edit semantics notify framework editors and preserve their document model.
+        if (document.execCommand?.('insertText', false, value)) {
+            return ${filled};
+        }
+        if (element.matches('.ProseMirror, .ql-editor, [data-lexical-editor="true"]')) {
+            throw new Error('Editor did not accept the input');
+        }
+        `
+          : ''}
         element.innerText = value;
         console.log('[FILL] Filled contentEditable element');
     } else {
@@ -147,7 +165,7 @@ ${finderScript}.then(element => {
         ? `
     // focus() 在部分嵌入式上下文（iframe/沙箱）会抛错，此处忽略不影响后续事件派发
     try { element.focus(); } catch (_focusErr) { /* ignored: non-critical */ }
-    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
     console.log('[FILL] Events triggered');
     `
@@ -155,7 +173,7 @@ ${finderScript}.then(element => {
     }
     
     console.log('[FILL] Fill completed successfully');
-    return { success: true, message: 'Text filled' };
+    return ${filled};
 })
     `.trim()
 }
@@ -165,24 +183,34 @@ ${finderScript}.then(element => {
  * Simulates full click sequence: pointerdown → mousedown → pointerup → mouseup → click
  */
 // 生成点击脚本：派发 pointer 与 mouse 事件，确保框架/库能捕获到完整序列
-export function generateClickScript(action: ClickAction): string {
+interface ComposerReference {
+  expression: string
+  content: string
+  selector: string
+}
+
+export function generateClickScript(action: ClickAction, composer?: ComposerReference): string {
   const finderScript = generateFinderScript(action.selector, action.timeout, `element => {
       const rect = element.getBoundingClientRect();
       const style = window.getComputedStyle(element);
+      ${composer
+        ? `
+      const form = ${composer.expression}.closest('form');
+      const withinForm = form?.querySelector(${JSON.stringify(action.selector)});
+      if (withinForm && !form.contains(element)) return false;
+      `
+        : ''}
       return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden'
-          && style.display !== 'none' && !element.disabled && element.getAttribute('aria-disabled') !== 'true';
+          && style.display !== 'none' && !element.matches(':disabled,[aria-disabled="true"]')
+          && !element.closest('[aria-hidden="true"],[inert]');
   }`)
 
   return `
-${finderScript}.then(element => {
+${finderScript}.then(async element => {
     console.log('[CLICK] Starting click operation');
     if (!element) throw new Error('Element not found');
     
     const rect = element.getBoundingClientRect();
-    
-    // Focus and dispatch full click sequence
-    // focus() 失败不影响后续点击事件派发，因此忽略异常
-    try { element.focus(); } catch (_focusErr) { /* ignored: non-critical */ }
     
     const centerX = (rect.left + rect.right) / 2;
     const centerY = (rect.top + rect.bottom) / 2;
@@ -193,13 +221,47 @@ ${finderScript}.then(element => {
         clientX: centerX,
         clientY: centerY
     };
+    ${composer
+      ? `
+    const composer = ${composer.expression};
+    const normalize = text => (text ?? '').replace(/[\\s\\u200B-\\u200D\\uFEFF]+/gu, ' ').trim();
+    const readComposer = editor => normalize(editor.value ?? editor.innerText ?? editor.textContent);
+    const expected = normalize(${JSON.stringify(composer.content)});
+    if (!composer.isConnected || readComposer(composer) !== expected) {
+        throw new Error('COMPOSER_INPUT_NOT_APPLIED');
+    }
+    `
+      : ''}
     
+    // Focus and dispatch full click sequence.
+    try { element.focus(); } catch (_focusErr) { /* ignored: non-critical */ }
+    ${composer
+      ? `if (!composer.isConnected || readComposer(composer) !== expected) {
+        throw new Error('COMPOSER_INPUT_NOT_APPLIED');
+    }
+    submitted = undefined;`
+      : ''}
+
     console.log('[CLICK] Dispatching click events');
     element.dispatchEvent(new PointerEvent('pointerdown', opts));
     element.dispatchEvent(new MouseEvent('mousedown', opts));
     element.dispatchEvent(new PointerEvent('pointerup', opts));
     element.dispatchEvent(new MouseEvent('mouseup', opts));
     element.dispatchEvent(new MouseEvent('click', opts));
+
+    ${composer
+      ? `
+    const deadline = Date.now() + ${action.confirmationTimeout ?? INJECTION.SUBMISSION_CONFIRM_TIMEOUT_MS};
+    for (;;) {
+        const currentComposer = composer.isConnected ? composer : [...document.querySelectorAll(${JSON.stringify(composer.selector)})]
+            .find(editor => editor.getClientRects().length > 0);
+        if (currentComposer && readComposer(currentComposer) === '') break;
+        if (Date.now() >= deadline) throw new Error('SUBMISSION_NOT_CONFIRMED');
+        await new Promise(resolve => setTimeout(resolve, ${INJECTION.DOM_POLL_MS}));
+    }
+    submitted = true;
+    `
+      : ''}
     
     console.log('[CLICK] Click completed successfully');
     return { success: true, message: 'Element clicked' };
@@ -293,21 +355,27 @@ export function generateExtractScript(action: ExtractAction, baseline?: string):
 // 聚合多个动作生成最终注入脚本：顺序执行并分片回传结果
 export function generateInjectionScript(
   actions: InjectionAction[],
-  options: { requestId?: number, waitForFreshResult?: boolean, reuseSameTranslation?: boolean } = {},
+  options: { requestId?: number, waitForFreshResult?: boolean, reuseSameTranslation?: boolean, confirmSubmission?: boolean } = {},
 ): string {
   const scriptParts: string[] = []
   const baselines: string[] = []
   const fill = actions.find(action => action.type === 'fill')
+  let composer: ComposerReference | undefined
 
   actions.forEach((action, index) => {
     let actionScript = ''
+    let result = `result${index}`
 
     switch (action.type) {
       case 'fill':
-        actionScript = generateFillScript(action)
+        actionScript = generateFillScript(action, options.confirmSubmission)
+        if (options.confirmSubmission) {
+          composer = { expression: `result${index}.composer`, content: action.content, selector: action.selector }
+          result = `{ success: result${index}.success, message: result${index}.message }`
+        }
         break
       case 'click':
-        actionScript = generateClickScript(action)
+        actionScript = generateClickScript(action, composer)
         break
       case 'extract':
         if (options.waitForFreshResult) {
@@ -340,9 +408,10 @@ export function generateInjectionScript(
       scriptParts.push(`await new Promise(r => setTimeout(r, ${delay}));`)
     }
 
-    scriptParts.push(`const result${index} = await (${actionScript});`)
+    const stage = action.type === 'click' ? 'submit' : action.type
+    scriptParts.push(`stage = '${stage}';`, `const result${index} = await (${actionScript});`)
     scriptParts.push(
-      `results.push({ index: ${index}, type: '${action.type}', result: result${index} });`,
+      `results.push({ index: ${index}, type: '${action.type}', result: ${result} });`,
     )
   })
 
@@ -357,6 +426,8 @@ export function generateInjectionScript(
     console.log('[INJECTION] Starting ${actions.length} actions');
     const results = [];
     const startTime = Date.now();
+    let stage;
+    let submitted = ${options.confirmSubmission ? 'false' : 'undefined'};
     const requestQuery = ${JSON.stringify(options.requestId === undefined ? '' : `&r=${options.requestId}`)};
     
     async function __sendResultLarge(obj) {
@@ -423,6 +494,7 @@ export function generateInjectionScript(
         console.log('[INJECTION] All actions completed', { duration, count: results.length });
         const result = {
             success: true,
+            submitted,
             duration,
             actionsExecuted: ${actions.length},
             results
@@ -436,6 +508,8 @@ export function generateInjectionScript(
         console.error('[INJECTION] Failed:', error);
         const result = {
             success: false,
+            stage,
+            submitted,
             error: (error && error.message) || String(error),
             duration,
             actionsExecuted: results.length,

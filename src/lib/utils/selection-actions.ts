@@ -6,7 +6,7 @@ import { configStore } from '$lib/stores/config.svelte'
 import { platformsStore } from '$lib/stores/platforms.svelte'
 import { translationStore } from '$lib/stores/translation.svelte'
 import { waitForChildWebviewReady } from '$lib/utils/childWebview'
-import { EVENTS, TIMING, TRANSLATION_INJECTION } from '$lib/utils/constants'
+import { EVENTS, SELECTION_RESULT_WINDOW, TIMING, TRANSLATION_INJECTION } from '$lib/utils/constants'
 import { generateInjectionScript } from '$lib/utils/injection'
 import { getDefaultChatTemplate, getDefaultTranslationTemplate } from '$lib/utils/injection-templates'
 import { logger } from '$lib/utils/logger'
@@ -50,6 +50,7 @@ export async function executeExplanation(selectedText: string, platformId?: stri
     getDefaultChatTemplate(platform.id),
     buildSelectionExplanationPrompt(selectedText, configStore.config.locale),
     'errors.selectionToolbar.explanationFailed',
+    true,
   )
 }
 
@@ -58,6 +59,7 @@ async function injectInMainWindow(
   template: InjectionTemplate | undefined,
   content: string,
   errorKey: string,
+  confirmSubmission = false,
 ): Promise<void> {
   try {
     const fill = template?.actions.find((action): action is FillTextAction => action.type === 'fill')
@@ -65,7 +67,10 @@ async function injectInMainWindow(
       throw new Error('Injection template does not contain a fill action')
     }
 
-    if (!await waitForChildWebviewReady(id, TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS)) {
+    const readinessTimeout = confirmSubmission
+      ? SELECTION_RESULT_WINDOW.PROVIDER_READY_TIMEOUT_MS
+      : TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS
+    if (!await waitForChildWebviewReady(id, readinessTimeout)) {
       throw new Error('Child WebView load timed out')
     }
 
@@ -78,6 +83,9 @@ async function injectInMainWindow(
     }]
 
     const click = template?.actions.find((action): action is ClickAction => action.type === 'click')
+    if (confirmSubmission && !click) {
+      throw new Error('Injection template does not contain a submit action')
+    }
     if (click) {
       actions.push({
         ...click,
@@ -86,9 +94,22 @@ async function injectInMainWindow(
       })
     }
 
-    await invoke('evaluate_child_webview_script', {
-      payload: { id, script: generateInjectionScript(actions) },
-    })
+    if (confirmSubmission) {
+      const requestId = await invoke<number>('allocate_selection_request_id')
+      const outcome = await invoke<{ success: boolean, submitted?: boolean, error?: string }>('run_selection_injection', {
+        requestId,
+        payload: { id, script: generateInjectionScript(actions, { requestId, confirmSubmission }) },
+        timeoutMs: SELECTION_RESULT_WINDOW.INJECTION_TIMEOUT_MS,
+      })
+      if (!outcome.success || !outcome.submitted) {
+        throw new Error(outcome.error ?? 'Submission was not confirmed')
+      }
+    }
+    else {
+      await invoke('evaluate_child_webview_script', {
+        payload: { id, script: generateInjectionScript(actions) },
+      })
+    }
   }
   catch (error) {
     logger.error('Failed to inject selection in main window', { id, error })

@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{
@@ -611,7 +612,36 @@ pub struct ResultWindowSnapshot {
 pub struct ResultWindowManager {
     windows: Mutex<std::collections::HashMap<String, ResultWindowSnapshot>>,
     show_gate: tokio::sync::Mutex<()>,
-    next_id: std::sync::atomic::AtomicU32,
+    next_id: AtomicU32,
+}
+
+impl ResultWindowManager {
+    fn allocate_request_id(&self) -> Result<u32, String> {
+        let mut id = self.next_id.load(Ordering::Relaxed);
+        loop {
+            let next = id
+                .checked_add(1)
+                .ok_or_else(|| "Selection request ID space exhausted".to_string())?;
+            match self
+                .next_id
+                .compare_exchange_weak(id, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => return Ok(id),
+                Err(current) => id = current,
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub fn allocate_selection_request_id(
+    webview: tauri::Webview,
+    manager: tauri::State<'_, ResultWindowManager>,
+) -> Result<u32, String> {
+    if webview.label() != "main" {
+        return Err("Only the main webview may allocate selection request IDs".into());
+    }
+    manager.allocate_request_id()
 }
 
 #[derive(Debug, Serialize)]
@@ -628,9 +658,7 @@ pub async fn show_selection_result_window(
     request: ResultWindowRequest,
 ) -> Result<ResultWindowTarget, String> {
     let _show = manager.show_gate.lock().await;
-    let request_id = manager
-        .next_id
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let request_id = manager.allocate_request_id()?;
     let main_is_pinned = manager
         .windows
         .lock()
@@ -855,6 +883,16 @@ fn popup_position(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selection_request_ids_remain_monotonic_without_wrapping() {
+        let manager = ResultWindowManager::default();
+        assert_eq!(manager.allocate_request_id(), Ok(0));
+        assert_eq!(manager.allocate_request_id(), Ok(1));
+        manager.next_id.store(u32::MAX - 1, Ordering::Relaxed);
+        assert_eq!(manager.allocate_request_id(), Ok(u32::MAX - 1));
+        assert!(manager.allocate_request_id().is_err());
+    }
 
     #[test]
     fn popup_stays_on_monitor_with_negative_origin() {

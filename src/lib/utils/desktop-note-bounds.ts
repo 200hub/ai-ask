@@ -1,4 +1,4 @@
-import type { DesktopNoteBounds } from '$lib/types/desktop-note'
+import type { DesktopNoteBounds, DesktopNoteGeometry } from '$lib/types/desktop-note'
 
 import { DESKTOP_NOTES } from '$lib/utils/constants'
 
@@ -44,6 +44,39 @@ export function isDesktopNoteBoundsUsable(bounds: DesktopNoteBounds | null | und
     && bounds.height >= DESKTOP_NOTES.MIN_HEIGHT
 }
 
+function normalizeMonitorBounds(value: unknown): Record<string, DesktopNoteGeometry> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+  const entries: [string, DesktopNoteGeometry][] = []
+  for (const [monitor, geometry] of Object.entries(value)) {
+    if (!monitor || !geometry || typeof geometry !== 'object') {
+      continue
+    }
+    const { x, y, width, height } = geometry as Partial<DesktopNoteGeometry>
+    if (typeof x === 'number' && Number.isFinite(x) && typeof y === 'number' && Number.isFinite(y)
+      && typeof width === 'number' && Number.isFinite(width) && width >= DESKTOP_NOTES.MIN_WIDTH
+      && typeof height === 'number' && Number.isFinite(height) && height >= DESKTOP_NOTES.MIN_HEIGHT) {
+      entries.push([monitor, { x, y, width, height }])
+    }
+  }
+  return Object.fromEntries(entries)
+}
+
+export function desktopNoteBoundsEqual(first: DesktopNoteBounds, second: DesktopNoteBounds): boolean {
+  const sameGeometry = (a: DesktopNoteGeometry, b: DesktopNoteGeometry) => (
+    a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+  )
+  if (!sameGeometry(first, second) || first.monitor !== second.monitor || first.preferredMonitor !== second.preferredMonitor) {
+    return false
+  }
+  const firstEntries = Object.entries(first.monitorBounds ?? {})
+  const secondBounds = second.monitorBounds ?? {}
+  return firstEntries.length === Object.keys(secondBounds).length && firstEntries.every(([monitor, geometry]) => (
+    Object.hasOwn(secondBounds, monitor) && sameGeometry(geometry, secondBounds[monitor])
+  ))
+}
+
 /**
  * 归一化桌面便签 bounds。
  *
@@ -83,13 +116,19 @@ export function normalizeDesktopNoteBounds(
   const monitor = typeof candidate.monitor === 'string' && candidate.monitor ? candidate.monitor : undefined
   const validPosition = isDesktopNotePositionSane(rawX, rawY, monitor)
   const normalizedMonitor = validPosition ? monitor : fallback.monitor
+  const monitorBounds = normalizeMonitorBounds(candidate.monitorBounds)
+  const preferredMonitor = typeof candidate.preferredMonitor === 'string' && candidate.preferredMonitor
+    ? candidate.preferredMonitor
+    : undefined
 
   return {
-    x: validPosition ? Math.round(rawX) : fallback.x,
-    y: validPosition ? Math.round(rawY) : fallback.y,
-    width: Number.isFinite(rawWidth) ? Math.max(Math.round(rawWidth), DESKTOP_NOTES.MIN_WIDTH) : fallback.width,
-    height: Number.isFinite(rawHeight) ? Math.max(Math.round(rawHeight), DESKTOP_NOTES.MIN_HEIGHT) : fallback.height,
+    x: validPosition ? (monitor ? rawX : Math.round(rawX)) : fallback.x,
+    y: validPosition ? (monitor ? rawY : Math.round(rawY)) : fallback.y,
+    width: Number.isFinite(rawWidth) ? Math.max(monitor ? rawWidth : Math.round(rawWidth), DESKTOP_NOTES.MIN_WIDTH) : fallback.width,
+    height: Number.isFinite(rawHeight) ? Math.max(monitor ? rawHeight : Math.round(rawHeight), DESKTOP_NOTES.MIN_HEIGHT) : fallback.height,
     ...(normalizedMonitor ? { monitor: normalizedMonitor } : {}),
+    ...(preferredMonitor ? { preferredMonitor } : {}),
+    ...(Object.keys(monitorBounds).length ? { monitorBounds } : {}),
   }
 }
 

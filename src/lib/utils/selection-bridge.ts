@@ -67,8 +67,16 @@ async function runFloatingAction(
   try {
     const webview = new ChildWebviewProxy(webviewId, platform.url, resolveProxyUrl(config.proxy))
     await webview.ensure()
-    if (!await webview.waitForLoadFinished(SELECTION_RESULT_WINDOW.PROVIDER_READY_TIMEOUT_MS)) {
-      throw new Error('EXTRACT_TIMEOUT')
+    const aiProvider = webviewId.startsWith('ai-chat-')
+    const providerTimeout = SELECTION_RESULT_WINDOW.PROVIDER_READY_TIMEOUT_MS
+    const documentFallback = aiProvider && platform.id === 'gemini'
+    const loadWait = documentFallback
+      ? SELECTION_RESULT_WINDOW.GEMINI_DOCUMENT_FALLBACK_DELAY_MS
+      : providerTimeout
+    const loaded = await webview.waitForLoadFinished(loadWait)
+    if (!loaded && !documentFallback) {
+      await publishSelectionResult(target, { Err: 'WEBVIEW_READY_TIMEOUT' })
+      return
     }
 
     const actions = template.actions.map(action => action.type === 'fill' ? { ...action, content } : action)
@@ -76,17 +84,21 @@ async function runFloatingAction(
       requestId: target.requestId,
       waitForFreshResult: true,
       reuseSameTranslation: webviewId.startsWith('translator-'),
+      confirmSubmission: aiProvider,
     })
     const result = await invoke<unknown>('run_selection_injection', {
       requestId: target.requestId,
       payload: { id: webviewId, script },
       timeoutMs: SELECTION_RESULT_WINDOW.INJECTION_TIMEOUT_MS,
+      ...(documentFallback && { documentTimeoutMs: loaded ? loadWait : providerTimeout - loadWait }),
     })
     await publishSelectionResult(target, { Ok: result })
   }
   catch (error) {
     logger.warn('Floating selection action failed', { webviewId, error })
-    const message = String(error).includes('EXTRACT_TIMEOUT') ? 'EXTRACT_TIMEOUT' : 'selectionResult.failed'
+    const message = error === 'WEBVIEW_READY_TIMEOUT'
+      ? 'WEBVIEW_READY_TIMEOUT'
+      : String(error).includes('EXTRACT_TIMEOUT') ? 'EXTRACT_TIMEOUT' : 'selectionResult.failed'
     await publishSelectionResult(target, { Err: message })
   }
 }
