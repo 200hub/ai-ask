@@ -5,7 +5,7 @@
   /**
    * 欢迎页面组件 - 显示应用介绍和快捷键提示
    */
-  import { Globe, Keyboard, Zap } from 'lucide-svelte'
+  import { Globe, Keyboard, Zap } from '@lucide/svelte'
 
   const t = i18n.t
 

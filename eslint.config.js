@@ -14,6 +14,7 @@ export default antfu(
   },
   {
     rules: {
+      'antfu/reasonable-newline': 'off',
       'svelte/indent': 'off'
     }
   }

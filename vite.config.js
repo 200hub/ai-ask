@@ -1,13 +1,23 @@
+import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import adapter from "@sveltejs/adapter-static";
 import { sveltekit } from "@sveltejs/kit/vite";
+import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [sveltekit()],
+  plugins: [sveltekit({
+    adapter: adapter({ fallback: "index.html" }),
+    preprocess: vitePreprocess(),
+  })],
+  resolve: {
+    alias: { $lib: fileURLToPath(new URL("./src/lib", import.meta.url)) },
+  },
   test: {
+    include: ["src/lib/__tests__/**/*.test.{ts,svelte.ts}"],
     globals: true,
     environment: "jsdom",
     setupFiles: "src/lib/__tests__/setup.ts",
@@ -15,30 +25,6 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       include: ["src/lib/**/*.{ts,svelte}"]
     }
-  },
-
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes("node_modules")) {
-            return;
-          }
-
-          if (id.includes("lucide-svelte")) {
-            return "vendor-icons";
-          }
-
-          if (id.includes("@tauri-apps")) {
-            return "vendor-tauri";
-          }
-
-          if (id.includes("svelte")) {
-            return "vendor-svelte";
-          }
-        },
-      },
-    },
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

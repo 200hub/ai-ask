@@ -4,7 +4,7 @@ description: AI Ask 项目代码全面审查 — 按 P0/P1/P2 优先级输出问
 
 # 代码审查与质量提升（AI Ask 项目定制版）
 
-适用项目：**Tauri 2.x + SvelteKit 2 SPA + Svelte 5 Runes**
+适用项目：**Tauri 2.x + SvelteKit 3 SPA + Svelte 5 Runes**
 回复语言：**中文**；日志消息：**英文**；代码注释：**中文**
 
 ---
