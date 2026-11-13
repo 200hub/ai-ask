@@ -513,12 +513,15 @@ test('native Todo and Markdown notes survive pause and restart', async () => {
     await todo.getByRole('checkbox', { name: '切换完成状态' }).first().press('Space')
     await todo.getByRole('button', { name: '删除待办事项' }).nth(2).press('Enter')
     await expect(todo.getByRole('textbox', { name: '编辑待办事项' })).toHaveCount(2)
-    const details = todo.getByRole('button', { name: '待办详情' }).nth(1)
-    await details.press('Enter')
-    await todo.getByLabel('优先级').selectOption('high')
-    await todo.getByLabel('截止日期').fill('2026-11-20')
+    const priorityButtons = todo.getByRole('button', { name: '优先级', exact: true })
+    const deadlineButtons = todo.getByRole('button', { name: '截止日期', exact: true })
+    await priorityButtons.nth(1).press('Enter')
+    await todo.getByRole('combobox', { name: '优先级', exact: true }).selectOption('high')
+    await deadlineButtons.nth(1).press('Enter')
+    await expect(todo.locator('input[type=date]')).toBeVisible()
     await screenshot(todo, testInfo, 'todo-details')
-    await details.press('Enter')
+    await todo.locator('input[type=date]').fill('2026-11-20')
+    await todo.getByRole('textbox', { name: '新待办事项' }).focus()
     await expect(todo.locator('time[datetime="2026-11-20"]')).toBeVisible()
     await screenshot(todo, testInfo, 'todo-note')
 
@@ -579,9 +582,9 @@ test('native Todo and Markdown notes survive pause and restart', async () => {
     await expect(restored.getByRole('checkbox', { name: '切换完成状态' }).first()).toBeChecked()
     await expect(restored.getByRole('textbox', { name: '编辑待办事项' }).nth(1)).toHaveValue('并发保存时验证翻译和解释窗口')
     await expect(restored.locator('time[datetime="2026-11-20"]')).toBeVisible()
-    await restored.getByRole('button', { name: '待办详情' }).nth(1).press('Enter')
-    await expect(restored.getByLabel('优先级')).toHaveValue('high')
-    await restored.getByRole('button', { name: '待办详情' }).nth(1).press('Enter')
+    await restored.getByRole('button', { name: '优先级', exact: true }).nth(1).press('Enter')
+    await expect(restored.getByRole('combobox', { name: '优先级', exact: true })).toHaveValue('high')
+    await restored.getByRole('textbox', { name: '新待办事项' }).focus()
     const restoredMarkdown = await findWindow(app.context, markdownLabel)
     await expect(restoredMarkdown.getByRole('heading', { name: 'Markdown 便签' })).toBeVisible()
     await screenshot(restored, testInfo, 'todo-restored')
@@ -596,6 +599,95 @@ test('native Todo and Markdown notes survive pause and restart', async () => {
     await todoCard.getByRole('button', { name: '打开', exact: true }).press('Enter')
     await expect(restoreToggle).toBeChecked()
     await expect.poll(() => isVisible(restored)).toBe(true)
+  }
+  finally {
+    await app.close()
+  }
+})
+
+test('native Todo sorts, hides completed tasks and persists manual ordering', async () => {
+  const testInfo = test.info()
+  await seedConfig()
+  let app = await openApp(testInfo)
+  try {
+    await openSettings(app.main)
+    await app.main.getByRole('button', { name: /桌面便签/ }).press('Enter')
+    await app.main.getByRole('checkbox', { name: '启用桌面便签' }).press('Space')
+    const create = app.main.getByRole('button', { name: '新建待办便签' })
+    await expect(create).toBeEnabled()
+    await create.press('Enter')
+    const todo = await findWindow(app.context, 'desktop-note-')
+    const label = (await getLabel(todo))!
+    const first = '整理周报'
+    const second = '提交审核'
+    const third = '确认演示设备'
+    const fourth = '已完成的准备工作'
+    for (const text of [first, fourth, second, third]) {
+      await addTodo(todo, text)
+    }
+    const rows = todo.locator('.todo-items > li')
+    const taskValues = (page: Page) => page.getByRole('textbox', { name: '编辑待办事项' }).evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value))
+    const order = (expected: string[], page = todo) => expect.poll(() => taskValues(page)).toEqual(expected)
+    async function priority(index: number, value: string) {
+      await rows.nth(index).getByRole('button', { name: '优先级', exact: true }).press('Enter')
+      await todo.getByRole('combobox', { name: '优先级', exact: true }).selectOption(value)
+    }
+    async function deadline(index: number, value: string) {
+      await rows.nth(index).getByRole('button', { name: '截止日期', exact: true }).press('Enter')
+      await todo.locator('input[type=date]').fill(value)
+    }
+
+    await rows.nth(1).getByRole('checkbox', { name: '切换完成状态' }).check()
+    await priority(0, 'low')
+    await priority(2, 'high')
+    await deadline(2, '2026-11-25')
+    await deadline(3, '2026-11-20')
+    const hidden = todo.getByRole('checkbox', { name: '隐藏已完成' })
+    const sort = todo.getByRole('combobox', { name: '排序' })
+    await hidden.check()
+    await order([first, second, third])
+    await sort.selectOption('priority')
+    await order([second, first, third])
+    await screenshot(todo, testInfo, 'todo-priority-and-filter')
+    await sort.selectOption('deadline')
+    await order([third, second, first])
+    await screenshot(todo, testInfo, 'todo-deadline')
+
+    await sort.selectOption('manual')
+    await order([first, second, third])
+    const reorder = todo.getByRole('button', { name: '拖动排序，或用上下方向键移动' })
+    const target = await rows.first().boundingBox()
+    expect(target).not.toBeNull()
+    await reorder.last().dragTo(rows.first(), { targetPosition: { x: target!.width / 2, y: 2 } })
+    await order([third, first, second])
+    await reorder.last().press('ArrowUp')
+    await order([third, second, first])
+    await hidden.uncheck()
+    await order([third, second, first, fourth])
+    await hidden.check()
+    await sort.selectOption('deadline')
+
+    const noteId = new URL(todo.url()).searchParams.get('noteId')
+    await expect.poll(async () => {
+      const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
+      return {
+        preferences: config[`note_todo_preferences_${noteId}`],
+        order: config.desktop_notes?.find((note: { id: string }) => note.id === noteId)?.content.match(/^- \[[ x]\] (.+)$/gm),
+      }
+    }).toEqual({
+      preferences: { sort: 'deadline', hideCompleted: true },
+      order: [`- [ ] ${third}`, `- [ ] ${second}`, `- [ ] ${first}`, `- [x] ${fourth}`],
+    })
+    await app.close()
+    app = await openApp(testInfo)
+    const restored = await findWindow(app.context, label)
+    await expect(restored.getByRole('checkbox', { name: '隐藏已完成' })).toBeChecked()
+    await expect(restored.getByRole('combobox', { name: '排序' })).toHaveValue('deadline')
+    await order([third, second, first], restored)
+    await restored.getByRole('combobox', { name: '排序' }).selectOption('manual')
+    await restored.getByRole('checkbox', { name: '隐藏已完成' }).uncheck()
+    await order([third, second, first, fourth], restored)
+    await screenshot(restored, testInfo, 'todo-manual-restored')
   }
   finally {
     await app.close()

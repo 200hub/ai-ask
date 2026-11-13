@@ -63,6 +63,10 @@ class MockStore {
     storeData[key] = value
   }
 
+  async delete(key: string): Promise<void> {
+    delete storeData[key]
+  }
+
   async save(): Promise<void> {
     saveSpy()
   }
@@ -133,6 +137,20 @@ beforeEach(async () => {
 })
 
 describe('storage utilities', () => {
+  it('keeps Todo view preferences independent per note and clears them on removal', async () => {
+    const { deleteNoteTodoPreferences, loadNoteTodoPreferences, saveNoteTodoPreferences } = await import('$lib/utils/storage')
+    await Promise.all([
+      saveNoteTodoPreferences('first', { hideCompleted: true, sort: 'deadline' }),
+      saveNoteTodoPreferences('second', { hideCompleted: false, sort: 'priority' }),
+    ])
+    expect(await loadNoteTodoPreferences('first')).toEqual({ hideCompleted: true, sort: 'deadline' })
+    expect(await loadNoteTodoPreferences('second')).toEqual({ hideCompleted: false, sort: 'priority' })
+
+    await deleteNoteTodoPreferences('first')
+    expect(await loadNoteTodoPreferences('first')).toEqual({ hideCompleted: false, sort: 'manual' })
+    expect(await loadNoteTodoPreferences('second')).toEqual({ hideCompleted: false, sort: 'priority' })
+  })
+
   it('returns default config on first load and persists it', async () => {
     const config = await getConfig()
 

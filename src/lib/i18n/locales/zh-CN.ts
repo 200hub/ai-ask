@@ -78,7 +78,10 @@ export const zhCN = {
     openError: '便签未能打开。',
     markdownLabel: 'Markdown',
     todo: {
-      details: '待办详情',
+      sort: '排序',
+      sortModes: { manual: '手动', priority: '优先级', deadline: '截止日期' },
+      hideCompleted: '隐藏已完成',
+      reorder: '拖动排序，或用上下方向键移动',
       priority: '优先级',
       deadline: '截止日期',
       clearDeadline: '清除截止日期',

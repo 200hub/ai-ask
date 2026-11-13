@@ -1,5 +1,11 @@
 import type { DesktopNoteTodo } from '$lib/utils/desktop-note-todo'
-import { parseDesktopNoteTodos, serializeDesktopNoteTodos } from '$lib/utils/desktop-note-todo'
+import {
+  getVisibleDesktopNoteTodos,
+  moveDesktopNoteTodo,
+  normalizeDesktopNoteTodoPreferences,
+  parseDesktopNoteTodos,
+  serializeDesktopNoteTodos,
+} from '$lib/utils/desktop-note-todo'
 import { describe, expect, it } from 'vitest'
 
 describe('desktop note to-do content', () => {
@@ -56,5 +62,77 @@ describe('desktop note to-do content', () => {
       .toBe('- [x] 完成清理')
     expect(serializeDesktopNoteTodos([{ text: '确认', completed: false, priority: undefined, deadline: undefined }]))
       .toBe('- [ ] 确认')
+  })
+})
+
+describe('desktop note to-do list preferences', () => {
+  const items: (DesktopNoteTodo & { id: string })[] = [
+    { id: 'no-metadata', text: '无设置', completed: false },
+    { id: 'normal', text: '重复事项', completed: false, priority: 'normal', deadline: '2027-01-01' },
+    { id: 'completed', text: '已完成事项', completed: true, priority: 'high', deadline: '2026-01-01' },
+    { id: 'low', text: '低优先级', completed: false, priority: 'low', deadline: '2026-12-31' },
+    { id: 'high', text: '重复事项', completed: false, priority: 'high', deadline: '2027-01-01' },
+    { id: 'no-metadata-2', text: '另一个无设置事项', completed: false },
+  ]
+
+  it('defaults to manual order and showing completed tasks, validating stored fields independently', () => {
+    expect(normalizeDesktopNoteTodoPreferences(null)).toEqual({ hideCompleted: false, sort: 'manual' })
+    expect(normalizeDesktopNoteTodoPreferences({ sort: 'unknown', hideCompleted: true }))
+      .toEqual({ hideCompleted: true, sort: 'manual' })
+    expect(normalizeDesktopNoteTodoPreferences({ sort: 'deadline', hideCompleted: 'true' }))
+      .toEqual({ hideCompleted: false, sort: 'deadline' })
+    expect(getVisibleDesktopNoteTodos(items)).toEqual(items.map((item, index) => ({ item, index })))
+  })
+
+  it('filters completed items while retaining the original indices for editing', () => {
+    const visible = getVisibleDesktopNoteTodos(items, { hideCompleted: true, sort: 'manual' })
+    expect(visible.map(({ index }) => index)).toEqual([0, 1, 3, 4, 5])
+    expect(visible[3].item).toBe(items[4])
+    expect(getVisibleDesktopNoteTodos([items[2]], { hideCompleted: true, sort: 'manual' })).toEqual([])
+  })
+
+  it('sorts high to low with unspecified priority last and ties in manual order', () => {
+    const visible = getVisibleDesktopNoteTodos(items, { hideCompleted: false, sort: 'priority' })
+    expect(visible.map(({ index }) => index)).toEqual([2, 4, 1, 3, 0, 5])
+    expect(items.map(item => item.id)).toEqual(['no-metadata', 'normal', 'completed', 'low', 'high', 'no-metadata-2'])
+  })
+
+  it('sorts deadlines chronologically with empty dates last and equal dates in manual order', () => {
+    const visible = getVisibleDesktopNoteTodos(items, { hideCompleted: true, sort: 'deadline' })
+    expect(visible.map(({ index }) => index)).toEqual([3, 1, 4, 0, 5])
+    expect(getVisibleDesktopNoteTodos([], { hideCompleted: true, sort: 'deadline' })).toEqual([])
+  })
+})
+
+describe('desktop note to-do list manual order', () => {
+  const items = [
+    { id: 0, text: '重复事项', completed: false },
+    { id: 1, text: '隐藏事项一', completed: true },
+    { id: 2, text: '重复事项', completed: false },
+    { id: 3, text: '隐藏事项二', completed: true },
+    { id: 4, text: '最后一项', completed: false },
+  ]
+
+  it('moves down after a visible target while preserving the relative order of hidden rows', () => {
+    const result = moveDesktopNoteTodo(items, 0, 4, 'after')
+    expect(result.map(({ id }) => id)).toEqual([1, 2, 3, 4, 0])
+    expect(getVisibleDesktopNoteTodos(result, { hideCompleted: true, sort: 'manual' }).map(({ item }) => item.id))
+      .toEqual([2, 4, 0])
+    expect(result[4]).toBe(items[0])
+    expect(items.map(({ id }) => id)).toEqual([0, 1, 2, 3, 4])
+  })
+
+  it('moves up before a visible target, including to the beginning', () => {
+    expect(moveDesktopNoteTodo(items, 4, 0, 'before').map(({ id }) => id)).toEqual([4, 0, 1, 2, 3])
+    expect(moveDesktopNoteTodo(items, 4, 2, 'after').map(({ id }) => id)).toEqual([0, 1, 2, 4, 3])
+    expect(moveDesktopNoteTodo(items, 0, 2, 'before').map(({ id }) => id)).toEqual([1, 0, 2, 3, 4])
+  })
+
+  it('returns the same array for unchanged or invalid moves', () => {
+    expect(moveDesktopNoteTodo(items, 0, 0, 'before')).toBe(items)
+    expect(moveDesktopNoteTodo(items, 0, 1, 'before')).toBe(items)
+    expect(moveDesktopNoteTodo(items, 1, 0, 'after')).toBe(items)
+    expect(moveDesktopNoteTodo(items, 10, 1, 'before')).toBe(items)
+    expect(moveDesktopNoteTodo(items, 1, 10, 'after')).toBe(items)
   })
 })

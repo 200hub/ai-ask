@@ -61,7 +61,10 @@ export const jaJP = {
     openError: '付箋を開けませんでした。',
     markdownLabel: 'Markdown',
     todo: {
-      details: 'タスクの詳細',
+      sort: '並べ替え',
+      sortModes: { manual: '手動', priority: '優先度', deadline: '期限' },
+      hideCompleted: '完了済みを非表示',
+      reorder: 'ドラッグまたは上下の矢印キーで移動',
       priority: '優先度',
       deadline: '期限',
       clearDeadline: '期限をクリア',

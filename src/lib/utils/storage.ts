@@ -1,6 +1,7 @@
 import type { AppConfig, ProxyConfig } from '../types/config'
 import type { DesktopNote, DesktopNoteBounds, DesktopNoteColor, DesktopNotePatch, DesktopNoteSyncState } from '../types/desktop-note'
 import type { AIPlatform, TranslationPlatform } from '../types/platform'
+import type { DesktopNoteTodoPreferences } from './desktop-note-todo'
 /**
  * 存储工具类 - 用于配置的持久化
  */
@@ -11,10 +12,12 @@ import {
   BUILT_IN_AI_PLATFORMS,
   BUILT_IN_TRANSLATION_PLATFORMS,
   DESKTOP_NOTE_COLOR_PRESETS,
+  DESKTOP_NOTE_TODO_PREFERENCES_KEY_PREFIX,
   DESKTOP_NOTES,
   GLOBAL_SHORTCUT_SETTINGS,
 } from './constants'
 import { normalizeDesktopNoteBounds, normalizeStoredDesktopNoteBounds } from './desktop-note-bounds'
+import { normalizeDesktopNoteTodoPreferences } from './desktop-note-todo'
 import { logger } from './logger'
 
 /**
@@ -431,6 +434,28 @@ export async function deleteNoteBounds(noteId: string): Promise<void> {
   catch (error) {
     logger.warn('Failed to delete note bounds', { noteId, error })
   }
+}
+
+export async function loadNoteTodoPreferences(noteId: string): Promise<DesktopNoteTodoPreferences> {
+  const store = await initStore()
+  const value = await store.get<unknown>(`${DESKTOP_NOTE_TODO_PREFERENCES_KEY_PREFIX}${noteId}`)
+  return normalizeDesktopNoteTodoPreferences(value)
+}
+
+export function saveNoteTodoPreferences(noteId: string, preferences: DesktopNoteTodoPreferences): Promise<void> {
+  return withConfigWrite(async () => {
+    const store = await initStore()
+    await store.set(`${DESKTOP_NOTE_TODO_PREFERENCES_KEY_PREFIX}${noteId}`, normalizeDesktopNoteTodoPreferences(preferences))
+    await store.save()
+  })
+}
+
+export function deleteNoteTodoPreferences(noteId: string): Promise<void> {
+  return withConfigWrite(async () => {
+    const store = await initStore()
+    await store.delete(`${DESKTOP_NOTE_TODO_PREFERENCES_KEY_PREFIX}${noteId}`)
+    await store.save()
+  })
 }
 
 /**

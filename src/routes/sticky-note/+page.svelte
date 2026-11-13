@@ -1,14 +1,16 @@
 <script lang='ts'>
   import type { Locale } from '$lib/i18n'
   import type { DesktopNoteBounds, DesktopNoteColor } from '$lib/types/desktop-note'
+  import type { DesktopNoteTodoPreferences } from '$lib/utils/desktop-note-todo'
   import type { UnlistenFn } from '@tauri-apps/api/event'
   import DesktopNoteTodoEditor from '$lib/components/DesktopNoteTodoEditor.svelte'
   import { DEFAULT_LOCALE, i18n } from '$lib/i18n'
   import { configStore } from '$lib/stores/config.svelte'
   import { desktopNotesStore } from '$lib/stores/desktop-notes.svelte'
-  import { DESKTOP_NOTE_COLOR_PRESETS, DESKTOP_NOTES } from '$lib/utils/constants'
+  import { DEFAULT_DESKTOP_NOTE_TODO_PREFERENCES, DESKTOP_NOTE_COLOR_PRESETS, DESKTOP_NOTES } from '$lib/utils/constants'
   import { renderDesktopNoteMarkdown } from '$lib/utils/desktop-note-markdown'
   import { logger } from '$lib/utils/logger'
+  import { loadNoteTodoPreferences, saveNoteTodoPreferences } from '$lib/utils/storage'
   import { invoke } from '@tauri-apps/api/core'
   import { listen } from '@tauri-apps/api/event'
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
@@ -22,8 +24,11 @@
   let mode = $state<'edit' | 'preview'>('preview')
   let colorPanelOpen = $state(false)
   let locale = $state<Locale | null>(null)
+  let todoPreferences = $state<DesktopNoteTodoPreferences>(DEFAULT_DESKTOP_NOTE_TODO_PREFERENCES)
+  let todoPreferencesReady = $state(false)
   let closing = false
   let geometryTimer: ReturnType<typeof setTimeout> | undefined
+  let pendingTodoPreferences = Promise.resolve()
 
   const currentNote = $derived(noteId ? desktopNotesStore.getNoteById(noteId) : null)
   const isTodo = $derived(currentNote?.kind === 'todo')
@@ -62,6 +67,12 @@
   function handleContentChange(content: string) {
     void desktopNotesStore.updateNoteContent(noteId, content)
     triggerAutoSync()
+  }
+
+  function handleTodoPreferencesChange(preferences: DesktopNoteTodoPreferences) {
+    todoPreferences = preferences
+    pendingTodoPreferences = saveNoteTodoPreferences(noteId, preferences)
+      .catch(error => logger.warn('Failed to save note task preferences', { noteId, error }))
   }
 
   function handleContentInput(event: Event) {
@@ -124,12 +135,22 @@
       document.documentElement.lang = requestedLocale
       locale = requestedLocale
     })
-    const ready = Promise.all([loadAppearance, desktopNotesStore.init()]).then(() => {
+    const loadNote = desktopNotesStore.init().then(async () => {
       if (!currentNote && noteId) {
         logger.warn('Sticky note not found in local storage', { noteId })
       }
+      if (currentNote?.kind === 'todo') {
+        try {
+          todoPreferences = await loadNoteTodoPreferences(noteId)
+        }
+        catch (error) {
+          logger.warn('Failed to load note task preferences', { noteId, error })
+        }
+      }
+      todoPreferencesReady = true
       void desktopNotesStore.refreshSession()
     })
+    const ready = Promise.all([loadAppearance, loadNote])
     void ready.catch(error => logger.error('Failed to initialize sticky note', error))
 
     register(appWindow.onCloseRequested(async (event) => {
@@ -146,7 +167,7 @@
           await commitCurrentGeometry()
         }
         await desktopNotesStore.markNoteHiddenLocally(noteId)
-        await desktopNotesStore.flushPersistPublic()
+        await Promise.all([desktopNotesStore.flushPersistPublic(), pendingTodoPreferences])
       }
       catch (error) {
         logger.warn('Failed to save sticky note before closing', error)
@@ -170,7 +191,7 @@
           clearTimeout(geometryTimer)
           await commitCurrentGeometry()
         }
-        await desktopNotesStore.flushPersistPublic()
+        await Promise.all([desktopNotesStore.flushPersistPublic(), pendingTodoPreferences])
       }
       catch (error) {
         logger.warn('Failed to save sticky note before exit', error)
@@ -238,7 +259,14 @@
 
     <div class='content-area'>
       {#if isTodo}
-        <DesktopNoteTodoEditor content={currentNote.content} onChange={handleContentChange} />
+        {#if todoPreferencesReady}
+          <DesktopNoteTodoEditor
+            content={currentNote.content}
+            preferences={todoPreferences}
+            onChange={handleContentChange}
+            onPreferencesChange={handleTodoPreferencesChange}
+          />
+        {/if}
       {:else if mode === 'edit'}
         <textarea
           class='note-editor'

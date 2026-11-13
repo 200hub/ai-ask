@@ -32,7 +32,7 @@ import {
   subscribeToRealtime,
   verifySchema,
 } from '$lib/utils/notes-sync'
-import { deleteNoteBounds, getDesktopNotes, loadNoteBounds, saveDesktopNotePatches, saveNoteBounds } from '$lib/utils/storage'
+import { deleteNoteBounds, deleteNoteTodoPreferences, getDesktopNotes, loadNoteBounds, saveDesktopNotePatches, saveNoteBounds } from '$lib/utils/storage'
 import {
   getSessionInfo,
   isSupabaseAvailable,
@@ -503,6 +503,9 @@ class DesktopNotesStore {
 
     // 清理 per-note bounds key（避免孤立 key 占用存储）
     void deleteNoteBounds(noteId)
+    if (note.kind === 'todo') {
+      void deleteNoteTodoPreferences(noteId).catch(error => logger.warn('Failed to delete note task preferences', { noteId, error }))
+    }
 
     // 如果同步启用且已认证，触发自动同步以推送删除
     if (configStore.config.desktopNotesSyncEnabled && this.session.authenticated) {

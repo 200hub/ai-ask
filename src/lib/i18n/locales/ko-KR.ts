@@ -62,7 +62,10 @@ export const koKR = {
     openError: '메모를 열 수 없습니다.',
     markdownLabel: 'Markdown',
     todo: {
-      details: '할 일 세부 정보',
+      sort: '정렬',
+      sortModes: { manual: '수동', priority: '우선순위', deadline: '마감일' },
+      hideCompleted: '완료한 항목 숨기기',
+      reorder: '드래그하거나 위아래 방향키로 이동',
       priority: '우선순위',
       deadline: '마감일',
       clearDeadline: '마감일 지우기',

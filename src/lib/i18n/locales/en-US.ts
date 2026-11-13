@@ -78,7 +78,10 @@ export const enUS = {
     openError: 'Could not open the note.',
     markdownLabel: 'Markdown',
     todo: {
-      details: 'Task details',
+      sort: 'Sort',
+      sortModes: { manual: 'Manual', priority: 'Priority', deadline: 'Due date' },
+      hideCompleted: 'Hide completed',
+      reorder: 'Drag to reorder, or use the up and down arrow keys',
       priority: 'Priority',
       deadline: 'Due date',
       clearDeadline: 'Clear due date',
