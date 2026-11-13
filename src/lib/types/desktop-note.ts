@@ -14,12 +14,17 @@ export type DesktopNoteKind = 'markdown' | 'todo'
  * 逻辑像素位置和大小。带 monitor 时，位置相对于该显示器的工作区。
  * 旧数据没有 monitor，位置相对于虚拟桌面原点。
  */
-export interface DesktopNoteBounds {
+export interface DesktopNoteGeometry {
   x: number
   y: number
   width: number
   height: number
+}
+
+export interface DesktopNoteBounds extends DesktopNoteGeometry {
   monitor?: string
+  preferredMonitor?: string
+  monitorBounds?: Record<string, DesktopNoteGeometry>
 }
 
 /**

@@ -865,6 +865,7 @@ interface PhysicalDisplay {
   workArea: DisplayArea
   dpi: { x: number, y: number }
   targetNames: string[]
+  targetIds: string[]
 }
 
 interface DisplayTopology {
@@ -907,7 +908,7 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
       && Math.abs(current.bottom - original.bottom) <= tolerance
   }
   await seedConfig()
-  const app = await openApp(testInfo)
+  let app = await openApp(testInfo)
   let probe: Awaited<ReturnType<typeof openDesktopProbe>> | undefined
   try {
     probe = await openDesktopProbe(app.processHandle.pid!)
@@ -926,23 +927,39 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
     const createTodo = app.main.getByRole('button', { name: '新建待办便签' })
     await expect(createTodo).toBeEnabled()
     await createTodo.press('Enter')
-    const note = await findWindow(app.context, 'desktop-note-')
+    let note = await findWindow(app.context, 'desktop-note-')
     const label = (await getLabel(note))!
     await addTodo(note, '实机验收：显示桌面后勾选这项')
     const completed = note.getByRole('checkbox', { name: '切换完成状态' })
-    const position = { x: workArea.x + 160, y: workArea.y + 120 }
-    await expect.poll(() => invoke(note, 'capture_desktop_note_bounds')).not.toBeNull()
-    await invoke(note, 'plugin:window|set_position', { label, value: { Physical: position } })
+    const position = { x: workArea.x + 163, y: workArea.y + 125 }
+    const noteId = new URL(note.url()).searchParams.get('noteId')
+    const readSavedBounds = async () => {
+      const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
+      return config[`note_bounds_${noteId}`] as {
+        monitor?: string
+        preferredMonitor?: string
+        monitorBounds?: Record<string, { x: number, y: number }>
+      } | undefined
+    }
+    const outerPosition = () => invoke<{ x: number, y: number }>(note, 'plugin:window|outer_position', { label })
+    const move = async (x: number, y: number) => {
+      const labelPayload = { label }
+      await invoke(note, 'plugin:window|set_position', { ...labelPayload, value: { Physical: { x: x + 13, y: y + 11 } } })
+      await expect.poll(outerPosition).toEqual({ x: x + 13, y: y + 11 })
+      await invoke(note, 'plugin:window|set_position', { ...labelPayload, value: { Physical: { x, y } } })
+    }
+    const device = (display: PhysicalDisplay) => `windows:${display.targetIds[0].toLowerCase()}`
+    await expect.poll(async () => {
+      await move(position.x, position.y)
+      return (await readSavedBounds())?.monitor?.toLowerCase()
+    }, { intervals: [350, 650, 1000] }).toBe(device(target!))
     await expect.poll(async () => {
       const state = (await probe!.inspect()).note
       return state.visible && !state.iconic && !state.cloakFlags && withinWindowArea(state, workArea)
     }).toBe(true)
-    const noteId = new URL(note.url()).searchParams.get('noteId')
-    const readSavedBounds = async () => {
-      const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
-      return config[`note_bounds_${noteId}`] as { monitor?: string, x: number, y: number } | undefined
-    }
-    await expect.poll(async () => (await readSavedBounds())?.monitor).toBe(target!.deviceName)
+    await expect.poll(async () => (await readSavedBounds())?.monitor?.toLowerCase()).toBe(device(target!))
+    await expect.poll(outerPosition).toEqual(position)
+    const originalOuter = await outerPosition()
     const baseline = (await probe.inspect()).note
     const saved = await readSavedBounds()
     evidence.baseline = { topology: original, note: baseline, saved }
@@ -986,6 +1003,20 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
     evidence.primaryOnly = { topology: single, desktop: await probe.inspect(), saved: await readSavedBounds() }
     expect(await readSavedBounds()).toEqual(saved)
 
+    const primary = single!.monitors[0]
+    const primaryPosition = { x: primary.workArea.x + 373, y: primary.workArea.y + 285 }
+    const primaryMonitor = device(primary)
+    const externalMonitor = device(target!)
+    await expect.poll(async () => {
+      await move(primaryPosition.x, primaryPosition.y)
+      return (await readSavedBounds())?.monitor?.toLowerCase()
+    }, { intervals: [350, 650, 1000] }).toBe(primaryMonitor)
+    await expect.poll(outerPosition).toEqual(primaryPosition)
+    const edited = await readSavedBounds()
+    expect(edited?.preferredMonitor?.toLowerCase()).toBe(externalMonitor)
+    expect(Object.keys(edited?.monitorBounds ?? {}).map(key => key.toLowerCase())).toEqual(expect.arrayContaining([primaryMonitor, externalMonitor]))
+    evidence.primaryEdited = { topology: single, desktop: await probe.inspect(), saved: edited }
+
     await checkpoint('edit-win-d', '在单屏模式按 Win+D，看到便签后，用鼠标勾选「实机验收：显示桌面后勾选这项」，先停在桌面。')
     await expect.poll(async () => {
       const state = await probe!.inspect()
@@ -1010,9 +1041,31 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
         && frameMatches(state.rect, baseline.rect, tolerance)
     }).toBe(true)
     evidence.extendRestored = { topology: extended, desktop: await probe.inspect(), saved: await readSavedBounds() }
-    expect(await readSavedBounds()).toEqual(saved)
+    expect(await readSavedBounds()).toEqual(edited)
+    await expect.poll(outerPosition).toEqual(originalOuter)
     await expect(completed).toBeChecked()
-    await checkpoint('complete', '扩展模式已恢复，便签位置和编辑结果已核对。可以在任务视图里关闭刚创建的空虚拟桌面。')
+
+    await checkpoint('primary-again', '请再次按 Win+P 选择「仅电脑屏幕」，验证调整后的内屏位置仍在。')
+    await expect.poll(async () => (await displayTopology()).mode, manualWait).toBe('internal')
+    await expect.poll(outerPosition).toEqual(primaryPosition)
+    expect(await readSavedBounds()).toEqual(edited)
+    evidence.primaryRestored = { topology: await displayTopology(), desktop: await probe.inspect(), saved: edited }
+
+    await probe.close()
+    probe = undefined
+    await app.close()
+    app = await openApp(testInfo)
+    probe = await openDesktopProbe(app.processHandle.pid!)
+    note = await findWindow(app.context, label)
+    await expect.poll(outerPosition).toEqual(primaryPosition)
+    await expect(note.getByRole('checkbox', { name: '切换完成状态' })).toBeChecked()
+    evidence.primaryAfterRestart = { desktop: await probe.inspect(), saved: await readSavedBounds() }
+
+    await checkpoint('restore-extension', '请按 Win+P 恢复「扩展」。')
+    await expect.poll(async () => (await displayTopology()).mode, manualWait).toBe('extend')
+    await expect.poll(outerPosition).toEqual(originalOuter)
+    expect(await readSavedBounds()).toEqual(edited)
+    await checkpoint('complete', '扩展模式已恢复，内屏和外屏的独立位置均已核对。')
   }
   finally {
     await testInfo.attach('physical-display-and-virtual-desktop', { body: JSON.stringify(evidence, null, 2), contentType: 'application/json' })

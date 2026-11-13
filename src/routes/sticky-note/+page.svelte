@@ -28,6 +28,7 @@
   let todoPreferencesReady = $state(false)
   let closing = false
   let geometryTimer: ReturnType<typeof setTimeout> | undefined
+  let pendingGeometry = Promise.resolve()
   let pendingTodoPreferences = Promise.resolve()
 
   const currentNote = $derived(noteId ? desktopNotesStore.getNoteById(noteId) : null)
@@ -41,19 +42,17 @@
     document.documentElement.classList.toggle('dark', dark)
   }
 
-  async function commitCurrentGeometry() {
-    if (!noteId) {
-      return
-    }
-    try {
+  function commitCurrentGeometry() {
+    pendingGeometry = pendingGeometry.then(async () => {
+      if (!noteId) {
+        return
+      }
       const bounds = await invoke<DesktopNoteBounds | null>('capture_desktop_note_bounds')
       if (bounds) {
         await desktopNotesStore.updateNoteBounds(noteId, bounds)
       }
-    }
-    catch (error) {
-      logger.warn('Failed to commit sticky note geometry', error)
-    }
+    }).catch(error => logger.warn('Failed to commit sticky note geometry', error))
+    return pendingGeometry
   }
 
   function scheduleGeometrySync() {
@@ -164,8 +163,8 @@
         if (geometryTimer) {
           clearTimeout(geometryTimer)
           geometryTimer = undefined
-          await commitCurrentGeometry()
         }
+        await commitCurrentGeometry()
         await desktopNotesStore.markNoteHiddenLocally(noteId)
         await Promise.all([desktopNotesStore.flushPersistPublic(), pendingTodoPreferences])
       }
@@ -189,8 +188,9 @@
       try {
         if (geometryTimer) {
           clearTimeout(geometryTimer)
-          await commitCurrentGeometry()
+          geometryTimer = undefined
         }
+        await commitCurrentGeometry()
         await Promise.all([desktopNotesStore.flushPersistPublic(), pendingTodoPreferences])
       }
       catch (error) {

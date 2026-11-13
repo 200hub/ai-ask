@@ -11,6 +11,8 @@ use tokio::sync::Mutex;
 
 #[cfg(target_os = "windows")]
 mod windows_desktop;
+#[cfg(target_os = "windows")]
+mod windows_displays;
 
 const LABEL_PREFIX: &str = "desktop-note-";
 const ROUTE: &str = "/sticky-note";
@@ -35,6 +37,93 @@ pub struct DesktopNoteBounds {
     height: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     monitor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preferred_monitor: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    monitor_bounds: HashMap<String, NoteGeometry>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+struct NoteGeometry {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+impl Default for NoteGeometry {
+    fn default() -> Self {
+        Self {
+            x: DEFAULT_OFFSET,
+            y: DEFAULT_OFFSET,
+            width: DEFAULT_WIDTH,
+            height: DEFAULT_HEIGHT,
+        }
+    }
+}
+
+impl DesktopNoteBounds {
+    fn geometry(&self) -> NoteGeometry {
+        NoteGeometry {
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            height: self.height,
+        }
+    }
+
+    fn preferred_monitor(&self) -> Option<&str> {
+        self.preferred_monitor
+            .as_deref()
+            .or(self.monitor.as_deref())
+    }
+
+    fn legacy_profile(&self) -> Option<(&str, NoteGeometry)> {
+        let id = self.preferred_monitor()?;
+        if id.starts_with("windows:") {
+            return None;
+        }
+        if self.preferred_monitor.is_none() && self.monitor_bounds.is_empty() {
+            return Some((id, self.geometry()));
+        }
+        self.monitor_bounds
+            .get(id)
+            .copied()
+            .map(|geometry| (id, geometry))
+    }
+
+    fn record(&mut self, display: &Display, geometry: NoteGeometry, displays: &[Display]) {
+        let mut preferred = self.preferred_monitor().map(str::to_owned);
+        if let Some((old_id, old_geometry)) = self.legacy_profile() {
+            let old_id = old_id.to_owned();
+            let migrated_id = displays
+                .iter()
+                .find(|candidate| candidate.persistable && candidate.matches_legacy_id(&old_id))
+                .map_or(old_id.as_str(), |candidate| candidate.id.as_str());
+            self.monitor_bounds.remove(&old_id);
+            self.monitor_bounds
+                .entry(migrated_id.to_owned())
+                .or_insert(old_geometry);
+            preferred = Some(migrated_id.to_owned());
+        } else if let Some(id) = &self.monitor {
+            let saved = self.geometry();
+            self.monitor_bounds.entry(id.clone()).or_insert(saved);
+        }
+        let can_select_monitor = preferred
+            .as_ref()
+            .is_none_or(|id| displays.iter().any(|candidate| &candidate.id == id));
+        self.preferred_monitor = if can_select_monitor {
+            Some(display.id.clone())
+        } else {
+            preferred
+        };
+        self.monitor = Some(display.id.clone());
+        self.monitor_bounds.insert(display.id.clone(), geometry);
+        self.x = geometry.x;
+        self.y = geometry.y;
+        self.width = geometry.width;
+        self.height = geometry.height;
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +146,9 @@ pub struct DesktopNoteIdPayload {
 #[derive(Clone, Debug, PartialEq)]
 struct Display {
     id: String,
+    name: Option<String>,
+    persistable: bool,
+    position: PhysicalPosition<i32>,
     origin: PhysicalPosition<i32>,
     size: PhysicalSize<u32>,
     scale: f64,
@@ -64,18 +156,53 @@ struct Display {
 }
 
 impl Display {
-    fn new(monitor: Monitor, primary: Option<&Monitor>) -> Self {
+    fn new(
+        monitor: Monitor,
+        primary: Option<&Monitor>,
+        identities: &HashMap<String, String>,
+    ) -> Self {
         let work_area = monitor.work_area();
+        let position = *monitor.position();
+        let name = monitor.name().cloned();
+        let identity = name
+            .as_ref()
+            .and_then(|name| identities.get(&name.to_ascii_lowercase()))
+            .cloned();
+        #[cfg(target_os = "windows")]
+        let identity = identity.or_else(|| {
+            name.as_deref()
+                .and_then(windows_displays::fallback_monitor_identity)
+        });
+        #[cfg(target_os = "windows")]
+        let (id, persistable) = identity.map_or_else(
+            || (format!("unidentified:{},{}", position.x, position.y), false),
+            |id| (id, true),
+        );
+        #[cfg(not(target_os = "windows"))]
+        let (id, persistable) = (
+            identity
+                .or_else(|| name.clone())
+                .unwrap_or_else(|| format!("{},{}", position.x, position.y)),
+            true,
+        );
         Self {
-            id: monitor.name().cloned().unwrap_or_else(|| {
-                let position = monitor.position();
-                format!("{},{}", position.x, position.y)
-            }),
+            id,
+            name,
+            persistable,
+            position,
             origin: work_area.position,
             size: work_area.size,
             scale: monitor.scale_factor(),
             primary: primary.is_some_and(|primary| primary.position() == monitor.position()),
         }
+    }
+
+    fn matches_legacy_id(&self, id: &str) -> bool {
+        self.id == id
+            || self
+                .name
+                .as_ref()
+                .is_some_and(|name| name.eq_ignore_ascii_case(id))
     }
 
     fn logical_offset(&self, position: PhysicalPosition<i32>) -> (f64, f64) {
@@ -97,10 +224,14 @@ impl Display {
 
 fn available_displays(app: &AppHandle) -> tauri::Result<Vec<Display>> {
     let primary = app.primary_monitor()?;
+    #[cfg(target_os = "windows")]
+    let identities = windows_displays::monitor_identities();
+    #[cfg(not(target_os = "windows"))]
+    let identities = HashMap::new();
     let mut displays: Vec<_> = app
         .available_monitors()?
         .into_iter()
-        .map(|monitor| Display::new(monitor, primary.as_ref()))
+        .map(|monitor| Display::new(monitor, primary.as_ref(), &identities))
         .filter(|display| display.size.width > 0 && display.size.height > 0 && display.scale > 0.0)
         .collect();
     displays.sort_by(|a, b| a.id.cmp(&b.id));
@@ -115,55 +246,130 @@ fn finite(value: f64, default: f64) -> f64 {
     }
 }
 
-fn window_geometry(
+#[derive(Debug, PartialEq)]
+struct PhysicalGeometry {
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+}
+
+struct ResolvedGeometry<'a> {
+    display: &'a Display,
+    geometry: PhysicalGeometry,
+    migration: Option<NoteGeometry>,
+}
+
+fn window_geometry<'a>(
     bounds: &DesktopNoteBounds,
-    displays: &[Display],
-) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)> {
-    let x = finite(bounds.x, DEFAULT_OFFSET);
-    let y = finite(bounds.y, DEFAULT_OFFSET);
+    displays: &'a [Display],
+) -> Option<ResolvedGeometry<'a>> {
     let primary = displays
         .iter()
         .find(|display| display.primary)
         .or_else(|| displays.first())?;
-    let target = match &bounds.monitor {
-        Some(monitor) => displays.iter().find(|display| &display.id == monitor),
-        // Legacy coordinates are absolute logical pixels at the note window's DPI.
-        None => displays
+    let active = |id: &str| displays.iter().find(|display| display.id == id);
+    let legacy_target = |id: &str| {
+        displays
             .iter()
-            .find(|display| display.contains_point(x * display.scale, y * display.scale)),
+            .find(|display| display.persistable && display.matches_legacy_id(id))
     };
-    let display = target.unwrap_or(primary);
-    let (x, y) = if bounds.monitor.is_some() {
-        (x, y)
-    } else if target.is_some() {
-        display.logical_offset(PhysicalPosition::new(
-            (x * display.scale).round() as i32,
-            (y * display.scale).round() as i32,
-        ))
+    let saved = bounds.geometry();
+    let (display, logical, migrate) = if bounds.monitor_bounds.is_empty()
+        && bounds.preferred_monitor.is_none()
+        && !bounds
+            .monitor
+            .as_deref()
+            .is_some_and(|id| id.starts_with("windows:"))
+    {
+        if let Some((id, _)) = bounds.legacy_profile() {
+            let target = legacy_target(id);
+            (target.unwrap_or(primary), saved, target.is_some())
+        } else {
+            // Old notes saved absolute logical coordinates at the note window's DPI.
+            let x = finite(saved.x, DEFAULT_OFFSET);
+            let y = finite(saved.y, DEFAULT_OFFSET);
+            let target = displays
+                .iter()
+                .find(|display| display.contains_point(x * display.scale, y * display.scale));
+            let (x, y) = target.map_or((DEFAULT_OFFSET, DEFAULT_OFFSET), |display| {
+                (
+                    x - f64::from(display.origin.x) / display.scale,
+                    y - f64::from(display.origin.y) / display.scale,
+                )
+            });
+            (
+                target.unwrap_or(primary),
+                NoteGeometry { x, y, ..saved },
+                target.is_some(),
+            )
+        }
+    } else if let Some((display, logical)) = bounds
+        .legacy_profile()
+        .and_then(|(id, logical)| legacy_target(id).map(|display| (display, logical)))
+    {
+        (
+            display,
+            logical,
+            !bounds.monitor_bounds.contains_key(&display.id),
+        )
     } else {
-        (DEFAULT_OFFSET, DEFAULT_OFFSET)
+        let latest = bounds.monitor.as_deref().and_then(active);
+        let alternate = || {
+            bounds.preferred_monitor().and_then(|_| {
+                latest.filter(|display| !display.primary).or_else(|| {
+                    displays.iter().find(|display| {
+                        !display.primary && bounds.monitor_bounds.contains_key(&display.id)
+                    })
+                })
+            })
+        };
+        let display = bounds
+            .preferred_monitor()
+            .and_then(active)
+            .or_else(alternate)
+            .or(latest)
+            .unwrap_or(primary);
+        let logical = bounds
+            .monitor_bounds
+            .get(&display.id)
+            .copied()
+            .or_else(|| (bounds.monitor.as_ref() == Some(&display.id)).then_some(saved))
+            .unwrap_or_default();
+        (display, logical, false)
     };
 
-    let width = (finite(bounds.width, DEFAULT_WIDTH).max(MIN_WIDTH) * display.scale)
+    let width = (finite(logical.width, DEFAULT_WIDTH).max(MIN_WIDTH) * display.scale)
         .round()
         .min(f64::from(display.size.width)) as u32;
-    let height = (finite(bounds.height, DEFAULT_HEIGHT).max(MIN_HEIGHT) * display.scale)
+    let height = (finite(logical.height, DEFAULT_HEIGHT).max(MIN_HEIGHT) * display.scale)
         .round()
         .min(f64::from(display.size.height)) as u32;
     let x = f64::from(display.origin.x)
-        + (x * display.scale).clamp(0.0, f64::from(display.size.width - width));
+        + (finite(logical.x, DEFAULT_OFFSET) * display.scale)
+            .clamp(0.0, f64::from(display.size.width - width));
     let y = f64::from(display.origin.y)
-        + (y * display.scale).clamp(0.0, f64::from(display.size.height - height));
+        + (finite(logical.y, DEFAULT_OFFSET) * display.scale)
+            .clamp(0.0, f64::from(display.size.height - height));
 
-    Some((
-        PhysicalPosition::new(x.round() as i32, y.round() as i32),
-        PhysicalSize::new(width, height),
-    ))
+    Some(ResolvedGeometry {
+        display,
+        geometry: PhysicalGeometry {
+            position: PhysicalPosition::new(x.round() as i32, y.round() as i32),
+            size: PhysicalSize::new(width, height),
+        },
+        migration: migrate.then_some(logical),
+    })
 }
 
 struct Placement {
     desired: DesktopNoteBounds,
     ignore_events_until: Instant,
+    applied: Option<AppliedPlacement>,
+}
+
+struct AppliedPlacement {
+    display_id: String,
+    geometry: PhysicalGeometry,
+    migration: Option<NoteGeometry>,
 }
 
 #[derive(Default)]
@@ -277,10 +483,25 @@ fn place_window(
     placement: &mut Placement,
     displays: &[Display],
 ) -> tauri::Result<()> {
-    if let Some((position, size)) = window_geometry(&placement.desired, displays) {
+    if let Some(resolved) = window_geometry(&placement.desired, displays) {
         placement.ignore_events_until = Instant::now() + DISPLAY_SETTLE;
-        window.set_position(position)?;
-        window.set_size(size)?;
+        window.set_position(resolved.geometry.position)?;
+        window.set_size(resolved.geometry.size)?;
+        placement.applied = Some(AppliedPlacement {
+            display_id: resolved.display.id.clone(),
+            geometry: PhysicalGeometry {
+                position: window.outer_position()?,
+                size: window.inner_size()?,
+            },
+            migration: resolved.migration,
+        });
+        // A move early in the transition can be the last native event. Check
+        // again after settling and let the applied geometry filter layout echoes.
+        let window = window.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(DISPLAY_SETTLE).await;
+            let _ = window.emit_to(window.label(), CAPTURE_EVENT, ());
+        });
     }
     Ok(())
 }
@@ -363,6 +584,7 @@ pub async fn ensure_desktop_note_window(
         let mut placement = Placement {
             desired: payload.bounds,
             ignore_events_until: Instant::now() + DISPLAY_SETTLE,
+            applied: None,
         };
         if let Err(error) = place_window(&window, &mut placement, &displays) {
             log::warn!("Failed to position new note {label}: {error}");
@@ -469,7 +691,7 @@ pub async fn capture_desktop_note_bounds(
         return Ok(None);
     };
 
-    let bounds = (|| -> tauri::Result<Option<DesktopNoteBounds>> {
+    (|| -> tauri::Result<Option<DesktopNoteBounds>> {
         if Instant::now() < placement.ignore_events_until
             || !window.is_visible()?
             || window.is_minimized()?
@@ -479,7 +701,12 @@ pub async fn capture_desktop_note_bounds(
         let Some(monitor) = window.current_monitor()? else {
             return Ok(None);
         };
-        let display = Display::new(monitor, None);
+        let Some(display) = displays
+            .iter()
+            .find(|display| display.persistable && display.position == *monitor.position())
+        else {
+            return Ok(None);
+        };
         let position = window.outer_position()?;
         let size = window.inner_size()?;
         if size.width == 0 || size.height == 0 {
@@ -490,25 +717,30 @@ pub async fn capture_desktop_note_bounds(
         if !display.contains_point(center_x, center_y) {
             return Ok(None);
         }
-        let (x, y) = display.logical_offset(position);
-        Ok(Some(DesktopNoteBounds {
-            x: x.round(),
-            y: y.round(),
-            width: (f64::from(size.width) / display.scale)
-                .round()
-                .max(MIN_WIDTH),
-            height: (f64::from(size.height) / display.scale)
-                .round()
-                .max(MIN_HEIGHT),
-            monitor: Some(display.id),
-        }))
+        let geometry = PhysicalGeometry { position, size };
+        let logical = if let Some(applied) = placement
+            .applied
+            .as_ref()
+            .filter(|applied| applied.display_id == display.id && applied.geometry == geometry)
+        {
+            let Some(migration) = applied.migration else {
+                return Ok(None);
+            };
+            migration
+        } else {
+            let (x, y) = display.logical_offset(position);
+            NoteGeometry {
+                x,
+                y,
+                width: (f64::from(size.width) / display.scale).max(MIN_WIDTH),
+                height: (f64::from(size.height) / display.scale).max(MIN_HEIGHT),
+            }
+        };
+        placement.desired.record(display, logical, &displays);
+        placement.applied = None;
+        Ok(Some(placement.desired.clone()))
     })()
-    .map_err(|error| error.to_string())?;
-
-    if let Some(bounds) = &bounds {
-        placement.desired = bounds.clone();
-    }
-    Ok(bounds)
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -556,6 +788,9 @@ mod tests {
     fn display(id: &str, x: i32, scale: f64, primary: bool) -> Display {
         Display {
             id: id.to_string(),
+            name: Some(id.to_string()),
+            persistable: true,
+            position: PhysicalPosition::new(x, 0),
             origin: PhysicalPosition::new(x, 40),
             size: PhysicalSize::new(1920, 1040),
             scale,
@@ -570,6 +805,8 @@ mod tests {
             width: 320.0,
             height: 280.0,
             monitor: monitor.map(str::to_string),
+            preferred_monitor: None,
+            monitor_bounds: HashMap::new(),
         }
     }
 
@@ -585,8 +822,10 @@ mod tests {
             display("primary", 0, 1.0, true),
             display("left", -1920, 1.5, false),
         ];
-        let (position, size) =
-            window_geometry(&bounds(Some("left"), 120.0, 120.0), &displays).unwrap();
+        let PhysicalGeometry { position, size } =
+            window_geometry(&bounds(Some("left"), 120.0, 120.0), &displays)
+                .unwrap()
+                .geometry;
         assert_eq!(position, PhysicalPosition::new(-1740, 220));
         assert_eq!(size, PhysicalSize::new(480, 420));
     }
@@ -597,8 +836,10 @@ mod tests {
             display("primary", 0, 1.0, true),
             display("left", 1920, 1.25, false),
         ];
-        let (position, size) =
-            window_geometry(&bounds(Some("left"), 120.0, 120.0), &displays).unwrap();
+        let PhysicalGeometry { position, size } =
+            window_geometry(&bounds(Some("left"), 120.0, 120.0), &displays)
+                .unwrap()
+                .geometry;
         assert_eq!(position, PhysicalPosition::new(2070, 190));
         assert_eq!(size, PhysicalSize::new(400, 350));
     }
@@ -606,8 +847,10 @@ mod tests {
     #[test]
     fn clamps_note_inside_primary_work_area_when_saved_display_is_disconnected() {
         let displays = [display("primary", 0, 1.0, true)];
-        let (position, size) =
-            window_geometry(&bounds(Some("missing"), 2700.0, 900.0), &displays).unwrap();
+        let PhysicalGeometry { position, size } =
+            window_geometry(&bounds(Some("missing"), 2700.0, 900.0), &displays)
+                .unwrap()
+                .geometry;
         assert_eq!(position, PhysicalPosition::new(1600, 800));
         assert_eq!(size, PhysicalSize::new(320, 280));
     }
@@ -618,8 +861,160 @@ mod tests {
             display("primary", 0, 1.0, true),
             display("left", -1920, 1.5, false),
         ];
-        let (position, _) = window_geometry(&bounds(None, -600.0, 240.0), &displays).unwrap();
+        let position = window_geometry(&bounds(None, -600.0, 240.0), &displays)
+            .unwrap()
+            .geometry
+            .position;
         assert_eq!(position, PhysicalPosition::new(-900, 360));
+    }
+
+    #[test]
+    fn restores_independent_display_profiles_after_fallback_edit_and_restart() {
+        let main = display("windows:main", 0, 1.0, true);
+        let projector = display("windows:projector-a", 1920, 1.25, false);
+        let main_geometry = NoteGeometry {
+            x: 237.0,
+            y: 146.0,
+            ..Default::default()
+        };
+        let projector_geometry = NoteGeometry {
+            x: 133.6,
+            y: 98.4,
+            width: 320.8,
+            height: 281.6,
+        };
+        let mut note = bounds(None, 120.0, 120.0);
+        note.record(&main, main_geometry, std::slice::from_ref(&main));
+        let extended = [main.clone(), projector.clone()];
+        note.record(&projector, projector_geometry, &extended);
+        let fallback = window_geometry(&note, std::slice::from_ref(&main)).unwrap();
+        assert_eq!(fallback.geometry.position, PhysicalPosition::new(237, 186));
+
+        let updated_main = NoteGeometry {
+            x: 315.0,
+            ..main_geometry
+        };
+        note.record(&main, updated_main, std::slice::from_ref(&main));
+        let saved = serde_json::to_value(&note).unwrap();
+        assert_eq!(saved["monitor"], main.id);
+        assert_eq!(saved["preferredMonitor"], projector.id);
+        assert_eq!(saved["monitorBounds"][&projector.id]["x"], 133.6);
+        let reopened: DesktopNoteBounds = serde_json::from_value(saved).unwrap();
+        assert_eq!(reopened.monitor_bounds[&main.id], updated_main);
+        let rearranged = [main, display(&projector.id, -1920, 1.25, false)];
+        let restored = window_geometry(&reopened, &rearranged).unwrap();
+        assert_eq!(restored.display.id, projector.id);
+        assert_eq!(
+            restored.geometry.position,
+            PhysicalPosition::new(-1753, 163)
+        );
+        assert_eq!(restored.geometry.size, PhysicalSize::new(401, 352));
+    }
+
+    #[test]
+    fn reused_display_alias_does_not_inherit_a_different_projectors_geometry() {
+        let mut original = display("windows:projector-a", 0, 1.0, true);
+        let mut replacement = display("windows:projector-b", 0, 1.0, true);
+        let alias = r"\\.\DISPLAY2";
+        original.name = Some(alias.into());
+        replacement.name = Some(alias.into());
+        let original_geometry = NoteGeometry {
+            x: 630.0,
+            y: 456.0,
+            ..Default::default()
+        };
+        let mut note = bounds(None, 120.0, 120.0);
+        note.record(
+            &original,
+            original_geometry,
+            std::slice::from_ref(&original),
+        );
+        let fallback = window_geometry(&note, std::slice::from_ref(&replacement)).unwrap();
+        assert_eq!(fallback.display.id, replacement.id);
+        assert_eq!(fallback.geometry.position, PhysicalPosition::new(120, 160));
+        assert_eq!(fallback.migration, None);
+        let replacement_geometry = NoteGeometry {
+            x: 147.0,
+            y: 178.0,
+            ..Default::default()
+        };
+        note.record(
+            &replacement,
+            replacement_geometry,
+            std::slice::from_ref(&replacement),
+        );
+        assert_eq!(note.monitor_bounds[&original.id], original_geometry);
+        assert_eq!(note.monitor_bounds[&replacement.id], replacement_geometry);
+        assert_eq!(
+            note.preferred_monitor.as_deref(),
+            Some(original.id.as_str())
+        );
+    }
+
+    #[test]
+    fn unidentified_display_cannot_claim_a_saved_legacy_alias() {
+        let alias = r"\\.\DISPLAY2";
+        let main = display("windows:main", 0, 1.0, true);
+        let mut unverified = display("unidentified:1920,0", 1920, 1.0, false);
+        unverified.name = Some(alias.into());
+        unverified.persistable = false;
+        let displays = [main.clone(), unverified];
+        let note = bounds(Some(alias), 455.0, 238.0);
+        let resolved = window_geometry(&note, &displays).unwrap();
+        assert_eq!(resolved.display.id, main.id);
+        assert_eq!(resolved.migration, None);
+    }
+
+    #[test]
+    fn restores_known_alternate_projector_when_preferred_is_still_absent() {
+        let main = display("windows:main", 0, 1.0, true);
+        let original = display("windows:projector-a", 1920, 1.0, false);
+        let replacement = display("windows:projector-b", 1920, 1.0, false);
+        let default_geometry = NoteGeometry::default();
+        let replacement_geometry = NoteGeometry {
+            x: 218.0,
+            ..default_geometry
+        };
+        let mut note = bounds(None, 120.0, 120.0);
+        note.record(&original, default_geometry, std::slice::from_ref(&original));
+        let alternate = [main.clone(), replacement.clone()];
+        let unknown = window_geometry(&note, &alternate).unwrap();
+        assert_eq!(unknown.display.id, main.id);
+        note.record(&replacement, replacement_geometry, &alternate);
+        note.record(&main, default_geometry, std::slice::from_ref(&main));
+        let reopened = serde_json::from_str(&serde_json::to_string(&note).unwrap()).unwrap();
+        let restored = window_geometry(&reopened, &alternate).unwrap();
+        assert_eq!(restored.display.id, replacement.id);
+        assert_eq!(restored.geometry.position, PhysicalPosition::new(2138, 160));
+
+        let original_returned = [main.clone(), original, replacement];
+        note.record(&main, default_geometry, &original_returned);
+        assert_eq!(
+            window_geometry(&note, &original_returned)
+                .unwrap()
+                .display
+                .id,
+            main.id
+        );
+    }
+
+    #[test]
+    fn migrates_old_alias_without_overwriting_its_geometry_from_another_display() {
+        let main = display("windows:main", 0, 1.0, true);
+        let mut projector = display("windows:projector", 1920, 1.0, false);
+        let alias = r"\\.\DISPLAY2";
+        projector.name = Some(alias.into());
+        let mut note = bounds(Some(alias), 455.0, 238.0);
+        let original = note.geometry();
+        note.record(&main, NoteGeometry::default(), std::slice::from_ref(&main));
+        assert_eq!(note.monitor_bounds[alias], original);
+        let extended = [main, projector.clone()];
+        let resolved = window_geometry(&note, &extended).unwrap();
+        assert_eq!(resolved.display.id, projector.id);
+        assert_eq!(resolved.migration, Some(original));
+        note.record(resolved.display, resolved.migration.unwrap(), &extended);
+        assert_eq!(note.monitor_bounds[&projector.id], original);
+        assert!(!note.monitor_bounds.contains_key(alias));
     }
 
     #[test]

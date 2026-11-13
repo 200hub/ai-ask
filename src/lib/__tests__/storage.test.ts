@@ -341,4 +341,28 @@ describe('storage utilities', () => {
 
     expect(bounds).toBeNull()
   })
+
+  it('round-trips independent physical displays and precise logical offsets', async () => {
+    const { saveNoteBounds } = await import('$lib/utils/storage')
+    const inner = { x: 73.5, y: 96.5, width: 320, height: 280 }
+    const external = { x: 150 + 1 / 3, y: 112 + 2 / 3, width: 320 + 2 / 3, height: 280 }
+    const placement = {
+      ...inner,
+      monitor: 'windows:inner',
+      preferredMonitor: 'windows:aoc',
+      monitorBounds: { 'windows:inner': inner, 'windows:aoc': external },
+    }
+    await saveNoteBounds('multi', placement)
+    expect(await loadNoteBounds('multi')).toEqual(placement)
+  })
+
+  it('discards a malformed display entry without discarding the other saved display', async () => {
+    const bounds = { x: 170.5, y: 96, width: 320, height: 280 }
+    storeData.note_bounds_multi = {
+      ...bounds,
+      monitor: 'windows:aoc',
+      monitorBounds: { 'windows:aoc': bounds, 'windows:projector': { ...bounds, x: 'no' } },
+    }
+    expect(await loadNoteBounds('multi')).toEqual({ ...bounds, monitor: 'windows:aoc', monitorBounds: { 'windows:aoc': bounds } })
+  })
 })
