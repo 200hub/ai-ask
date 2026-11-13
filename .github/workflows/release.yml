@@ -97,7 +97,7 @@ jobs:
         shell: bash
         run: |
           version=${TAG#v}
-          shopt -s nullglob
+          shopt -s nullglob globstar
           assets=()
 
           require_installer() {
@@ -110,12 +110,12 @@ jobs:
             assets+=("$1")
           }
 
-          require_installer 'Windows x64 NSIS' "artifacts/windows-x64-$version"/*.exe
-          require_installer 'Windows ARM64 NSIS' "artifacts/windows-arm64-$version"/*.exe
-          require_installer 'Linux x64 DEB' "artifacts/linux-x64-$version"/*.deb
-          require_installer 'Linux x64 AppImage' "artifacts/linux-x64-$version"/*.AppImage
-          require_installer 'macOS Intel DMG' "artifacts/macos-intel-$version"/*.dmg
-          require_installer 'macOS Apple Silicon DMG' "artifacts/macos-arm64-$version"/*.dmg
+          require_installer 'Windows x64 NSIS' "artifacts/windows-x64-$version"/**/*.exe
+          require_installer 'Windows ARM64 NSIS' "artifacts/windows-arm64-$version"/**/*.exe
+          require_installer 'Linux x64 DEB' "artifacts/linux-x64-$version"/**/*.deb
+          require_installer 'Linux x64 AppImage' "artifacts/linux-x64-$version"/**/*.AppImage
+          require_installer 'macOS Intel DMG' "artifacts/macos-intel-$version"/**/*.dmg
+          require_installer 'macOS Apple Silicon DMG' "artifacts/macos-arm64-$version"/**/*.dmg
 
           releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
           state=$(jq -r --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | first | if . == null then "missing" elif .draft then "draft" else "published" end' <<< "$releases")
