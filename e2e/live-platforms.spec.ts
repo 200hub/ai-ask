@@ -293,7 +293,9 @@ async function detectProviderBlock(
       return 'The provider displayed a browser verification or access block'
     }
     const dialog = [...document.querySelectorAll('[role="dialog"]')].some(element => /sign in|log in|登录|扫码/i.test(element.textContent ?? ''))
-    if (dialog || (!hasEditor && /log in to continue|请登录后继续|请先登录|登录后使用/i.test(text))) {
+    const deepSeekLogin = target === 'deepseek' && !hasEditor
+      && Boolean(document.querySelector('input[type="tel"]') && document.querySelector('input[autocomplete="one-time-code"]'))
+    if (dialog || deepSeekLogin || (!hasEditor && /log in to continue|请登录后继续|请先登录|登录后使用/i.test(text))) {
       return 'The provider required a signed-in account'
     }
     if (target === 'qianwen' && /你好，我无法回答这个问题，我们换一个话题聊聊吧/.test(text)) {
@@ -348,18 +350,58 @@ for (const platform of platforms) {
       }
 
       if (trace) {
-        const providerState = await child?.evaluate(() => ({
+        const snapshot = await invoke<{ outcome?: { Err?: string, Ok?: { stage?: string, error?: string, submitted?: boolean } } }>(
+          result,
+          'get_selection_result_state',
+        )
+        const providerState = await child?.evaluate(text => ({
           title: document.title,
           readyState: document.readyState,
-          editors: [...document.querySelectorAll('textarea,[contenteditable="true"]')].slice(0, 5).map(element => ({
+          editors: [...document.querySelectorAll<HTMLElement>('textarea,[contenteditable="true"]')].slice(0, 5).map(element => ({
             tag: element.tagName,
             id: element.id,
+            className: element.getAttribute('class'),
             role: element.getAttribute('role'),
+            label: element.getAttribute('aria-label'),
+            editable: element.getAttribute('contenteditable'),
+            multiline: element.getAttribute('aria-multiline'),
+            placeholder: element.getAttribute('placeholder') ?? element.getAttribute('data-placeholder'),
+            parent: element.parentElement?.tagName,
+            visible: element.getClientRects().length > 0,
             slate: element.getAttribute('data-slate-editor'),
+            containsFixture: element.textContent?.includes(text),
           })),
-        })).catch(() => null)
+          sendControls: [...document.querySelectorAll('button[aria-label*="发送"], button[aria-label*="Send"], button.send-button, button[type="submit"]')]
+            .slice(0, 10)
+            .map(element => ({
+              className: element.getAttribute('class'),
+              label: element.getAttribute('aria-label'),
+              visible: element.getClientRects().length > 0,
+              disabled: element.matches(':disabled, [aria-disabled="true"]'),
+            })),
+          loginControls: [...document.querySelectorAll('a,button,input')]
+            .filter(element => /sign in|log in|登录|验证码/i.test(
+              `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('placeholder') ?? ''} ${element.textContent ?? ''}`,
+            ))
+            .slice(0, 10)
+            .map(element => ({
+              tag: element.tagName,
+              className: element.getAttribute('class'),
+              label: element.getAttribute('aria-label') ?? element.getAttribute('placeholder') ?? element.textContent?.trim(),
+              visible: element.getClientRects().length > 0,
+            })),
+        }), platform.text).catch(() => null)
         await testInfo.attach('provider-state', {
           body: JSON.stringify(providerState ?? null),
+          contentType: 'application/json',
+        })
+        const outcome = snapshot?.outcome
+        await testInfo.attach('injection-stage', {
+          body: JSON.stringify(outcome?.Err ?? {
+            stage: outcome?.Ok?.stage,
+            error: outcome?.Ok?.error,
+            submitted: outcome?.Ok?.submitted,
+          }),
           contentType: 'application/json',
         })
 
