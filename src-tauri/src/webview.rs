@@ -22,14 +22,19 @@
 //! - 错误通过 /error 路径传递，统一错误处理
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use std::time::Duration;
 
 use serde::Deserialize;
 use tauri::{
     webview::{NewWindowResponse, Webview, WebviewBuilder},
-    Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, State, Url, WebviewUrl, Window,
+    Emitter, LogicalPosition, LogicalSize, Position, Size, State, Url, WebviewUrl, Window,
 };
 use tauri_plugin_opener::open_url;
+use tokio::sync::{oneshot, Mutex as AsyncMutex, Notify};
 
 use crate::proxy::{parse_external_url, parse_proxy_url, resolve_proxy_data_directory};
 use crate::utils::decode_base64url_to_json;
@@ -40,7 +45,11 @@ use crate::utils::decode_base64url_to_json;
 #[derive(Default)]
 pub(crate) struct ChildWebviewManager {
     webviews: Mutex<HashMap<String, ManagedWebview>>,
+    load_changed: Arc<Notify>,
+    pending_injections: Arc<Mutex<HashMap<(String, u32), InjectionReply>>>,
 }
+
+type InjectionReply = oneshot::Sender<Result<serde_json::Value, String>>;
 
 /// 单个子 WebView 的管理信息
 ///
@@ -49,6 +58,9 @@ pub(crate) struct ChildWebviewManager {
 struct ManagedWebview {
     webview: Webview,
     proxy_url: Option<String>,
+    requested_url: Url,
+    loaded: Arc<AtomicBool>,
+    injection_gate: Arc<AsyncMutex<()>>,
 }
 
 /// WebView 位置参数（逻辑坐标）
@@ -161,10 +173,13 @@ fn logical_size(bounds: &BoundsPayload) -> LogicalSize<f64> {
 /// 确保子 WebView 存在或在代理发生变化时重建
 #[tauri::command]
 pub(crate) async fn ensure_child_webview(
-    window: Window,
+    app: tauri::AppHandle,
     state: State<'_, ChildWebviewManager>,
     payload: EnsureChildWebviewPayload,
 ) -> Result<(), String> {
+    let window = crate::window_control::resolve_main_window(&app)
+        .ok_or_else(|| "Main window not found".to_string())?;
+    let requested_url = parse_external_url(&payload.url)?;
     log::debug!(
         "Ensuring child webview exists: id={}, url={}, proxy={:?}, bounds={:?}",
         payload.id,
@@ -200,20 +215,16 @@ pub(crate) async fn ensure_child_webview(
         }
     }
 
-    if let Some(entry) = webviews.get(&payload.id) {
+    if let Some(entry) = webviews.get_mut(&payload.id) {
         let webview = &entry.webview;
 
-        if let Ok(current_url) = webview.url() {
-            if current_url.as_str() != payload.url {
-                log::info!(
-                    "Updating child webview URL: {} -> {}",
-                    current_url,
-                    payload.url
-                );
-                webview
-                    .navigate(parse_external_url(&payload.url)?)
-                    .map_err(|err| err.to_string())?;
+        if entry.requested_url != requested_url {
+            let loaded_before = entry.loaded.swap(false, Ordering::AcqRel);
+            if let Err(err) = webview.navigate(requested_url.clone()) {
+                entry.loaded.store(loaded_before, Ordering::Release);
+                return Err(err.to_string());
             }
+            entry.requested_url = requested_url;
         }
 
         // 只有提供了 bounds 时才更新位置和大小
@@ -245,7 +256,7 @@ pub(crate) async fn ensure_child_webview(
         log::info!("Creating new child webview: {}", payload.id);
         let mut builder = WebviewBuilder::new(
             payload.id.clone(),
-            WebviewUrl::External(parse_external_url(&payload.url)?),
+            WebviewUrl::External(requested_url.clone()),
         );
 
         if should_use_desktop_user_agent(&payload.id, &payload.url) {
@@ -260,151 +271,56 @@ pub(crate) async fn ensure_child_webview(
         }
 
         // Attach navigation and page load events
-        let main_window = window.clone();
-        let app_handle = window.app_handle().clone();
-        let webview_id_for_events = payload.id.clone();
-        use std::sync::{Arc, Mutex};
-        let agg_state = Arc::new(Mutex::new((0usize, 0usize, String::new()))); // (expected, received, data)
+        let pending = state.pending_injections.clone();
 
         // Intercept navigation to http(s)://injection.localhost/* to shuttle injection results
         {
-            let app_handle_nav = app_handle.clone();
-            let webview_id_nav = webview_id_for_events.clone();
-            let agg_nav = agg_state.clone();
+            let app_handle_nav = app.clone();
+            let webview_id_nav = payload.id.clone();
+            let chunks = Mutex::new(HashMap::<Option<u32>, ResultChunks>::new());
             builder = builder.on_navigation(move |url| {
                 if let Some(host) = url.host_str() {
                     if (url.scheme() == "http" || url.scheme() == "https")
                         && host == "injection.localhost"
                     {
-                        log::info!("[NAV-INTERCEPT] Caught navigation to: {}", url);
                         let path = url.path().trim_start_matches('/');
                         let get_param = |name: &str| -> Option<String> {
                             url.query_pairs()
                                 .find(|(k, _)| k == name)
                                 .map(|(_, v)| v.to_string())
                         };
-                        if path.starts_with("begin") {
-                            if let Some(t_str) = get_param("t") {
-                                if let Ok(t) = t_str.parse::<usize>() {
-                                    log::info!("[NAV-INTERCEPT] Begin: expecting {} chunks", t);
-                                    if let Ok(mut st) = agg_nav.lock() {
-                                        st.0 = t;
-                                        st.1 = 0;
-                                        st.2.clear();
-                                    }
-                                }
-                            }
-                        } else if path.starts_with("chunk") {
-                            let d = get_param("d").unwrap_or_default();
-                            if let Ok(mut st) = agg_nav.lock() {
-                                st.2.push_str(&d);
-                                st.1 = st.1.saturating_add(1);
-                                log::info!(
-                                    "[NAV-INTERCEPT] Chunk: received {}/{}, data_len={}",
-                                    st.1,
-                                    st.0,
-                                    st.2.len()
-                                );
-                            }
-                        } else if path.starts_with("end") {
-                            // 若 mutex 中毒，仍尝试取出内部状态以避免后续永久阻塞
-                            let (expected, received, data) = match agg_nav.lock() {
-                                Ok(mut s) => (s.0, s.1, std::mem::take(&mut s.2)),
-                                Err(poisoned) => {
-                                    log::warn!(
-                                        "[NAV-INTERCEPT] agg_nav mutex poisoned, recovering inner state"
-                                    );
-                                    let mut s = poisoned.into_inner();
-                                    (s.0, s.1, std::mem::take(&mut s.2))
-                                }
-                            };
-                            log::info!(
-                                "[NAV-INTERCEPT] End: expected={}, received={}, data_len={}",
-                                expected,
-                                received,
-                                data.len()
-                            );
-
-                            if expected == 0 || received == 0 || received != expected {
-                                log::warn!("[NAV-INTERCEPT] Chunk mismatch");
-                                if let Err(e) = app_handle_nav.emit(
-                                    "child-webview:injection-result",
-                                    serde_json::json!({
-                                        "id": webview_id_nav,
-                                        "success": false,
-                                        "error": "incomplete_chunks",
-                                        "expected": expected,
-                                        "received": received
-                                    }),
-                                ) {
-                                    log::error!(
-                                        "[NAV-INTERCEPT] Failed to emit error event: {}",
-                                        e
-                                    );
-                                }
-                            } else {
-                                // Decode base64url to JSON on Rust side
-                                log::info!("[NAV-INTERCEPT] Decoding base64url data...");
-                                match decode_base64url_to_json(&data) {
-                                    Ok(json_value) => {
-                                        log::info!(
-                                            "[NAV-INTERCEPT] Decode successful, emitting event"
-                                        );
-                                        if let Err(e) = app_handle_nav.emit(
-                                            "child-webview:injection-result",
-                                            serde_json::json!({
-                                                "id": webview_id_nav,
-                                                "success": true,
-                                                "result": json_value
-                                            }),
-                                        ) {
-                                            log::error!(
-                                                "[NAV-INTERCEPT] Failed to emit success event: {}",
-                                                e
-                                            );
-                                        } else {
-                                            log::info!(
-                                                "[NAV-INTERCEPT] Event emitted successfully"
-                                            );
-                                        }
-                                    }
-                                    Err(e) => {
-                                        log::error!("[NAV-INTERCEPT] Decode failed: {}", e);
-                                        if let Err(emit_err) = app_handle_nav.emit(
-                                            "child-webview:injection-result",
-                                            serde_json::json!({
-                                                "id": webview_id_nav,
-                                                "success": false,
-                                                "error": format!("decode_error: {}", e)
-                                            }),
-                                        ) {
-                                            log::error!(
-                                                "[NAV-INTERCEPT] Failed to emit decode error: {}",
-                                                emit_err
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        } else if path.starts_with("error") {
-                            let m = get_param("m");
-                            log::error!("[NAV-INTERCEPT] Error signal: {:?}", m);
-                            if let Err(e) = app_handle_nav.emit(
-                                "child-webview:injection-result",
-                                serde_json::json!({
-                                    "id": webview_id_nav,
-                                    "success": false,
-                                    "error": m
-                                }),
-                            ) {
-                                log::error!(
-                                    "[NAV-INTERCEPT] Failed to emit injection error event: {}",
-                                    e
-                                );
+                        let request_id = get_param("r").and_then(|value| value.parse().ok());
+                        let reply_key = request_id.map(|id| (webview_id_nav.clone(), id));
+                        if let Some(key) = &reply_key {
+                            if !pending
+                                .lock()
+                                .is_ok_and(|injections| injections.contains_key(key))
+                            {
+                                return false;
                             }
                         }
-                        // cancel navigation
-                        log::info!("[NAV-INTERCEPT] Navigation cancelled");
+                        if let Some(result) =
+                            accept_result_chunk(&chunks, request_id, path, get_param)
+                        {
+                            if let Some(key) = reply_key {
+                                if let Ok(mut injections) = pending.lock() {
+                                    if let Some(reply) = injections.remove(&key) {
+                                        let _ = reply.send(result);
+                                    }
+                                }
+                            } else {
+                                let event = match result {
+                                    Ok(value) => serde_json::json!({
+                                        "id": webview_id_nav, "success": true, "result": value
+                                    }),
+                                    Err(error) => serde_json::json!({
+                                        "id": webview_id_nav, "success": false, "error": error
+                                    }),
+                                };
+                                let _ =
+                                    app_handle_nav.emit("child-webview:injection-result", event);
+                            }
+                        }
                         return false;
                     }
                 }
@@ -420,22 +336,16 @@ pub(crate) async fn ensure_child_webview(
             });
         }
 
+        let loaded = Arc::new(AtomicBool::new(false));
+        let page_loaded = loaded.clone();
+        let load_changed = state.load_changed.clone();
         builder = builder.on_page_load(move |_wv, payload| {
             use tauri::webview::PageLoadEvent;
-            match payload.event() {
-                PageLoadEvent::Started => {
-                    let _ = main_window.emit(
-                        "child-webview:load-started",
-                        serde_json::json!({ "id": webview_id_for_events }),
-                    );
-                }
-                PageLoadEvent::Finished => {
-                    let _ = main_window.emit(
-                        "child-webview:ready",
-                        serde_json::json!({ "id": webview_id_for_events }),
-                    );
-                }
-            }
+            page_loaded.store(
+                payload.event() == PageLoadEvent::Finished,
+                Ordering::Release,
+            );
+            load_changed.notify_waiters();
         });
 
         let child = window
@@ -449,12 +359,148 @@ pub(crate) async fn ensure_child_webview(
             ManagedWebview {
                 webview: child,
                 proxy_url: payload.proxy_url.clone(),
+                requested_url,
+                loaded,
+                injection_gate: Arc::new(AsyncMutex::new(())),
             },
         );
+        state.load_changed.notify_waiters();
         log::info!("Child webview created successfully: {}", payload.id);
     }
 
     Ok(())
+}
+
+const MAX_RESULT_CHUNKS: usize = 2048;
+const MAX_RESULT_CHUNK_LENGTH: usize = 1800;
+
+struct ResultChunks {
+    expected: usize,
+    received: usize,
+    data: String,
+}
+
+fn accept_result_chunk(
+    chunks: &Mutex<HashMap<Option<u32>, ResultChunks>>,
+    request_id: Option<u32>,
+    path: &str,
+    parameter: impl Fn(&str) -> Option<String>,
+) -> Option<Result<serde_json::Value, String>> {
+    let mut chunks = chunks.lock().ok()?;
+    match path {
+        "result" => {
+            let data = parameter("d")?;
+            if data.len() <= MAX_RESULT_CHUNK_LENGTH {
+                return Some(decode_base64url_to_json(&data));
+            }
+        }
+        "begin" => {
+            chunks.retain(|id, _| id.is_none() || *id == request_id);
+            let expected = parameter("t")?.parse().ok()?;
+            if (1..=MAX_RESULT_CHUNKS).contains(&expected) {
+                chunks.insert(
+                    request_id,
+                    ResultChunks {
+                        expected,
+                        received: 0,
+                        data: String::new(),
+                    },
+                );
+            }
+        }
+        "chunk" => {
+            let index = parameter("i")?.parse::<usize>().ok()?;
+            let data = parameter("d")?;
+            let state = chunks.get_mut(&request_id)?;
+            if index == state.received
+                && index < state.expected
+                && data.len() <= MAX_RESULT_CHUNK_LENGTH
+            {
+                state.data.push_str(&data);
+                state.received += 1;
+            }
+        }
+        "end" => {
+            let state = chunks.remove(&request_id);
+            drop(chunks);
+            return Some(match state {
+                Some(state) if state.received == state.expected => {
+                    decode_base64url_to_json(&state.data).map_err(|error| error.to_string())
+                }
+                _ => Err("incomplete_chunks".into()),
+            });
+        }
+        "error" => {
+            chunks.remove(&request_id);
+            return Some(Err(
+                parameter("m").unwrap_or_else(|| "injection_failed".into())
+            ));
+        }
+        _ => {}
+    }
+    None
+}
+
+#[tauri::command]
+pub(crate) async fn run_selection_injection(
+    state: State<'_, ChildWebviewManager>,
+    payload: EvaluateScriptPayload,
+    request_id: u32,
+    timeout_ms: u64,
+) -> Result<serde_json::Value, String> {
+    let gate = {
+        let webviews = state.webviews.lock().map_err(|error| error.to_string())?;
+        webviews
+            .get(&payload.id)
+            .map(|entry| entry.injection_gate.clone())
+            .ok_or_else(|| format!("child webview not found: {}", payload.id))?
+    };
+    let key = (payload.id.clone(), request_id);
+    let result = tokio::time::timeout(Duration::from_millis(timeout_ms), async {
+        let _guard = gate.lock().await;
+        let (reply, result) = oneshot::channel();
+        state
+            .pending_injections
+            .lock()
+            .map_err(|error| error.to_string())?
+            .insert(key.clone(), reply);
+        evaluate_child_webview_script(state.clone(), payload).await?;
+        result.await.map_err(|error| error.to_string())?
+    })
+    .await;
+    if let Ok(mut injections) = state.pending_injections.lock() {
+        injections.remove(&key);
+    }
+    result.unwrap_or_else(|_| Err("EXTRACT_TIMEOUT".into()))
+}
+
+/// Observe the current native load state even when the WebView finished before the caller subscribed.
+#[tauri::command]
+pub(crate) async fn wait_child_webview_ready(
+    state: State<'_, ChildWebviewManager>,
+    payload: ChildWebviewIdPayload,
+    timeout_ms: u64,
+) -> Result<bool, String> {
+    let wait = async {
+        loop {
+            let changed = state.load_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let ready = state
+                .webviews
+                .lock()
+                .map_err(|err| format!("failed to lock webview map: {err}"))?
+                .get(&payload.id)
+                .is_some_and(|entry| entry.loaded.load(Ordering::Acquire));
+            if ready {
+                return Ok(true);
+            }
+            changed.await;
+        }
+    };
+    tokio::time::timeout(Duration::from_millis(timeout_ms), wait)
+        .await
+        .unwrap_or(Ok(false))
 }
 
 /// 更新子 WebView 边界
@@ -503,7 +549,6 @@ pub(crate) async fn show_child_webview(
 
     if let Some(entry) = webviews.get(&payload.id) {
         entry.webview.show().map_err(|err| err.to_string())?;
-        let _ = entry.webview.set_focus();
         log::debug!("Child webview shown: {}", payload.id);
     }
 
@@ -720,10 +765,6 @@ pub(crate) async fn evaluate_child_webview_script(
         // No need to wrap it again, as that would create syntax errors
         log::debug!("About to evaluate script in child webview: {}", payload.id);
         log::debug!("Script length: {} bytes", payload.script.len());
-        log::debug!(
-            "FULL SCRIPT CONTENT:\n{}\n--- END OF SCRIPT ---",
-            payload.script
-        );
 
         entry
             .webview
@@ -744,8 +785,42 @@ pub(crate) async fn evaluate_child_webview_script(
 
 #[cfg(test)]
 mod tests {
-    use super::{should_open_in_default_browser, should_use_desktop_user_agent};
+    use super::*;
     use tauri::Url;
+
+    #[test]
+    fn result_chunks_require_the_matching_request_and_sequence() {
+        let chunks = Mutex::default();
+        let parse = |id, path, parameters: &[(&str, &str)]| {
+            accept_result_chunk(&chunks, id, path, |key| {
+                parameters
+                    .iter()
+                    .find(|(name, _)| *name == key)
+                    .map(|(_, value)| value.to_string())
+            })
+        };
+        assert!(parse(Some(7), "begin", &[("t", "2")]).is_none());
+        assert!(parse(Some(6), "chunk", &[("i", "0"), ("d", "e30")]).is_none());
+        assert!(parse(Some(7), "chunk", &[("i", "1"), ("d", "30")]).is_none());
+        assert!(parse(Some(7), "chunk", &[("i", "0"), ("d", "e")]).is_none());
+        assert!(parse(Some(7), "chunk", &[("i", "0"), ("d", "30")]).is_none());
+        assert!(parse(Some(7), "chunk", &[("i", "1"), ("d", "30")]).is_none());
+        assert_eq!(parse(Some(7), "end", &[]), Some(Ok(serde_json::json!({}))));
+        assert_eq!(
+            parse(Some(6), "end", &[]),
+            Some(Err("incomplete_chunks".into()))
+        );
+    }
+
+    #[test]
+    fn short_result_uses_one_navigation() {
+        let chunks = Mutex::default();
+        assert_eq!(
+            accept_result_chunk(&chunks, Some(7), "result", |key| (key == "d")
+                .then_some("e30".to_string())),
+            Some(Ok(serde_json::json!({})))
+        );
+    }
 
     #[test]
     fn allows_well_known_schemes() {

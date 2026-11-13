@@ -15,6 +15,7 @@ use tauri::{
 const TOOLBAR_WIDTH: f64 = 80.0;
 const TOOLBAR_HEIGHT: f64 = 35.0;
 const TOOLBAR_VERTICAL_OFFSET: f64 = 10.0;
+static TOOLBAR_VISIBILITY_GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 // 浮动结果窗口常量
 const RESULT_WINDOW_WIDTH: f64 = 360.0;
@@ -154,7 +155,7 @@ pub async fn show_selection_toolbar(
     position: CursorPosition,
     toolbar_state: tauri::State<'_, ToolbarManager>,
 ) -> Result<(), String> {
-    show_toolbar_internal(&app, text, position, toolbar_state.inner().clone()).await
+    show_toolbar_internal(&app, text, position, toolbar_state.inner().clone(), false).await
 }
 
 /// 外部调用接口 (例如全局监听器) —— 直接使用工具栏管理器实例
@@ -164,69 +165,17 @@ pub async fn show_selection_toolbar_with_manager(
     position: CursorPosition,
     toolbar_manager: ToolbarManager,
 ) -> Result<(), String> {
-    show_toolbar_internal(&app, text, position, toolbar_manager).await
+    show_toolbar_internal(&app, text, position, toolbar_manager, false).await
 }
 
-/// 强制展示划词工具栏（绕过临时禁用状态）
-///
-/// 此函数专门用于快捷键触发场景，允许用户在临时禁用期间通过快捷键主动唤起工具栏。
-///
-/// # 工作原理
-///
-/// 1. **保存原始状态**：在展示前，先记录当前的临时禁用截止时间
-/// 2. **临时清除禁用**：将临时禁用标记清空，以便 `show_toolbar_internal` 能够通过检查
-/// 3. **执行展示逻辑**：调用内部展示函数，此时不会被临时禁用阻挡
-/// 4. **恢复原始状态**：展示完成后，如果用户没有在工具栏内手动清除禁用，则恢复原来的截止时间
-///
-/// # 为什么需要这个函数
-///
-/// `show_toolbar_internal` 内部会检查 `is_temporarily_disabled()` 状态，即使热键处理逻辑
-/// 决定"允许绕过"，依然会在最终展示时被拦截。因此需要在调用前临时清空该标记，
-/// 待展示完成后再恢复，确保：
-/// - 热键触发时能突破临时禁用限制
-/// - 自动划词监听仍然受到临时禁用约束
-/// - 用户在工具栏中的操作不会被意外覆盖
-///
-/// # 使用场景
-///
-/// - 用户按下划词快捷键（Ctrl/Cmd+Shift+S）
-/// - 即使工具栏处于临时禁用倒计时中，也应响应快捷键
+/// Manually triggered selections bypass temporary suppression.
 pub async fn show_selection_toolbar_force_with_manager(
     app: AppHandle,
     text: String,
     position: CursorPosition,
     toolbar_manager: ToolbarManager,
 ) -> Result<(), String> {
-    // 步骤 1: 获取并保存当前的临时禁用截止时间
-    let original_disable_until = {
-        let mut state = toolbar_manager
-            .lock()
-            .map_err(|e| format!("Failed to lock toolbar state: {}", e))?;
-        let original = state.temporary_disabled_until();
-
-        // 步骤 2: 临时清空禁用标记，允许工具栏展示
-        if original.is_some() {
-            state.set_temporary_disabled_until(None);
-        }
-        original
-    };
-
-    // 步骤 3: 执行实际的展示逻辑（此时临时禁用标记已清空）
-    let result = show_toolbar_internal(&app, text, position, toolbar_manager.clone()).await;
-
-    // 步骤 4: 恢复原始的临时禁用状态（如果用户未在工具栏内清除）
-    if let Some(until) = original_disable_until {
-        if let Ok(mut state) = toolbar_manager.lock() {
-            // 只在当前状态仍为空时恢复，避免覆盖用户的新操作
-            if state.temporary_disabled_until().is_none() {
-                state.set_temporary_disabled_until(Some(until));
-            }
-        } else {
-            log::warn!("Failed to restore temporary disable state after forced show");
-        }
-    }
-
-    result
+    show_toolbar_internal(&app, text, position, toolbar_manager, true).await
 }
 
 /// 隐藏划词工具栏窗口
@@ -361,6 +310,7 @@ async fn hide_toolbar_internal(
     app: &AppHandle,
     toolbar_manager: &ToolbarManager,
 ) -> Result<(), String> {
+    let _visibility = TOOLBAR_VISIBILITY_GATE.lock().await;
     let mut state = toolbar_manager
         .lock()
         .map_err(|e| format!("Failed to lock toolbar state: {}", e))?;
@@ -404,21 +354,16 @@ async fn show_toolbar_internal(
     text: String,
     position: CursorPosition,
     toolbar_manager: ToolbarManager,
+    bypass_temporary_disable: bool,
 ) -> Result<(), String> {
+    let _visibility = TOOLBAR_VISIBILITY_GATE.lock().await;
     let trimmed_text = text.trim();
     if trimmed_text.is_empty() {
         log::debug!("Selection toolbar suppressed due to empty text");
         return Ok(());
     }
-    let preview: String = trimmed_text
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(80)
-        .collect();
-    log::debug!("Selection toolbar text preview: \"{}\"", preview);
 
+    let active_identifiers = resolve_active_app_identifiers();
     let mut state = toolbar_manager
         .lock()
         .map_err(|e| format!("Failed to lock toolbar state: {}", e))?;
@@ -428,12 +373,11 @@ async fn show_toolbar_internal(
         return Ok(());
     }
 
-    if state.is_temporarily_disabled() {
+    if !bypass_temporary_disable && state.is_temporarily_disabled() {
         log::debug!("Selection toolbar suppressed because feature is temporarily disabled");
         return Ok(());
     }
 
-    let active_identifiers = resolve_active_app_identifiers();
     if let Some(identifier) = active_identifiers
         .iter()
         .find(|identifier| state.should_ignore_app(identifier))
@@ -466,52 +410,22 @@ async fn show_toolbar_internal(
 
     let window = ensure_toolbar_window(app)?;
 
-    let scale_factor = window.scale_factor().unwrap_or(1.0);
-    let toolbar_width = TOOLBAR_WIDTH * scale_factor;
-    let toolbar_height = TOOLBAR_HEIGHT * scale_factor;
-    let offset_y = TOOLBAR_VERTICAL_OFFSET * scale_factor;
+    position_popup(
+        &window,
+        position,
+        TOOLBAR_WIDTH,
+        TOOLBAR_HEIGHT,
+        TOOLBAR_VERTICAL_OFFSET,
+    )?;
 
-    let mut toolbar_x = position.x - toolbar_width / 2.0;
-    let mut toolbar_y = position.y - toolbar_height - offset_y;
-
-    if toolbar_x < 0.0 {
-        toolbar_x = 0.0;
-    }
-
-    if toolbar_y < 0.0 {
-        toolbar_y = 0.0;
-    }
-
-    // 性能优化：批量执行窗口操作，减少闪烁
-    // 1. 先设置位置（窗口可能不可见，此操作开销小）
-    let toolbar_x_i32 = toolbar_x.round() as i32;
-    let toolbar_y_i32 = toolbar_y.round() as i32;
-
-    if let Err(error) = window.set_position(Position::Physical(PhysicalPosition::new(
-        toolbar_x_i32,
-        toolbar_y_i32,
-    ))) {
-        log::warn!("Failed to position toolbar window: {}", error);
-    }
-
-    // 2. 设置置顶（仅在需要时）
-    if let Err(error) = window.set_always_on_top(true) {
-        log::warn!("Failed to set toolbar always-on-top: {}", error);
-    }
-
-    // 3. 发送文本事件并显示窗口
-    // 优化：移除不必要的 50ms 延迟和先隐藏再显示的逻辑
-    // 原因：位置更新是同步的，无需等待；先隐藏会导致闪烁
     let text_payload = trimmed_text.to_string();
     if let Err(error) = window.emit("toolbar-text-selected", text_payload) {
         log::warn!("Failed to emit toolbar text event: {}", error);
     }
 
     // 仅在窗口不可见时才调用 show，避免不必要的窗口操作
-    if !window.is_visible().unwrap_or(true) {
-        if let Err(error) = window.show() {
-            log::warn!("Failed to show toolbar window: {}", error);
-        }
+    if !window.is_visible().unwrap_or(false) {
+        window.show().map_err(|err| err.to_string())?;
     }
 
     Ok(())
@@ -528,6 +442,9 @@ fn ensure_toolbar_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .decorations(false)
         .resizable(false)
         .skip_taskbar(true)
+        .always_on_top(true)
+        .focusable(false)
+        .visible_on_all_workspaces(true)
         .visible(false)
         .focused(false)
         .build()
@@ -666,301 +583,302 @@ pub(crate) fn platform_cursor_position() -> Result<(f64, f64), String> {
 // 浮动结果窗口管理
 // ============================================================================
 
-/// 结果窗口请求数据
+const RESULT_WINDOW_LABEL: &str = "selection-result";
+const RESULT_STATE_EVENT: &str = "selection-result:state";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResultWindowRequest {
-    /// 操作类型：translate 或 explain
-    pub action_type: String,
-    /// 选中的文本
-    pub text: String,
-    /// AI 平台 ID
-    pub platform_id: String,
-    /// AI 平台名称
-    pub platform_name: String,
-    /// 工具栏窗口位置（用于计算结果窗口位置）
-    pub toolbar_position: Option<CursorPosition>,
-    /// 目标 webview ID（用于过滤注入结果）
-    pub webview_id: Option<String>,
-    /// 错误信息（如果需要直接显示错误）
-    pub error_message: Option<String>,
+    action_type: String,
+    text: String,
+    platform_id: String,
+    platform_name: String,
+    toolbar_position: Option<CursorPosition>,
+    error_message: Option<String>,
 }
 
-/// 显示浮动结果窗口
-///
-/// 在工具栏上方或下方显示结果窗口，自动选择最佳位置
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultWindowSnapshot {
+    request_id: u32,
+    request: ResultWindowRequest,
+    outcome: Option<Result<serde_json::Value, String>>,
+    #[serde(skip)]
+    pinned: bool,
+}
+
+#[derive(Default)]
+pub struct ResultWindowManager {
+    windows: Mutex<std::collections::HashMap<String, ResultWindowSnapshot>>,
+    show_gate: tokio::sync::Mutex<()>,
+    next_id: std::sync::atomic::AtomicU32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultWindowTarget {
+    window_label: String,
+    request_id: u32,
+}
+
 #[tauri::command]
 pub async fn show_selection_result_window(
     app: AppHandle,
+    manager: tauri::State<'_, ResultWindowManager>,
     request: ResultWindowRequest,
-) -> Result<(), String> {
-    log::info!(
-        "Showing selection result window: action={}, platform={}",
-        request.action_type,
-        request.platform_id
-    );
-
-    // 检查主结果窗口是否存在且可见（说明正在被使用/钉住）
-    if let Some(existing_window) = app.get_webview_window("selection-result") {
-        if existing_window.is_visible().unwrap_or(false) {
-            // 主窗口已经可见，说明用户正在使用它（可能被钉住）
-            // 直接创建新窗口来处理新请求，不移动主窗口
-            log::info!("Main result window is visible, creating new window for this request");
-            return create_new_result_window_with_request(app, request).await;
-        }
-    }
-
-    let window = ensure_result_window(&app)?;
-    let scale_factor = window.scale_factor().unwrap_or(1.0);
-
-    // 计算窗口位置
-    let (result_x, result_y) = calculate_result_window_position(&request, scale_factor)?;
-
-    // 设置窗口位置
-    let result_x_i32 = result_x.round() as i32;
-    let result_y_i32 = result_y.round() as i32;
-
-    if let Err(error) = window.set_position(Position::Physical(PhysicalPosition::new(
-        result_x_i32,
-        result_y_i32,
-    ))) {
-        log::warn!("Failed to position result window: {}", error);
-    }
-
-    // 设置置顶
-    if let Err(error) = window.set_always_on_top(true) {
-        log::warn!("Failed to set result window always-on-top: {}", error);
-    }
-
-    // 发送请求事件到结果窗口（使用 emit_to 确保只发送到特定窗口）
-    let event_payload = serde_json::json!({
-        "actionType": request.action_type,
-        "text": request.text,
-        "platformId": request.platform_id,
-        "platformName": request.platform_name,
-        "webviewId": request.webview_id,
-        "errorMessage": request.error_message,
-    });
-
-    if let Err(error) = app.emit_to(
-        "selection-result",
-        "selection-result:request",
-        event_payload,
-    ) {
-        log::warn!("Failed to emit result request event: {}", error);
-    }
-
-    // 显示窗口
-    if !window.is_visible().unwrap_or(true) {
-        if let Err(error) = window.show() {
-            log::warn!("Failed to show result window: {}", error);
-        }
-    }
-
-    // 设置焦点
-    if let Err(error) = window.set_focus() {
-        log::warn!("Failed to focus result window: {}", error);
-    }
-
-    Ok(())
-}
-
-/// 隐藏浮动结果窗口
-#[tauri::command]
-pub async fn hide_selection_result_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("selection-result") {
-        if let Err(error) = window.hide() {
-            log::debug!(
-                "Skipping result window hide because window handle is invalid: {}",
-                error
-            );
-        }
-    }
-
-    Ok(())
-}
-
-/// 更新浮动结果窗口位置
-#[tauri::command]
-pub async fn update_selection_result_position(
-    app: AppHandle,
-    position: CursorPosition,
-) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("selection-result") {
-        let scale_factor = window.scale_factor().unwrap_or(1.0);
-        let result_width = RESULT_WINDOW_WIDTH * scale_factor;
-        let result_height = RESULT_WINDOW_HEIGHT * scale_factor;
-
-        // 默认在指定位置上方显示
-        let mut result_x = position.x - result_width / 2.0;
-        let mut result_y = position.y - result_height - RESULT_WINDOW_VERTICAL_GAP * scale_factor;
-
-        // 边界检查
-        if result_x < 0.0 {
-            result_x = 0.0;
-        }
-        if result_y < 0.0 {
-            // 如果上方空间不足，改为在下方显示
-            result_y = position.y + RESULT_WINDOW_VERTICAL_GAP * scale_factor;
-        }
-
-        let result_x_i32 = result_x.round() as i32;
-        let result_y_i32 = result_y.round() as i32;
-
-        if let Err(error) = window.set_position(Position::Physical(PhysicalPosition::new(
-            result_x_i32,
-            result_y_i32,
-        ))) {
-            log::warn!("Failed to update result window position: {}", error);
-        }
-    }
-
-    Ok(())
-}
-
-/// 计算结果窗口位置
-///
-/// 优先在工具栏上方显示，如果上方空间不足则在下方显示
-fn calculate_result_window_position(
-    request: &ResultWindowRequest,
-    scale_factor: f64,
-) -> Result<(f64, f64), String> {
-    let result_width = RESULT_WINDOW_WIDTH * scale_factor;
-    let result_height = RESULT_WINDOW_HEIGHT * scale_factor;
-    let toolbar_height = TOOLBAR_HEIGHT * scale_factor;
-    let gap = RESULT_WINDOW_VERTICAL_GAP * scale_factor;
-
-    // 获取工具栏位置或当前光标位置
-    let (anchor_x, anchor_y) = if let Some(pos) = &request.toolbar_position {
-        (pos.x, pos.y)
+) -> Result<ResultWindowTarget, String> {
+    let _show = manager.show_gate.lock().await;
+    let request_id = manager
+        .next_id
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let main_is_pinned = manager
+        .windows
+        .lock()
+        .map_err(|err| err.to_string())?
+        .get(RESULT_WINDOW_LABEL)
+        .is_some_and(|window| window.pinned);
+    let label = if main_is_pinned {
+        format!("{RESULT_WINDOW_LABEL}-{request_id}")
     } else {
-        // 如果没有提供工具栏位置，使用当前光标位置
-        platform_cursor_position().unwrap_or((0.0, 0.0))
+        RESULT_WINDOW_LABEL.to_string()
     };
 
-    // 结果窗口水平居中于锚点
-    let mut result_x = anchor_x - result_width / 2.0;
+    let anchor = request.toolbar_position.clone().unwrap_or_else(|| {
+        let point = app.cursor_position().unwrap_or_default();
+        CursorPosition {
+            x: point.x,
+            y: point.y,
+        }
+    });
+    let snapshot = ResultWindowSnapshot {
+        request_id,
+        request,
+        outcome: None,
+        pinned: false,
+    };
+    manager
+        .windows
+        .lock()
+        .map_err(|err| err.to_string())?
+        .insert(label.clone(), snapshot.clone());
 
-    // 优先在工具栏上方显示
-    // 工具栏位置是其左上角，结果窗口应该在工具栏上方
-    let mut result_y = anchor_y - result_height - gap;
-
-    // 边界检查：确保不超出屏幕左边界
-    if result_x < 0.0 {
-        result_x = 0.0;
+    let show = || -> Result<(), String> {
+        let window = match app.get_webview_window(&label) {
+            Some(window) => window,
+            None => create_result_window(&app, &label)?,
+        };
+        position_popup(
+            &window,
+            anchor,
+            RESULT_WINDOW_WIDTH,
+            RESULT_WINDOW_HEIGHT,
+            RESULT_WINDOW_VERTICAL_GAP,
+        )?;
+        app.emit_to(&label, RESULT_STATE_EVENT, snapshot)
+            .map_err(|err| err.to_string())?;
+        window.show().map_err(|err| err.to_string())?;
+        if let Err(error) = window.set_focus() {
+            log::debug!("Could not focus selection result window: {error}");
+        }
+        Ok(())
+    };
+    if let Err(error) = show() {
+        if let Ok(mut windows) = manager.windows.lock() {
+            windows.remove(&label);
+        }
+        return Err(error);
     }
 
-    // 边界检查：如果上方空间不足，改为在下方显示
-    if result_y < 0.0 {
-        // 在工具栏下方显示
-        result_y = anchor_y + toolbar_height + gap;
-    }
-
-    Ok((result_x, result_y))
+    Ok(ResultWindowTarget {
+        window_label: label,
+        request_id,
+    })
 }
 
-/// 确保结果窗口存在
-fn ensure_result_window(app: &AppHandle) -> Result<WebviewWindow, String> {
-    if let Some(window) = app.get_webview_window("selection-result") {
-        return Ok(window);
-    }
-
-    create_result_window(app, "selection-result")
+#[tauri::command]
+pub fn get_selection_result_state(
+    window: WebviewWindow,
+    manager: tauri::State<'_, ResultWindowManager>,
+) -> Result<Option<ResultWindowSnapshot>, String> {
+    let windows = manager.windows.lock().map_err(|err| err.to_string())?;
+    Ok(windows.get(window.label()).cloned())
 }
 
-/// 创建新的结果窗口
+#[tauri::command]
+pub fn publish_selection_result(
+    app: AppHandle,
+    manager: tauri::State<'_, ResultWindowManager>,
+    window_label: String,
+    request_id: u32,
+    outcome: Result<serde_json::Value, String>,
+) -> Result<(), String> {
+    let mut windows = manager.windows.lock().map_err(|err| err.to_string())?;
+    let Some(window) = windows.get_mut(&window_label) else {
+        return Ok(());
+    };
+    if window.request_id != request_id {
+        return Ok(());
+    }
+    window.outcome = Some(outcome);
+    let snapshot = window.clone();
+    drop(windows);
+    app.emit_to(&window_label, RESULT_STATE_EVENT, snapshot)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn set_selection_result_pinned(
+    window: WebviewWindow,
+    manager: tauri::State<'_, ResultWindowManager>,
+    request_id: u32,
+    pinned: bool,
+) -> Result<(), String> {
+    let mut windows = manager.windows.lock().map_err(|err| err.to_string())?;
+    if let Some(snapshot) = windows.get_mut(window.label()) {
+        if snapshot.request_id == request_id {
+            snapshot.pinned = pinned;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn dismiss_selection_result_window(
+    window: WebviewWindow,
+    manager: tauri::State<'_, ResultWindowManager>,
+    request_id: u32,
+) -> Result<(), String> {
+    let _show = manager.show_gate.lock().await;
+    let dismissed = {
+        let mut windows = manager.windows.lock().map_err(|err| err.to_string())?;
+        if windows
+            .get(window.label())
+            .is_some_and(|snapshot| snapshot.request_id == request_id)
+        {
+            windows.remove(window.label());
+            true
+        } else {
+            false
+        }
+    };
+    if dismissed {
+        if window.label() == RESULT_WINDOW_LABEL {
+            window.hide().map_err(|err| err.to_string())?;
+            if window.is_maximized().unwrap_or(false) {
+                window.unmaximize().map_err(|err| err.to_string())?;
+            }
+        } else {
+            window.close().map_err(|err| err.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 fn create_result_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, String> {
-    WebviewWindowBuilder::new(app, label, WebviewUrl::App("/toolbar-result".into()))
+    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::App("/toolbar-result".into()))
         .title("Selection Result")
         .inner_size(RESULT_WINDOW_WIDTH, RESULT_WINDOW_HEIGHT)
         .min_inner_size(RESULT_WINDOW_WIDTH, RESULT_WINDOW_MIN_HEIGHT)
-        .decorations(false) // 禁用原生窗口装饰，使用自定义标题栏
-        .resizable(true) // 启用大小调整
-        .maximizable(true) // 启用最大化
+        .decorations(false)
+        .resizable(true)
+        .maximizable(true)
         .skip_taskbar(true)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
         .visible(false)
         .focused(false)
         .build()
-        .map_err(|e| format!("Failed to create result window: {}", e))
+        .map_err(|e| format!("Failed to create result window: {e}"))?;
+    let window_label = label.to_string();
+    let app = app.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            let manager = app.state::<ResultWindowManager>();
+            if let Ok(mut windows) = manager.windows.lock() {
+                windows.remove(&window_label);
+            };
+        }
+    });
+    Ok(window)
 }
 
-/// 用于跟踪下一个结果窗口的编号
-static NEXT_RESULT_WINDOW_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
-
-/// 当现有结果窗口被钉住时，创建新窗口来处理新请求
-#[tauri::command]
-pub async fn create_new_result_window_with_request(
-    app: AppHandle,
-    request: ResultWindowRequest,
+fn position_popup(
+    window: &WebviewWindow,
+    anchor: CursorPosition,
+    width: f64,
+    height: f64,
+    gap: f64,
 ) -> Result<(), String> {
-    log::info!(
-        "Creating new result window for request: action={}, platform={}",
-        request.action_type,
-        request.platform_id
-    );
-
-    // 生成唯一的窗口标签
-    let window_id = NEXT_RESULT_WINDOW_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let window_label = format!("selection-result-{}", window_id);
-
-    // 创建新窗口
-    let window = create_result_window(&app, &window_label)?;
-
-    let scale_factor = window.scale_factor().unwrap_or(1.0);
-
-    // 计算窗口位置
-    let (result_x, result_y) = calculate_result_window_position(&request, scale_factor)?;
-
-    // 设置窗口位置
-    let result_x_i32 = result_x.round() as i32;
-    let result_y_i32 = result_y.round() as i32;
-
-    if let Err(error) = window.set_position(Position::Physical(PhysicalPosition::new(
-        result_x_i32,
-        result_y_i32,
-    ))) {
-        log::warn!("Failed to position new result window: {}", error);
-    }
-
-    // 设置置顶
-    if let Err(error) = window.set_always_on_top(true) {
-        log::warn!("Failed to set new result window always-on-top: {}", error);
-    }
-
-    // 显示窗口
-    if let Err(error) = window.show() {
-        log::warn!("Failed to show new result window: {}", error);
-    }
-
-    // 设置焦点
-    if let Err(error) = window.set_focus() {
-        log::warn!("Failed to focus new result window: {}", error);
-    }
-
-    // 等待窗口加载完成后再发送事件
-    // 新窗口需要时间加载前端并设置事件监听器
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
-    // 发送请求事件到新结果窗口（使用 emit_to 确保只发送到特定窗口）
-    let event_payload = serde_json::json!({
-        "actionType": request.action_type,
-        "text": request.text,
-        "platformId": request.platform_id,
-        "platformName": request.platform_name,
-        "webviewId": request.webview_id,
-        "errorMessage": request.error_message,
+    let monitor = window
+        .monitor_from_point(anchor.x, anchor.y)
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let scale = monitor
+        .as_ref()
+        .map_or(1.0, |monitor| monitor.scale_factor());
+    let area = monitor.as_ref().map(|monitor| {
+        let area = monitor.work_area();
+        (
+            f64::from(area.position.x),
+            f64::from(area.position.y),
+            f64::from(area.size.width),
+            f64::from(area.size.height),
+        )
     });
+    let position = popup_position(anchor, width * scale, height * scale, gap * scale, area);
+    window
+        .set_position(Position::Physical(position))
+        .map_err(|err| err.to_string())
+}
 
-    if let Err(error) = app.emit_to(&window_label, "selection-result:request", event_payload) {
-        log::warn!(
-            "Failed to emit result request event to new window: {}",
-            error
+fn popup_position(
+    anchor: CursorPosition,
+    width: f64,
+    height: f64,
+    gap: f64,
+    area: Option<(f64, f64, f64, f64)>,
+) -> PhysicalPosition<i32> {
+    let mut x = anchor.x - width / 2.0;
+    let mut y = anchor.y - height - gap;
+    if let Some((left, top, area_width, area_height)) = area {
+        if y < top {
+            y = anchor.y + gap;
+        }
+        x = x.clamp(left, left + (area_width - width).max(0.0));
+        y = y.clamp(top, top + (area_height - height).max(0.0));
+    }
+    PhysicalPosition::new(x.round() as i32, y.round() as i32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn popup_stays_on_monitor_with_negative_origin() {
+        let area = Some((-1600.0, -300.0, 1600.0, 900.0));
+        let anchor = CursorPosition {
+            x: -1580.0,
+            y: -280.0,
+        };
+        assert_eq!(
+            popup_position(anchor, 540.0, 360.0, 12.0, area),
+            PhysicalPosition::new(-1600, -268),
         );
     }
 
-    log::info!(
-        "New result window created and request sent: label={}",
-        window_label
-    );
-
-    Ok(())
+    #[test]
+    fn popup_avoids_monitor_work_area_edges() {
+        let area = Some((1920.0, 0.0, 1280.0, 760.0));
+        let anchor = CursorPosition {
+            x: 3198.0,
+            y: 700.0,
+        };
+        assert_eq!(
+            popup_position(anchor, 360.0, 240.0, 8.0, area),
+            PhysicalPosition::new(2840, 452),
+        );
+    }
 }
