@@ -313,7 +313,12 @@
    * 处理从浮动结果窗口跳转到主窗口的请求
    */
   async function handleOpenPlatform(payload: OpenPlatformEventPayload) {
-    logger.info('Open platform request received', payload)
+    logger.info('Open platform request received', {
+      platformId: payload.platformId,
+      platformType: payload.platformType,
+      action: payload.action,
+      hasText: Boolean(payload.text),
+    })
 
     if (payload.platformType === 'translation') {
       // 切换到翻译视图

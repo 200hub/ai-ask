@@ -409,6 +409,8 @@ export const SUPABASE = {
  * 注入相关常量
  */
 export const INJECTION = {
+  DOM_POLL_MS: 100,
+  SUBMISSION_CONFIRM_TIMEOUT_MS: 5000,
   /** 默认选择器超时时间（毫秒） */
   DEFAULT_TIMEOUT_MS: 5000,
   /** 默认最大重试次数 */

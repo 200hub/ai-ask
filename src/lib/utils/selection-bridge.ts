@@ -68,7 +68,8 @@ async function runFloatingAction(
     const webview = new ChildWebviewProxy(webviewId, platform.url, resolveProxyUrl(config.proxy))
     await webview.ensure()
     if (!await webview.waitForLoadFinished(SELECTION_RESULT_WINDOW.PROVIDER_READY_TIMEOUT_MS)) {
-      throw new Error('EXTRACT_TIMEOUT')
+      await publishSelectionResult(target, { Err: 'WEBVIEW_READY_TIMEOUT' })
+      return
     }
 
     const actions = template.actions.map(action => action.type === 'fill' ? { ...action, content } : action)
@@ -76,6 +77,7 @@ async function runFloatingAction(
       requestId: target.requestId,
       waitForFreshResult: true,
       reuseSameTranslation: webviewId.startsWith('translator-'),
+      confirmSubmission: webviewId.startsWith('ai-chat-'),
     })
     const result = await invoke<unknown>('run_selection_injection', {
       requestId: target.requestId,

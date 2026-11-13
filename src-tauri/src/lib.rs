@@ -49,11 +49,11 @@ use global_selection::{check_accessibility_permission, request_accessibility_per
 use proxy::test_proxy_connection;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use selection_toolbar::{
-    dismiss_selection_result_window, get_cursor_position, get_selection_result_state,
-    get_selection_toolbar_state, hide_selection_toolbar, publish_selection_result,
-    set_selection_result_pinned, set_selection_toolbar_enabled, set_selection_toolbar_ignored_apps,
-    set_selection_toolbar_temporary_disabled_until, show_selection_result_window,
-    show_selection_toolbar, ResultWindowManager, ToolbarManager,
+    allocate_selection_request_id, dismiss_selection_result_window, get_cursor_position,
+    get_selection_result_state, get_selection_toolbar_state, hide_selection_toolbar,
+    publish_selection_result, set_selection_result_pinned, set_selection_toolbar_enabled,
+    set_selection_toolbar_ignored_apps, set_selection_toolbar_temporary_disabled_until,
+    show_selection_result_window, show_selection_toolbar, ResultWindowManager, ToolbarManager,
 };
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use shortcuts::{get_global_shortcut_statuses, set_global_shortcut, ShortcutManager};
@@ -332,6 +332,7 @@ fn run_desktop() {
             set_selection_toolbar_temporary_disabled_until,
             get_selection_toolbar_state,
             get_cursor_position,
+            allocate_selection_request_id,
             show_selection_result_window,
             dismiss_selection_result_window,
             get_selection_result_state,

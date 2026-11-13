@@ -55,6 +55,8 @@
    */
   interface InjectionResult {
     success: boolean
+    stage?: 'fill' | 'submit' | 'extract'
+    submitted?: boolean
     results?: Array<{
       index: number
       type: string
@@ -80,6 +82,8 @@
   let errorMessage = $state<string | null>(null)
   let resultContent = $state('')
   let resultHtml = $state('')
+  let canRetryInMainWindow = $state(false)
+  let openingInMainWindow = $state(false)
   let actionType = $state<ActionType>('explain')
   let platformId = $state('')
   let platformName = $state('')
@@ -99,6 +103,9 @@
   const t = i18n.t
   const iconFill = $derived(isDarkMode ? '#f9fafb' : '#1f2937')
   const hasResult = $derived(resultContent.length > 0)
+  const openInMainLabel = $derived(t(canRetryInMainWindow
+    ? 'selectionResult.retryInMainWindow'
+    : 'selectionResult.openInMainWindow'))
 
   // 截断选中的文本用于标题显示
   const TITLE_MAX_LENGTH = 20
@@ -140,7 +147,7 @@
       return t('selectionResult.failed')
     }
     // 处理特殊错误码
-    if (error === 'EXTRACT_TIMEOUT' || error.includes('EXTRACT_TIMEOUT')) {
+    if (error === 'WEBVIEW_READY_TIMEOUT' || error.includes('EXTRACT_TIMEOUT')) {
       return t('selectionResult.timeout')
     }
     // 如果是 i18n 键则翻译
@@ -236,6 +243,8 @@
       errorMessage = request.errorMessage ? mapErrorMessage(request.errorMessage) : null
       resultContent = ''
       resultHtml = ''
+      canRetryInMainWindow = false
+      openingInMainWindow = false
       clearAutoCloseTimer()
     }
 
@@ -245,11 +254,28 @@
 
     isLoading = false
     if ('Err' in outcome) {
+      if (actionType === 'explain' && outcome.Err === 'WEBVIEW_READY_TIMEOUT') {
+        canRetryInMainWindow = true
+        errorMessage = t('selectionResult.composerUnavailable')
+        return
+      }
       errorMessage = mapErrorMessage(outcome.Err)
       return
     }
     const payload = outcome.Ok
     if (!payload.success) {
+      if (actionType === 'explain' && payload.stage === 'fill') {
+        canRetryInMainWindow = payload.submitted === false
+        errorMessage = t('selectionResult.composerUnavailable')
+        return
+      }
+      if (actionType === 'explain' && payload.stage === 'submit') {
+        canRetryInMainWindow = payload.submitted === false
+        errorMessage = t(canRetryInMainWindow
+          ? 'selectionResult.sendUnavailable'
+          : 'selectionResult.sendUnconfirmed')
+        return
+      }
       errorMessage = mapErrorMessage(payload.error)
       return
     }
@@ -397,10 +423,12 @@
    * 在主窗口中打开对应平台
    */
   async function handleOpenInMainWindow(): Promise<void> {
-    if (!platformId) {
+    const requestId = currentRequestId
+    if (!platformId || requestId === null || openingInMainWindow) {
       return
     }
 
+    openingInMainWindow = true
     try {
       logger.info('Opening platform in main window', {
         platformId,
@@ -411,12 +439,19 @@
       await invoke('open_platform_in_main_window', {
         platformId,
         platformType,
+        ...(canRetryInMainWindow ? { text: selectedText, action: actionType } : {}),
       })
-      // 隐藏结果窗口
-      await hideResultWindow()
+      if (currentRequestId === requestId) {
+        await hideResultWindow()
+      }
     }
     catch (error) {
       logger.error('Failed to open platform in main window', error)
+    }
+    finally {
+      if (currentRequestId === requestId) {
+        openingInMainWindow = false
+      }
     }
   }
 
@@ -499,6 +534,8 @@
             />
           </svg>
         </button>
+      {/if}
+      {#if !isLoading && platformId && (hasResult || actionType === 'explain')}
         <!-- 在主窗口中打开按钮 -->
         <button
           class='action-button'
@@ -507,8 +544,9 @@
             e.stopPropagation()
             void handleOpenInMainWindow()
           }}
-          title={t('selectionResult.openInMainWindow')}
-          aria-label={t('selectionResult.openInMainWindow')}
+          disabled={openingInMainWindow}
+          title={openInMainLabel}
+          aria-label={openInMainLabel}
         >
           <svg class='icon' viewBox='0 0 24 24' aria-hidden='true'>
             <path

@@ -1,7 +1,7 @@
 import type { InjectionAction } from '$lib/types/injection'
 import type { AIPlatform, TranslationPlatform } from '$lib/types/platform'
 import { DEFAULT_CONFIG } from '$lib/types/config'
-import { TIMING } from '$lib/utils/constants'
+import { SELECTION_RESULT_WINDOW, TIMING } from '$lib/utils/constants'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invokeMock = vi.fn()
@@ -112,7 +112,16 @@ beforeEach(async () => {
   configStoreMock.config.lastUsedPlatform = null
   configStoreMock.config.defaultPlatform = null
 
-  invokeMock.mockImplementation(async command => command === 'wait_child_webview_ready' ? true : undefined)
+  invokeMock.mockImplementation(async (command) => {
+    switch (command) {
+      case 'wait_child_webview_ready':
+        return true
+      case 'allocate_selection_request_id':
+        return 42
+      case 'run_selection_injection':
+        return { success: true, submitted: true }
+    }
+  })
 
   selectionActions = await import('$lib/utils/selection-actions')
 })
@@ -234,11 +243,13 @@ describe('selection-actions', () => {
 
     expect(clickAction.selector).toContain('button[data-testid="send-button"]')
 
-    expect(invokeMock).toHaveBeenCalledWith('evaluate_child_webview_script', {
+    expect(invokeMock).toHaveBeenCalledWith('run_selection_injection', {
+      requestId: 42,
       payload: {
         id: 'ai-chat-chatgpt',
         script: 'generated-script',
       },
+      timeoutMs: SELECTION_RESULT_WINDOW.INJECTION_TIMEOUT_MS,
     })
     expect(appStateMock.setError).not.toHaveBeenCalled()
   })
@@ -298,10 +309,10 @@ describe('selection-actions', () => {
   })
 
   it('aI 注入失败时会反馈错误', async () => {
-    // Mock wait_child_webview_ready 成功，但后续的 evaluate_child_webview_script 失败
     invokeMock
       .mockResolvedValueOnce(true) // wait_child_webview_ready
-      .mockRejectedValueOnce(new Error('network failure')) // evaluate_child_webview_script
+      .mockResolvedValueOnce(42) // allocate_selection_request_id
+      .mockResolvedValueOnce({ success: false, error: 'SUBMISSION_NOT_CONFIRMED' })
 
     // 执行解释（现在是异步的，立即返回）
     await selectionActions.executeExplanation('Explain this')
