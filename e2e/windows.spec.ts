@@ -29,17 +29,60 @@ document.querySelector('textarea').addEventListener('input', ({ target }) => {
 </script>`
 
 const chatPage = `<!doctype html><meta charset="utf-8"><title>AI fixture</title>
-<textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button>
+<style>#prompt-textarea { white-space: pre-wrap; } #prompt-textarea p { margin: 0; }</style>
+<form id="composer">
+  <div id="prompt-textarea" class="ProseMirror" contenteditable="true" role="textbox" aria-label="Message" aria-multiline="true"><p><br></p></div>
+  <button id="composer-submit-button" data-testid="send-button" type="submit" disabled>Send</button>
+</form>
+<output id="sent-prompts" hidden>[]</output>
+<output id="composed-prompt" hidden></output>
+<output id="submit-attempts" hidden>0</output>
 <script>
-document.querySelector('button').onclick = () => {
-  const text = document.querySelector('textarea').value;
+const form = document.querySelector('#composer');
+const editor = document.querySelector('#prompt-textarea');
+const send = document.querySelector('[data-testid="send-button"]');
+const sentPrompts = document.querySelector('#sent-prompts');
+const composedPrompt = document.querySelector('#composed-prompt');
+const submitAttempts = document.querySelector('#submit-attempts');
+const submitted = [];
+let allowSend = true;
+let acceptSubmit = true;
+let composerState = '';
+window.addEventListener('allow-send', event => {
+  allowSend = event.detail;
+  send.disabled = !allowSend || !composerState.trim();
+});
+window.addEventListener('accept-submit', event => { acceptSubmit = event.detail; });
+// The model separates paragraphs from rendered block boundaries.
+const readComposer = () => editor.innerText.replace(/\\n{2,}/g, '\\n\\n');
+editor.addEventListener('input', event => {
+  if (!(event instanceof InputEvent) || !event.inputType.startsWith('insert')) return;
+  composerState = readComposer();
+  composedPrompt.textContent = composerState;
+  send.disabled = !allowSend || !composerState.trim();
+});
+form.addEventListener('submit', event => {
+  event.preventDefault();
+  submitAttempts.textContent = String(Number(submitAttempts.textContent) + 1);
+  if (!acceptSubmit || send.disabled || !composerState.trim() || readComposer() !== composerState) return;
+  const text = composerState;
+  submitted.push(text);
+  sentPrompts.textContent = JSON.stringify(submitted);
+  composerState = '';
+  editor.innerHTML = '<p><br></p>';
+  send.disabled = true;
+  const message = document.createElement('article');
+  message.innerHTML = '<div data-message-author-role="assistant"><div class="markdown"><p></p></div></div>';
+  message.querySelector('p').textContent = '生成中';
+  document.body.append(message);
   setTimeout(() => {
-    const message = document.createElement('article');
-    message.innerHTML = '<div data-message-author-role="assistant"><div class="markdown"><p></p></div><button data-testid="good-response-turn-action-button">Like</button></div>';
-    message.querySelector('p').textContent = '解释 ' + text;
-    document.body.append(message);
+    message.querySelector('p').textContent = '解释 ' + text.split('\\n\\n').at(-1);
+    const done = document.createElement('button');
+    done.dataset.testid = 'good-response-turn-action-button';
+    done.textContent = 'Like';
+    message.querySelector('[data-message-author-role="assistant"]').append(done);
   }, 500);
-};
+});
 </script>`
 
 test.skip(process.platform !== 'win32' || !executable || !dataDirectory, 'Requires a Windows test build with isolated app data')
@@ -1155,8 +1198,12 @@ test('native translation and explanation display the current request', async () 
     for (const [action, text, output] of [
       ['翻译', 'first translation', '译文 first translation'],
       ['翻译', 'second translation', '译文 second translation'],
-      ['解释', 'selection from another app', '解释 请解释以下内容'],
+      ['解释', 'selection from another app', '解释 selection from another app'],
     ]) {
+      if (action === '解释') {
+        await invoke(app.main, 'hide_window')
+        await expect.poll(() => isVisible(app.main)).toBe(false)
+      }
       await invoke(app.main, 'show_selection_toolbar', { text, position: { x: 400, y: 360 } })
       const toolbar = await findWindow(app.context, 'selection-toolbar')
       const button = toolbar.getByRole('button', { name: action, exact: true })
@@ -1169,7 +1216,25 @@ test('native translation and explanation display the current request', async () 
       const result = await findWindow(app.context, resultLabel)
       requestIndex++
       await expect(result.locator('.original-content')).toHaveText(text)
-      await expect(result.locator('.result-markdown')).toContainText(output)
+      if (action === '解释') {
+        const provider = await findWindow(app.context, 'ai-chat-chatgpt')
+        const expectedPrompt = `请解释以下内容：\n\n${text}`
+        const readSubmitted = async () => JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')
+        await expect.poll(readSubmitted).toEqual([expectedPrompt])
+        expect(await provider.locator('#composed-prompt').textContent()).toBe(expectedPrompt)
+        await expect(provider.getByRole('textbox', { name: 'Message' })).toHaveText('')
+        await expect(provider.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+        await expect(result.locator('.result-markdown')).toHaveText(output)
+        expect(await readSubmitted()).toEqual([expectedPrompt])
+        expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
+        await testInfo.attach('floating-explanation-submission', {
+          body: JSON.stringify({ composed: expectedPrompt, submitted: await readSubmitted() }, null, 2),
+          contentType: 'application/json',
+        })
+      }
+      else {
+        await expect(result.locator('.result-markdown')).toContainText(output)
+      }
       if (text === 'first translation') {
         await result.getByRole('button', { name: '钉住', exact: true }).press('Enter')
         await expect(result.getByRole('button', { name: '取消钉住' })).toBeVisible()
@@ -1182,6 +1247,91 @@ test('native translation and explanation display the current request', async () 
         await expect.poll(() => result.isClosed()).toBe(true)
       }
     }
+  }
+  finally {
+    await app.close()
+  }
+})
+
+test('native floating explanation retries a definitely unsent prompt in the main window', async () => {
+  const testInfo = test.info()
+  await seedConfig()
+  const app = await openApp(testInfo)
+  try {
+    await app.context.route(/^https:\/\/(?:chat\.openai\.com|chatgpt\.com)\//, route => route.fulfill({ contentType: 'text/html', body: chatPage }))
+    await app.main.getByRole('button', { name: 'ChatGPT', exact: true }).press('Enter')
+    const provider = await findWindow(app.context, 'ai-chat-chatgpt')
+    await expect(provider.getByRole('textbox', { name: 'Message' })).toBeVisible()
+    const allowSend = (allow: boolean) => provider.evaluate(allow => window.dispatchEvent(new CustomEvent('allow-send', { detail: allow })), allow)
+    await allowSend(false)
+
+    const text = 'Explain this once after the Send control is available.'
+    const expectedPrompt = `请解释以下内容：\n\n${text}`
+    await invoke(app.main, 'hide_window')
+    await expect.poll(() => isVisible(app.main)).toBe(false)
+    await invoke(app.main, 'show_selection_toolbar', { text, position: { x: 400, y: 360 } })
+    const toolbar = await findWindow(app.context, 'selection-toolbar')
+    await expect(toolbar.getByRole('button', { name: '解释', exact: true })).toBeEnabled()
+    await toolbar.getByRole('button', { name: '解释', exact: true }).dispatchEvent('click')
+    const result = await findWindow(app.context, 'selection-result')
+    const retry = result.getByRole('button', { name: '在主窗口重试发送', exact: true })
+    await expect(retry).toBeVisible()
+    expect(await provider.locator('#composed-prompt').textContent()).toBe(expectedPrompt)
+    expect(JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')).toEqual([])
+    expect(await provider.locator('#submit-attempts').textContent()).toBe('0')
+
+    await allowSend(true)
+    await retry.press('Enter')
+    await expect.poll(async () => JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')).toEqual([expectedPrompt])
+    await expect(provider.locator('[data-message-author-role="assistant"] .markdown')).toHaveText(`解释 ${text}`)
+    await expect(provider.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+    expect(JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')).toEqual([expectedPrompt])
+    expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
+    await expect.poll(() => isVisible(result)).toBe(false)
+    await expect.poll(() => isVisible(app.main)).toBe(true)
+  }
+  finally {
+    await app.close()
+  }
+})
+
+test('native floating explanation does not retry an unconfirmed submission', async () => {
+  const testInfo = test.info()
+  await seedConfig()
+  const app = await openApp(testInfo)
+  try {
+    await app.context.route(/^https:\/\/(?:chat\.openai\.com|chatgpt\.com)\//, route => route.fulfill({ contentType: 'text/html', body: chatPage }))
+    await app.main.getByRole('button', { name: 'ChatGPT', exact: true }).press('Enter')
+    const provider = await findWindow(app.context, 'ai-chat-chatgpt')
+    await expect(provider.getByRole('textbox', { name: 'Message' })).toBeVisible()
+    await provider.evaluate(() => window.dispatchEvent(new CustomEvent('accept-submit', { detail: false })))
+
+    const text = 'The provider does not acknowledge this submission.'
+    const expectedPrompt = `请解释以下内容：\n\n${text}`
+    await invoke(app.main, 'hide_window')
+    await expect.poll(() => isVisible(app.main)).toBe(false)
+    await invoke(app.main, 'show_selection_toolbar', { text, position: { x: 400, y: 360 } })
+    const toolbar = await findWindow(app.context, 'selection-toolbar')
+    await expect(toolbar.getByRole('button', { name: '解释', exact: true })).toBeEnabled()
+    await toolbar.getByRole('button', { name: '解释', exact: true }).dispatchEvent('click')
+    const result = await findWindow(app.context, 'selection-result')
+    const open = result.getByRole('button', { name: '在主窗口中打开', exact: true })
+    await expect(open).toBeVisible()
+    await expect(result.getByRole('button', { name: '在主窗口重试发送', exact: true })).toHaveCount(0)
+    expect(await provider.locator('#composed-prompt').textContent()).toBe(expectedPrompt)
+    expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
+
+    await provider.evaluate(() => window.dispatchEvent(new CustomEvent('accept-submit', { detail: true })))
+    await open.press('Enter')
+    await expect.poll(() => isVisible(result)).toBe(false)
+    await expect.poll(() => isVisible(app.main)).toBe(true)
+    await expect.poll(async () =>
+      // Rendered paragraphs retain the prompt line breaks; textContent concatenates them.
+      // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+      (await provider.getByRole('textbox', { name: 'Message' }).innerText()).replace(/\n{2,}/g, '\n\n'),
+    ).toBe(expectedPrompt)
+    expect(JSON.parse(await provider.locator('#sent-prompts').textContent() ?? '[]')).toEqual([])
+    expect(await provider.locator('#submit-attempts').textContent()).toBe('1')
   }
   finally {
     await app.close()

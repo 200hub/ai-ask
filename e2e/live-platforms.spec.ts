@@ -50,6 +50,30 @@ const platforms = [
     text: '三角形有三条边。',
     expected: /三角形|三条边/,
   },
+  {
+    id: 'claude',
+    action: '解释',
+    target: 'ai-chat-claude',
+    domains: ['claude.ai'],
+    text: 'A triangle has three sides.',
+    expected: /三角形|three sides/i,
+  },
+  {
+    id: 'gemini',
+    action: '解释',
+    target: 'ai-chat-gemini',
+    domains: ['gemini.google.com'],
+    text: 'A triangle has three sides.',
+    expected: /三角形|three sides/i,
+  },
+  {
+    id: 'deepseek',
+    action: '解释',
+    target: 'ai-chat-deepseek',
+    domains: ['chat.deepseek.com'],
+    text: 'A triangle has three sides.',
+    expected: /三角形|three sides/i,
+  },
 ] as const
 
 type Platform = (typeof platforms)[number]
@@ -303,8 +327,27 @@ for (const platform of platforms) {
       await expect(output.or(error)).toBeVisible({ timeout: 65_000 })
       await capture(result, testInfo, `live-${platform.id}-result`)
 
+      const child = app.context.pages().find(page => matchesDomain(page.url(), platform))
+      if (platform.id !== 'google' && child) {
+        const promptInConversation = await child.evaluate((text) => {
+          const prompt = `请解释以下内容： ${text}`
+          const candidates = document.querySelectorAll<HTMLElement>('main *, [data-message-author-role="user"], [class*="user-message"], [class*="question"]')
+          return [...candidates].some((element) => {
+            const content = [...element.childNodes]
+              .map(node => node.textContent)
+              .join(' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+            return content === prompt && !element.closest('textarea, [contenteditable="true"]')
+          })
+        }, platform.text).catch(() => false)
+        testInfo.annotations.push({
+          type: 'provider-submission',
+          description: promptInConversation ? 'Prompt found in the conversation' : 'Prompt not observed in the conversation',
+        })
+      }
+
       if (trace) {
-        const child = app.context.pages().find(page => matchesDomain(page.url(), platform))
         const providerState = await child?.evaluate(() => ({
           title: document.title,
           readyState: document.readyState,
