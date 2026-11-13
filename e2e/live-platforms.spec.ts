@@ -286,7 +286,8 @@ async function detectProviderBlock(
   }
   return child.evaluate((target) => {
     const title = document.title
-    const hasEditor = Boolean(document.querySelector('textarea,[contenteditable="true"]'))
+    const hasEditor = [...document.querySelectorAll('textarea,[contenteditable="true"]')]
+      .some(element => element.getClientRects().length > 0)
     const text = document.body?.textContent ?? ''
     if (/just a moment|attention required|请稍候/i.test(title)
       || (!hasEditor && /verify you are human|checking your browser|访问受限|请进行安全验证/i.test(text))) {
@@ -295,7 +296,8 @@ async function detectProviderBlock(
     const dialog = [...document.querySelectorAll('[role="dialog"]')].some(element => /sign in|log in|登录|扫码/i.test(element.textContent ?? ''))
     const deepSeekLogin = target === 'deepseek' && !hasEditor
       && Boolean(document.querySelector('input[type="tel"]') && document.querySelector('input[autocomplete="one-time-code"]'))
-    if (dialog || deepSeekLogin || (!hasEditor && /log in to continue|请登录后继续|请先登录|登录后使用/i.test(text))) {
+    const claudeLogin = target === 'claude' && !hasEditor && location.pathname === '/login'
+    if (dialog || claudeLogin || deepSeekLogin || (!hasEditor && /log in to continue|请登录后继续|请先登录|登录后使用/i.test(text))) {
       return 'The provider required a signed-in account'
     }
     if (target === 'qianwen' && /你好，我无法回答这个问题，我们换一个话题聊聊吧/.test(text)) {
