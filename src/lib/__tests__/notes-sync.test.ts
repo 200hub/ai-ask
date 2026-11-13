@@ -43,6 +43,7 @@ vi.mock('$lib/utils/constants', () => ({
   DESKTOP_NOTES: {
     DEFAULT_OFFSET_X: 100,
     DEFAULT_OFFSET_Y: 100,
+    DEFAULT_OFFSET_STEP: 24,
     DEFAULT_WIDTH: 320,
     DEFAULT_HEIGHT: 280,
     DEFAULT_SCREEN_WIDTH: 1920,
@@ -119,6 +120,18 @@ beforeEach(async () => {
 })
 
 describe('mergeRemoteIntoLocal', () => {
+  it('reads the to-do kind from remote metadata while retaining device position', () => {
+    const bounds = { x: 20, y: 40, width: 320, height: 280, monitor: 'DISPLAY2' }
+    const local = createLocalNote({ bounds, updatedAt: 1000 })
+    const remote = createRemoteRow({ bounds: { visible: true, kind: 'todo' }, content: '- [x] Done', updated_at: 2000 })
+
+    expect(syncModule.mergeRemoteIntoLocal([local], [remote])[0]).toMatchObject({
+      kind: 'todo',
+      content: '- [x] Done',
+      bounds,
+    })
+  })
+
   it('should add new remote notes to local', () => {
     const localNotes: DesktopNote[] = [
       createLocalNote({ id: 'local-1', updatedAt: 1000 }),

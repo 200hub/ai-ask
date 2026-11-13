@@ -1,9 +1,9 @@
-import type { DesktopNote } from '$lib/types/desktop-note'
+import type { DesktopNote, DesktopNotePatch } from '$lib/types/desktop-note'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock 外部依赖
 const mockGetDesktopNotes = vi.fn()
-const mockSaveDesktopNotes = vi.fn()
+const mockSaveDesktopNotePatches = vi.fn()
 const mockSaveNoteBounds = vi.fn()
 const mockLoadNoteBounds = vi.fn()
 const mockDeleteNoteBounds = vi.fn()
@@ -11,7 +11,7 @@ const mockInvoke = vi.fn()
 
 vi.mock('$lib/utils/storage', () => ({
   getDesktopNotes: () => mockGetDesktopNotes(),
-  saveDesktopNotes: (notes: DesktopNote[]) => mockSaveDesktopNotes(notes),
+  saveDesktopNotePatches: (patches: DesktopNotePatch[]) => mockSaveDesktopNotePatches(patches),
   saveNoteBounds: (...args: unknown[]) => mockSaveNoteBounds(...args),
   loadNoteBounds: (...args: unknown[]) => mockLoadNoteBounds(...args),
   deleteNoteBounds: (...args: unknown[]) => mockDeleteNoteBounds(...args),
@@ -67,7 +67,7 @@ beforeEach(async () => {
   vi.resetModules()
   vi.useFakeTimers()
   mockGetDesktopNotes.mockReset()
-  mockSaveDesktopNotes.mockReset()
+  mockSaveDesktopNotePatches.mockReset()
   mockSaveNoteBounds.mockReset()
   mockLoadNoteBounds.mockReset()
   mockDeleteNoteBounds.mockReset()
@@ -76,7 +76,7 @@ beforeEach(async () => {
 
   // 默认返回空列表
   mockGetDesktopNotes.mockResolvedValue([])
-  mockSaveDesktopNotes.mockResolvedValue(undefined)
+  mockSaveDesktopNotePatches.mockResolvedValue(undefined)
   mockSaveNoteBounds.mockResolvedValue(undefined)
   mockLoadNoteBounds.mockResolvedValue(null)
   mockDeleteNoteBounds.mockResolvedValue(undefined);
@@ -290,11 +290,11 @@ describe('desktopNotesStore', () => {
       mockGetDesktopNotes.mockResolvedValue([note])
 
       await desktopNotesStore.init()
-      mockSaveDesktopNotes.mockClear()
+      mockSaveDesktopNotePatches.mockClear()
 
       await desktopNotesStore.flushPersistPublic()
 
-      expect(mockSaveDesktopNotes).not.toHaveBeenCalled()
+      expect(mockSaveDesktopNotePatches).not.toHaveBeenCalled()
     })
   })
 

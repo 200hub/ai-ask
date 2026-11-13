@@ -23,18 +23,13 @@ export function createDefaultDesktopNoteBounds(index = 0): DesktopNoteBounds {
   }
 }
 
-export function isDesktopNotePositionSane(x: number, y: number): boolean {
+export function isDesktopNotePositionSane(x: number, y: number, monitor?: string): boolean {
   return Number.isFinite(x)
     && Number.isFinite(y)
-    && Math.abs(x) <= DESKTOP_NOTES.POSITION_SANITY_LIMIT_X
-    && Math.abs(y) <= DESKTOP_NOTES.POSITION_SANITY_LIMIT_Y
-}
-
-function isDesktopNoteCoordinateSane(value: number, axis: 'x' | 'y'): boolean {
-  return Number.isFinite(value)
-    && Math.abs(value) <= (axis === 'x'
-      ? DESKTOP_NOTES.POSITION_SANITY_LIMIT_X
-      : DESKTOP_NOTES.POSITION_SANITY_LIMIT_Y)
+    && (Boolean(monitor) || (
+      Math.abs(x) <= DESKTOP_NOTES.POSITION_SANITY_LIMIT_X
+      && Math.abs(y) <= DESKTOP_NOTES.POSITION_SANITY_LIMIT_Y
+    ))
 }
 
 export function isDesktopNoteBoundsUsable(bounds: DesktopNoteBounds | null | undefined): bounds is DesktopNoteBounds {
@@ -42,7 +37,7 @@ export function isDesktopNoteBoundsUsable(bounds: DesktopNoteBounds | null | und
     return false
   }
 
-  return isDesktopNotePositionSane(bounds.x, bounds.y)
+  return isDesktopNotePositionSane(bounds.x, bounds.y, bounds.monitor)
     && Number.isFinite(bounds.width)
     && Number.isFinite(bounds.height)
     && bounds.width >= DESKTOP_NOTES.MIN_WIDTH
@@ -85,12 +80,16 @@ export function normalizeDesktopNoteBounds(
   const rawY = Number(candidate.y)
   const rawWidth = Number(candidate.width)
   const rawHeight = Number(candidate.height)
+  const monitor = typeof candidate.monitor === 'string' && candidate.monitor ? candidate.monitor : undefined
+  const validPosition = isDesktopNotePositionSane(rawX, rawY, monitor)
+  const normalizedMonitor = validPosition ? monitor : fallback.monitor
 
   return {
-    x: isDesktopNoteCoordinateSane(rawX, 'x') ? Math.round(rawX) : fallback.x,
-    y: isDesktopNoteCoordinateSane(rawY, 'y') ? Math.round(rawY) : fallback.y,
+    x: validPosition ? Math.round(rawX) : fallback.x,
+    y: validPosition ? Math.round(rawY) : fallback.y,
     width: Number.isFinite(rawWidth) ? Math.max(Math.round(rawWidth), DESKTOP_NOTES.MIN_WIDTH) : fallback.width,
     height: Number.isFinite(rawHeight) ? Math.max(Math.round(rawHeight), DESKTOP_NOTES.MIN_HEIGHT) : fallback.height,
+    ...(normalizedMonitor ? { monitor: normalizedMonitor } : {}),
   }
 }
 
@@ -114,7 +113,7 @@ export function normalizeStoredDesktopNoteBounds(value: unknown): DesktopNoteBou
   const width = Number(candidate.width)
   const height = Number(candidate.height)
 
-  if (!isDesktopNotePositionSane(x, y) || !Number.isFinite(width) || !Number.isFinite(height)) {
+  if (!isDesktopNotePositionSane(x, y, candidate.monitor) || !Number.isFinite(width) || !Number.isFinite(height)) {
     return null
   }
 
