@@ -708,11 +708,13 @@ async function displayTopology(): Promise<DisplayTopology> {
 }
 
 test('manual Windows topology and virtual desktop acceptance', async () => {
-  test.skip(process.env.AI_ASK_E2E_MANUAL_DESKTOP !== '1', 'Requires someone at the Windows desktop to switch displays and virtual desktops')
+  const mode = process.env.AI_ASK_E2E_MANUAL_DESKTOP
+  test.skip(mode !== '1' && mode !== 'virtual', 'Requires someone at the Windows desktop to switch displays and virtual desktops')
   test.setTimeout(15 * 60_000)
   await requireInputDesktop()
   const testInfo = test.info()
   const evidence: Record<string, unknown> = {}
+  const virtualOnly = mode === 'virtual'
   async function checkpoint(name: string, instructions: string) {
     await writeFile(testInfo.outputPath('next-step.json'), JSON.stringify({ name, instructions }, null, 2))
   }
@@ -727,10 +729,12 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
   try {
     probe = await openDesktopProbe(app.processHandle.pid!)
     const original = await displayTopology()
-    const secondary = original.monitors.find(display => !display.primary)
-    expect(secondary, 'Start with two physically connected displays in Extend mode').toBeDefined()
-    expect(original.mode).toBe('extend')
-    const { workArea } = secondary!
+    const target = original.monitors.find(display => !display.primary) ?? (virtualOnly ? original.monitors[0] : undefined)
+    expect(target, virtualOnly ? 'Start with a connected display' : 'Start with two physically connected displays in Extend mode').toBeDefined()
+    if (!virtualOnly) {
+      expect(original.mode).toBe('extend')
+    }
+    const { workArea } = target!
     await openSettings(app.main)
     await app.main.getByRole('button', { name: /桌面便签/ }).press('Enter')
     const enabled = app.main.getByRole('checkbox', { name: '启用桌面便签' })
@@ -755,10 +759,10 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
       const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
       return config[`note_bounds_${noteId}`] as { monitor?: string, x: number, y: number } | undefined
     }
-    await expect.poll(async () => (await readSavedBounds())?.monitor).toBe(secondary!.deviceName)
+    await expect.poll(async () => (await readSavedBounds())?.monitor).toBe(target!.deviceName)
     const baseline = (await probe.inspect()).note
     const saved = await readSavedBounds()
-    evidence.extend = { topology: original, note: baseline, saved }
+    evidence.baseline = { topology: original, note: baseline, saved }
 
     const manualWait = { timeout: 180_000, intervals: [250, 500, 1000] }
     await checkpoint('switch-away', '新建并切换到一个 Windows 虚拟桌面（Win+Ctrl+D），停留约 5 秒。')
@@ -770,6 +774,10 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
       return { cloakFlags: state.cloakFlags, rect: state.rect, visible: state.visible }
     }, manualWait).toEqual({ cloakFlags: 0, rect: baseline.rect, visible: true })
     evidence.virtualDesktopBack = await probe.inspect()
+    if (virtualOnly) {
+      await checkpoint('complete', '已记录虚拟桌面切换和原位置恢复。')
+      return
+    }
 
     await checkpoint('primary-only', '按 Win+P，选「仅电脑屏幕」，保持此模式。')
     let single: DisplayTopology | undefined
@@ -782,6 +790,7 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
       return state.visible && !state.iconic && !state.cloakFlags && withinWindowArea(state, single!.monitors[0].workArea)
     }).toBe(true)
     evidence.primaryOnly = { topology: single, desktop: await probe.inspect(), saved: await readSavedBounds() }
+    expect(await readSavedBounds()).toEqual(saved)
 
     await checkpoint('edit-win-d', '在单屏模式按 Win+D，看到便签后，用鼠标勾选「实机验收：显示桌面后勾选这项」，先停在桌面。')
     await expect.poll(async () => {
@@ -804,6 +813,7 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
       return { rect: state.rect, visible: state.visible, topmost: state.topmost }
     }).toEqual({ rect: baseline.rect, visible: true, topmost: false })
     evidence.extendRestored = { topology: extended, desktop: await probe.inspect(), saved: await readSavedBounds() }
+    expect(await readSavedBounds()).toEqual(saved)
     await expect(completed).toBeChecked()
     await checkpoint('complete', '扩展模式已恢复，便签位置和编辑结果已核对。可以在任务视图里关闭刚创建的空虚拟桌面。')
   }
