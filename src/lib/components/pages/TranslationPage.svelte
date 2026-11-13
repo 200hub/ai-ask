@@ -10,12 +10,13 @@
   import { configStore } from '$lib/stores/config.svelte'
   import { translationStore } from '$lib/stores/translation.svelte'
   import { calculateChildWebviewBounds, ChildWebviewProxy } from '$lib/utils/childWebview'
-  import { TIMING } from '$lib/utils/constants'
+  import { EVENTS } from '$lib/utils/constants'
   import { logger } from '$lib/utils/logger'
   import { createProxySignature, resolveProxyUrl } from '$lib/utils/proxy'
   import { WebviewReflowScheduler, WebviewWindowEventManager } from '$lib/utils/webview-events'
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
   import { onDestroy, onMount } from 'svelte'
+  import { SvelteMap } from 'svelte/reactivity'
 
   const t = i18n.t
 
@@ -39,13 +40,14 @@
   /** 重排调度器 */
   const reflowScheduler = new WebviewReflowScheduler()
 
-  let webviewWindows = $state<Map<string, ChildWebviewProxy>>(new Map())
+  const webviewWindows = new SvelteMap<string, ChildWebviewProxy>()
   let activeTranslatorId = $state<string | null>(null)
   let isMainWindowFocused = $state(true)
   let proxySignature = $state(createProxySignature(configStore.config.proxy))
 
   let shouldRestoreWebviews = false
-  let isShowingWebview = false
+  let visibilityRevision = 0
+  let visibilityTask = Promise.resolve()
 
   let isLoading = $state(false)
   let loadError = $state<string | null>(null)
@@ -91,92 +93,63 @@
   })
 
   async function handleProxyConfigChange() {
-    if (webviewWindows.size === 0) {
-      return
-    }
-
-    const closeTasks: Promise<void>[] = []
-
-    for (const [id, webview] of webviewWindows.entries()) {
-      closeTasks.push(
-        webview
-          .close()
-          .catch((error) => {
-            logger.error('Failed to close translator WebView', { id, error })
-          }),
-      )
-    }
-
-    await Promise.all(closeTasks)
-
-    webviewWindows = new Map() as typeof webviewWindows
-    shouldRestoreWebviews = false
+    await closeAllWebviews()
 
     if (appState.currentView === 'translation' && translationStore.currentPlatform) {
       await showTranslatorWebview(translationStore.currentPlatform)
     }
   }
 
-  async function showTranslatorWebview(platform: TranslationPlatform) {
-    if (isShowingWebview) {
-      return
-    }
-
-    isShowingWebview = true
-
-    try {
-      const start = Date.now()
-
-      await hideOtherWebviews(platform.id)
-
-      let webview = webviewWindows.get(platform.id)
-      // 标记当前是否复用已存在的翻译 WebView：
-                // - true：之前已经创建过，只是再次切换回来（暖启动）
-                // - false：第一次打开该翻译平台（冷启动）
-      const wasExistingWebview = Boolean(webview)
-      const bounds = await calculateChildWebviewBounds(mainWindow)
-
-      if (!webview) {
-        const proxyUrl = resolveProxyUrl(configStore.config.proxy)
-        webview = new ChildWebviewProxy(`translator-${platform.id}`, platform.url, proxyUrl)
-        webviewWindows.set(platform.id, webview)
-        await webview.ensure(bounds)
-        // 等待页面真正加载完成再显示
-        await webview.waitForLoadFinished()
-      }
-      else {
-        await webview.updateBounds(bounds)
+  function showTranslatorWebview(platform: TranslationPlatform): Promise<void> {
+    const revision = ++visibilityRevision
+    const run = async () => {
+      if (revision !== visibilityRevision || appState.currentView !== 'translation') {
+        return
       }
 
-      await webview.show()
-      shouldRestoreWebviews = false
+      try {
+        const bounds = await calculateChildWebviewBounds(mainWindow)
+        await hideOtherWebviews(platform.id)
 
-      if (isMainWindowFocused) {
-        await webview.setFocus()
-        // 聚焦后稍作等待，避免页面尚未完成首帧渲染
-        await new Promise(r => setTimeout(r, TIMING.WEBVIEW_READY_EXTRA_DELAY_MS))
+        let webview = webviewWindows.get(platform.id)
+        if (!webview) {
+          const proxyUrl = resolveProxyUrl(configStore.config.proxy)
+          webview = new ChildWebviewProxy(`translator-${platform.id}`, platform.url, proxyUrl)
+          await webview.ensure(bounds)
+          webviewWindows.set(platform.id, webview)
+        }
+        else {
+          await webview.updateBounds(bounds)
+        }
+
+        if (revision !== visibilityRevision || appState.currentView !== 'translation') {
+          return
+        }
+
+        await webview.show()
+        if (revision !== visibilityRevision) {
+          await webview.hide()
+          return
+        }
+
+        shouldRestoreWebviews = false
+        isLoading = false
+        loadError = null
+        if (isMainWindowFocused) {
+          await webview.setFocus().catch(error => logger.debug('Could not focus translator WebView', error))
+        }
       }
-      // 保证加载动画的最小显示时长
-      {
-        const elapsed = Date.now() - start
-        const minLoadingMs = wasExistingWebview
-          ? TIMING.MIN_WEBVIEW_LOADING_WARM_MS
-          : TIMING.MIN_WEBVIEW_LOADING_MS
-        const waitMs = Math.max(minLoadingMs - elapsed, 0)
-        if (waitMs > 0)
-          await new Promise(r => setTimeout(r, waitMs))
+      catch (error) {
+        logger.error('Failed to show translator WebView', { platform: platform.name, error })
+        if (revision === visibilityRevision) {
+          isLoading = false
+          loadError = platform.name
+          appState.setError(t('translation.toastError'))
+        }
       }
-      isLoading = false
     }
-    catch (error) {
-      logger.error('Failed to show translator WebView', { platform: platform.name, error })
-      isLoading = false
-      loadError = platform.name
-      appState.setError(t('translation.toastError'))
-    }
-    finally {
-      isShowingWebview = false
-    }
+    visibilityTask = visibilityTask.then(run)
+    return visibilityTask
   }
 
   async function hideOtherWebviews(excludeId: string) {
@@ -205,31 +178,16 @@
       return
     }
 
-    const bounds = await calculateChildWebviewBounds(mainWindow)
     const activeWebview = activeTranslatorId ? webviewWindows.get(activeTranslatorId) : null
-    const tasks: Promise<void>[] = []
-
-    for (const [, webview] of webviewWindows.entries()) {
-      const isActive = webview === activeWebview
-
-      tasks.push(
-        (async () => {
-          await webview.updateBounds(bounds)
-
-          if (shouldEnsureActiveFront && isActive && isMainWindowFocused) {
-            try {
-              await webview.show()
-              await webview.setFocus()
-            }
-            catch (error) {
-              logger.error('Failed to activate translator WebView', error)
-            }
-          }
-        })(),
-      )
+    if (!activeWebview?.isVisible()) {
+      return
     }
+    const bounds = await calculateChildWebviewBounds(mainWindow)
 
-    await Promise.all(tasks)
+    await activeWebview.updateBounds(bounds)
+    if (shouldEnsureActiveFront && isMainWindowFocused && activeWebview.isVisible()) {
+      await activeWebview.setFocus()
+    }
   }
 
   function scheduleWebviewReflow(options: { shouldEnsureActiveFront?: boolean, immediate?: boolean } = {}) {
@@ -241,7 +199,9 @@
   }
 
   async function hideAllWebviews({ markForRestore = false } = {}) {
+    ++visibilityRevision
     shouldRestoreWebviews = markForRestore
+    await visibilityTask
 
     const hideTasks = Array.from(webviewWindows.values()).map(webview =>
       webview.hide().catch((error) => {
@@ -253,6 +213,8 @@
   }
 
   async function closeAllWebviews() {
+    ++visibilityRevision
+    await visibilityTask
     const closeTasks = Array.from(webviewWindows.values()).map(webview =>
       webview.close().catch((error) => {
         logger.error('Failed to close translator WebView', error)
@@ -274,6 +236,8 @@
       return
     }
 
+    ++visibilityRevision
+    await visibilityTask
     const currentWebview = webviewWindows.get(activeTranslatorId)
 
     try {
@@ -331,11 +295,6 @@
       return
     }
 
-    if (isShowingWebview) {
-      shouldRestoreWebviews = false
-      return
-    }
-
     shouldRestoreWebviews = false
 
     const platform = translationStore.currentPlatform
@@ -350,7 +309,7 @@
     const domEventHandlers = [
       { event: 'hideAllWebviews', handler: handleHideAllWebviewsEvent },
       { event: 'resize', handler: () => handleMainWindowResize() },
-      { event: 'ensureTranslationVisible', handler: handleEnsureTranslationVisible },
+      { event: EVENTS.ENSURE_TRANSLATION_VISIBLE, handler: handleEnsureTranslationVisible },
     ]
 
     // 注册 DOM 事件监听器

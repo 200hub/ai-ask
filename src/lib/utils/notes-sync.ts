@@ -1,4 +1,4 @@
-import type { DesktopNote, DesktopNoteBounds, DesktopNoteRow, DesktopNotesSyncResult } from '$lib/types/desktop-note'
+import type { DesktopNote, DesktopNoteRow, DesktopNotesSyncResult } from '$lib/types/desktop-note'
 /**
  * 便签同步引擎 — Supabase 实现
  *
@@ -15,6 +15,7 @@ import type { DesktopNote, DesktopNoteBounds, DesktopNoteRow, DesktopNotesSyncRe
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
 import { DESKTOP_NOTES, SUPABASE } from '$lib/utils/constants'
+import { createDefaultDesktopNoteBounds } from '$lib/utils/desktop-note-bounds'
 import { logger } from '$lib/utils/logger'
 import { getCurrentUser, getSupabaseClient } from '$lib/utils/supabase'
 
@@ -33,19 +34,10 @@ function noteToRow(note: DesktopNote, userId: string): DesktopNoteRow {
     title: note.title,
     content: note.content,
     color: note.color,
-    bounds: { visible: note.visible } as unknown as DesktopNoteBounds,
+    bounds: { visible: note.visible, ...(note.kind === 'todo' ? { kind: note.kind } : {}) },
     created_at: note.createdAt,
     updated_at: note.updatedAt,
     deleted_at: note.deletedAt,
-  }
-}
-
-function getDefaultLocalBounds(): DesktopNoteBounds {
-  return {
-    x: DESKTOP_NOTES.DEFAULT_OFFSET_X,
-    y: DESKTOP_NOTES.DEFAULT_OFFSET_Y,
-    width: DESKTOP_NOTES.DEFAULT_WIDTH,
-    height: DESKTOP_NOTES.DEFAULT_HEIGHT,
   }
 }
 
@@ -60,15 +52,16 @@ function getDefaultLocalBounds(): DesktopNoteBounds {
  * - sync → 重置为 dirty=false + 当前时间戳
  */
 function rowToNote(row: DesktopNoteRow, existingLocal?: DesktopNote): DesktopNote {
-  const rawBounds = (row.bounds ?? {}) as DesktopNoteBounds & { visible?: boolean }
+  const rawBounds = row.bounds ?? {}
   // 从 bounds JSONB 中提取 visible 状态（跨设备同步用）
   const remoteVisible = typeof rawBounds.visible === 'boolean' ? rawBounds.visible : undefined
-  const bounds = existingLocal?.bounds ?? getDefaultLocalBounds()
+  const bounds = existingLocal?.bounds ?? createDefaultDesktopNoteBounds()
 
   return {
     id: row.id,
     title: row.title,
     content: row.content,
+    ...((rawBounds.kind ?? existingLocal?.kind) === 'todo' ? { kind: 'todo' } : {}),
     color: row.color as DesktopNote['color'],
     // 远端有明确 visible 状态时使用远端值；否则保留本地状态或默认 true（新便签可见）
     visible: remoteVisible !== undefined ? remoteVisible : (existingLocal?.visible ?? true),

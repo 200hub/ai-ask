@@ -9,8 +9,8 @@
   import { appState } from '$lib/stores/app.svelte'
   import { logger } from '$lib/utils/logger'
   import { updateManager } from '$lib/utils/update-manager.svelte'
+  import { Maximize2, Minimize2, Minus, X } from '@lucide/svelte'
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
-  import { Maximize2, Minimize2, Minus, X } from 'lucide-svelte'
   import { onDestroy, onMount } from 'svelte'
 
   const t = i18n.t

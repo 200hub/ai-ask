@@ -1,11 +1,10 @@
 import type { InjectionAction } from '$lib/types/injection'
 import type { AIPlatform, TranslationPlatform } from '$lib/types/platform'
 import { DEFAULT_CONFIG } from '$lib/types/config'
-import { EVENTS } from '$lib/utils/constants'
+import { TIMING } from '$lib/utils/constants'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invokeMock = vi.fn()
-const listeners = new Map<string, Array<(event: { payload: unknown }) => void>>()
 
 vi.mock('$lib/i18n', () => ({
   i18n: {
@@ -15,24 +14,6 @@ vi.mock('$lib/i18n', () => ({
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
-}))
-
-vi.mock('@tauri-apps/api/webviewWindow', () => ({
-  getCurrentWebviewWindow: () => ({
-    listen: (eventName: string, callback: (event: { payload: unknown }) => void) => {
-      const existing = listeners.get(eventName) ?? []
-      existing.push(callback)
-      listeners.set(eventName, existing)
-
-      return Promise.resolve(() => {
-        const callbacks = listeners.get(eventName) ?? []
-        listeners.set(
-          eventName,
-          callbacks.filter(cb => cb !== callback),
-        )
-      })
-    },
-  }),
 }))
 
 const appStateMock = {
@@ -64,6 +45,7 @@ const translationPlatform: TranslationPlatform = {
 
 const translationStoreMock = {
   getPlatformById: vi.fn<(id: string) => TranslationPlatform | null>(),
+  setCurrentPlatform: vi.fn(),
 }
 
 vi.mock('$lib/stores/translation.svelte', () => ({
@@ -100,15 +82,9 @@ vi.mock('$lib/utils/injection', () => ({
 type SelectionActionsModule = typeof import('$lib/utils/selection-actions')
 let selectionActions: SelectionActionsModule
 
-function emitEvent(eventName: string, payload: Record<string, unknown>): void {
-  const callbacks = listeners.get(eventName) ?? []
-  callbacks.forEach(callback => callback({ payload }))
-}
-
 beforeEach(async () => {
   vi.resetModules()
 
-  listeners.clear()
   invokeMock.mockReset()
   generateInjectionScriptMock.mockReset()
   generateInjectionScriptMock.mockImplementation(() => 'generated-script')
@@ -136,7 +112,7 @@ beforeEach(async () => {
   configStoreMock.config.lastUsedPlatform = null
   configStoreMock.config.defaultPlatform = null
 
-  invokeMock.mockResolvedValue({ success: true, message: 'ok' })
+  invokeMock.mockImplementation(async command => command === 'wait_child_webview_ready' ? true : undefined)
 
   selectionActions = await import('$lib/utils/selection-actions')
 })
@@ -149,9 +125,10 @@ describe('selection-actions', () => {
     // 视图应该立即切换
     expect(appStateMock.switchToTranslationView).toHaveBeenCalledOnce()
 
-    // 触发 WebView 加载事件
-    emitEvent(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, { id: 'translator-google' })
-    emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: 'translator-google' })
+    expect(invokeMock).toHaveBeenCalledWith('wait_child_webview_ready', {
+      payload: { id: 'translator-google' },
+      timeoutMs: TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS,
+    })
 
     // 等待异步注入完成
     await vi.waitFor(
@@ -198,17 +175,13 @@ describe('selection-actions', () => {
   })
 
   it('翻译执行失败时会提示错误', async () => {
-    // Mock check_child_webview_exists 成功，但后续的 evaluate_child_webview_script 失败
+    // Mock wait_child_webview_ready 成功，但后续的 evaluate_child_webview_script 失败
     invokeMock
-      .mockResolvedValueOnce(true) // check_child_webview_exists
+      .mockResolvedValueOnce(true) // wait_child_webview_ready
       .mockRejectedValueOnce(new Error('boom')) // evaluate_child_webview_script
 
     // 执行翻译（现在是异步的，立即返回）
     await selectionActions.executeTranslation('Text to translate')
-
-    // 触发 WebView 加载事件
-    emitEvent(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, { id: 'translator-google' })
-    emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: 'translator-google' })
 
     // 等待异步错误处理完成
     await vi.waitFor(
@@ -229,10 +202,6 @@ describe('selection-actions', () => {
 
     // 视图应该立即切换
     expect(appStateMock.switchToChatView).toHaveBeenCalledWith(aiPlatform)
-
-    // 触发 WebView 加载事件
-    emitEvent(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, { id: 'ai-chat-chatgpt' })
-    emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: 'ai-chat-chatgpt' })
 
     // 等待异步注入完成
     await vi.waitFor(
@@ -329,17 +298,13 @@ describe('selection-actions', () => {
   })
 
   it('aI 注入失败时会反馈错误', async () => {
-    // Mock check_child_webview_exists 成功，但后续的 evaluate_child_webview_script 失败
+    // Mock wait_child_webview_ready 成功，但后续的 evaluate_child_webview_script 失败
     invokeMock
-      .mockResolvedValueOnce(true) // check_child_webview_exists
+      .mockResolvedValueOnce(true) // wait_child_webview_ready
       .mockRejectedValueOnce(new Error('network failure')) // evaluate_child_webview_script
 
     // 执行解释（现在是异步的，立即返回）
     await selectionActions.executeExplanation('Explain this')
-
-    // 触发 WebView 加载事件
-    emitEvent(EVENTS.CHILD_WEBVIEW_LOAD_STARTED, { id: 'ai-chat-chatgpt' })
-    emitEvent(EVENTS.CHILD_WEBVIEW_READY, { id: 'ai-chat-chatgpt' })
 
     // 等待异步错误处理完成
     await vi.waitFor(

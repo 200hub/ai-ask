@@ -4,13 +4,14 @@
  * 说明：
  * - 主窗口负责调用窗口相关命令，恢复/隐藏所有便签窗口。
  * - 便签窗口本身也会复用该 store 读取同一份持久化数据，用于编辑单个便签。
- * - 跨窗口数据一致性：note 窗口仅持久化自身所改的字段（read-modify-write），
- *   避免覆盖其他窗口的修改。
+ * - 便签窗口仅提交修改字段，由原生命令在同一存储事务内更新。
  * - 同步采用 Supabase（PostgreSQL + Realtime），认证使用邮箱+密码。
  */
 import type {
   DesktopNote,
   DesktopNoteBounds,
+  DesktopNoteKind,
+  DesktopNotePatch,
   DesktopNoteRow,
   DesktopNotesSyncResult,
 } from '$lib/types/desktop-note'
@@ -31,7 +32,7 @@ import {
   subscribeToRealtime,
   verifySchema,
 } from '$lib/utils/notes-sync'
-import { deleteNoteBounds, getDesktopNotes, loadNoteBounds, saveDesktopNotes, saveNoteBounds } from '$lib/utils/storage'
+import { deleteNoteBounds, deleteNoteTodoPreferences, getDesktopNotes, loadNoteBounds, saveDesktopNotePatches, saveNoteBounds } from '$lib/utils/storage'
 import {
   getSessionInfo,
   isSupabaseAvailable,
@@ -50,19 +51,16 @@ function generateNoteId(): string {
   return `note-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
 }
 
-function createDefaultBounds(index: number): DesktopNoteBounds {
-  return createDefaultDesktopNoteBounds(index)
-}
-
-function createEmptyNote(index: number): DesktopNote {
+function createEmptyNote(index: number, kind: DesktopNoteKind): DesktopNote {
   const now = Date.now()
   return {
     id: generateNoteId(),
     title: '',
     content: '',
+    ...(kind === 'todo' ? { kind } : {}),
     color: DESKTOP_NOTES.DEFAULT_COLOR,
     visible: true,
-    bounds: createDefaultBounds(index),
+    bounds: createDefaultDesktopNoteBounds(index),
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -100,7 +98,7 @@ async function resolveOpenBounds(noteId: string, inMemory: DesktopNoteBounds): P
     return inMemory
   }
   logger.warn('No valid bounds found for note, falling back to default', { noteId })
-  return createDefaultBounds(0)
+  return createDefaultDesktopNoteBounds()
 }
 
 class DesktopNotesStore {
@@ -117,8 +115,9 @@ class DesktopNotesStore {
 
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private autoSyncTimer: ReturnType<typeof setTimeout> | null = null
-  /** 缓存待持久化的 noteId，用于 read-modify-write 单条更新以避免跨窗口覆盖 */
-  private pendingNoteIds = new Set<string>()
+  private pendingUpdates = new Map<string, DesktopNotePatch['updates']>()
+  private writes = Promise.resolve()
+  private readRevision = 0
   /** Realtime 取消订阅函数 */
   private unsubscribeRealtime: (() => void) | null = null
   /** Auth 状态变化取消订阅函数 */
@@ -141,6 +140,8 @@ class DesktopNotesStore {
       return
     }
 
+    const revision = ++this.readRevision
+    await this.flushPersist()
     const notes = await getDesktopNotes()
 
     // 合并 per-note bounds：每个便签窗口独立写自己的 bounds key，
@@ -152,8 +153,13 @@ class DesktopNotesStore {
       }),
     )
 
-    this.notes = mergedNotes
-    this.initialized = true
+    if (revision === this.readRevision) {
+      this.notes = mergedNotes.map((note) => {
+        const pending = this.pendingUpdates.get(note.id)
+        return pending ? { ...note, ...pending, sync: { ...note.sync, ...pending.sync } } : note
+      })
+      this.initialized = true
+    }
   }
 
   /**
@@ -208,84 +214,51 @@ class DesktopNotesStore {
 
   // ==================== 持久化 ====================
 
-  /**
-   * 排队持久化 —— 传入 noteId 时使用 read-modify-write 避免跨窗口覆盖
-   */
-  private queuePersist(noteId?: string) {
-    if (noteId) {
-      this.pendingNoteIds.add(noteId)
-    }
-
+  private queuePersist(noteId: string, updates: DesktopNotePatch['updates']) {
+    const queued = this.pendingUpdates.get(noteId)
+    this.pendingUpdates.set(noteId, {
+      ...queued,
+      ...updates,
+      sync: { ...queued?.sync, ...updates.sync },
+    })
     if (this.saveTimer) {
       clearTimeout(this.saveTimer)
     }
-
     this.saveTimer = setTimeout(() => {
-      void this.flushPersist()
+      void this.flushPersist().catch(error => logger.error('Failed to persist desktop note updates', error))
     }, DESKTOP_NOTES.SAVE_DEBOUNCE_MS)
   }
 
-  /**
-   * 执行持久化；若有 pendingNoteIds 则只做增量读写
-   *
-   * 关键：pendingNoteIds 为空时直接返回，不做全量写。
-   * 否则当主窗口在 app-before-exit 调用 flushPersistPublic 时，
-   * 会用其陈旧的内存快照（未感知便签窗口刚写的 visible=false）
-   * 覆盖磁盘最新状态，导致重启后关闭/打开状态失效。
-   * 全量写请使用 persistNow（仅限 create/delete/sync 等显式路径）。
-   */
-  private async flushPersist() {
+  private flushPersist() {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer)
       this.saveTimer = null
     }
 
-    const changedIds = new Set(this.pendingNoteIds)
-    this.pendingNoteIds.clear()
-
-    if (changedIds.size === 0) {
-      return
-    }
-
-    // 增量 read-modify-write：从存储读最新全量 → 只替换本窗口改过的便签 → 写回
-    try {
-      const freshNotes = await getDesktopNotes()
-
-      for (const nid of changedIds) {
-        const localNote = this.notes.find(n => n.id === nid)
-        if (!localNote) {
-          continue
-        }
-
-        const idx = freshNotes.findIndex(n => n.id === nid)
-        if (idx >= 0) {
-          freshNotes[idx] = { ...localNote }
-        }
-        else {
-          freshNotes.push({ ...localNote })
-        }
+    const write = this.writes.then(async () => {
+      const pending = this.pendingUpdates
+      if (!pending.size) {
+        return
       }
-
-      await saveDesktopNotes(freshNotes)
-    }
-    catch (error) {
-      logger.error('Failed to persist desktop note (incremental)', error)
-      // 回退：全量保存
-      await saveDesktopNotes(this.notes)
-    }
-  }
-
-  /**
-   * 立即全量持久化（适用于 sync / create / delete 等全量操作）
-   */
-  async persistNow() {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer)
-      this.saveTimer = null
-    }
-
-    this.pendingNoteIds.clear()
-    await saveDesktopNotes(this.notes)
+      this.pendingUpdates = new Map()
+      const patches = Array.from(pending, ([noteId, updates]) => ({ noteId, updates }))
+      try {
+        await saveDesktopNotePatches(patches)
+      }
+      catch (error) {
+        for (const [noteId, updates] of pending) {
+          const latest = this.pendingUpdates.get(noteId)
+          this.pendingUpdates.set(noteId, {
+            ...updates,
+            ...latest,
+            sync: { ...updates.sync, ...latest?.sync },
+          })
+        }
+        throw error
+      }
+    })
+    this.writes = write.catch(() => {})
+    return write
   }
 
   /**
@@ -301,38 +274,26 @@ class DesktopNotesStore {
     return this.notes.find(note => note.id === noteId) ?? null
   }
 
-  async createNote(): Promise<DesktopNote> {
-    const note = createEmptyNote(this.activeNotes.length)
+  async createNote(kind: DesktopNoteKind = 'markdown'): Promise<DesktopNote> {
+    await this.init(true)
+    const note = createEmptyNote(this.activeNotes.length, kind)
+    await saveDesktopNotePatches([{ noteId: note.id, updates: note }])
     this.notes = [note, ...this.notes]
-    await this.persistNow()
     return note
   }
 
   async updateNote(noteId: string, updates: Partial<DesktopNote>, markDirty = true) {
-    let changed = false
-
-    this.notes = this.notes.map((note) => {
-      if (note.id !== noteId) {
-        return note
-      }
-
-      changed = true
-      const updatedAt = updates.updatedAt ?? Date.now()
-      return {
-        ...note,
-        ...updates,
-        sync: {
-          ...note.sync,
-          ...(updates.sync ?? {}),
-          dirty: markDirty ? true : (updates.sync?.dirty ?? note.sync.dirty),
-        },
-        updatedAt,
-      }
-    })
-
-    if (changed) {
-      this.queuePersist(noteId)
+    const note = this.getNoteById(noteId)
+    if (!note || note.deletedAt) {
+      return
     }
+    const updatedAt = updates.updatedAt ?? Math.max(Date.now(), note.updatedAt + 1)
+    const sync = { ...updates.sync, dirty: markDirty ? true : (updates.sync?.dirty ?? note.sync.dirty) }
+    this.notes = this.notes.map(n => n.id === noteId
+      ? { ...n, ...updates, updatedAt, sync: { ...n.sync, ...sync } }
+      : n,
+    )
+    this.queuePersist(noteId, { ...updates, updatedAt, sync })
   }
 
   async updateNoteContent(noteId: string, content: string) {
@@ -354,9 +315,9 @@ class DesktopNotesStore {
         return note
       }
 
-      const fallbackBounds = isValidBounds(note.bounds) ? note.bounds : createDefaultBounds(index)
+      const fallbackBounds = isValidBounds(note.bounds) ? note.bounds : createDefaultDesktopNoteBounds(index)
 
-      if (!isDesktopNotePositionSane(bounds.x, bounds.y)) {
+      if (!isDesktopNotePositionSane(bounds.x, bounds.y, bounds.monitor)) {
         logger.warn('Rejecting sticky note bounds update with absurd coordinates', {
           noteId,
           attemptedBounds: bounds,
@@ -372,6 +333,7 @@ class DesktopNotesStore {
         && normalizedBounds.y === note.bounds.y
         && normalizedBounds.width === note.bounds.width
         && normalizedBounds.height === note.bounds.height
+        && normalizedBounds.monitor === note.bounds.monitor
       ) {
         return note
       }
@@ -408,9 +370,9 @@ class DesktopNotesStore {
 
   // ==================== 窗口管理 ====================
 
-  async openNoteWindow(noteId: string) {
+  async openNoteWindow(noteId: string, activate = false) {
     const note = this.getNoteById(noteId)
-    if (!note) {
+    if (!note || note.deletedAt) {
       logger.warn('Cannot open note window: note not found', { noteId })
       return
     }
@@ -424,20 +386,30 @@ class DesktopNotesStore {
       noteId,
       bounds: effectiveBounds,
     })
-    await invoke('ensure_desktop_note_window', {
-      payload: {
-        noteId: note.id,
-        bounds: effectiveBounds,
-      },
-    })
+    if (!note.visible) {
+      await this.updateNote(noteId, { visible: true })
+      await this.flushPersist()
+    }
 
-    // 同步回内存及 note.bounds，确保列表页 UI / 下次 restore 使用正确值
+    try {
+      await invoke('ensure_desktop_note_window', {
+        payload: {
+          noteId: note.id,
+          bounds: effectiveBounds,
+          ...(activate ? { activate } : {}),
+        },
+      })
+    }
+    catch (error) {
+      if (!note.visible) {
+        await this.updateNote(noteId, { visible: false })
+        await this.flushPersist()
+      }
+      throw error
+    }
+
     this.notes = this.notes.map(n => (n.id === noteId ? { ...n, bounds: effectiveBounds } : n))
-
-    // 无论主窗口内存中 visible 状态如何（可能因便签窗口自行关闭而滞后），
-    // 打开便签时始终更新 visible=true 并触发同步，确保跨设备状态一致。
-    await this.updateNote(noteId, { visible: true }, true)
-    if (configStore.config.desktopNotesSyncEnabled && this.session.authenticated) {
+    if (!note.visible && configStore.config.desktopNotesSyncEnabled && this.session.authenticated) {
       this.queueAutoSync()
     }
   }
@@ -500,6 +472,9 @@ class DesktopNotesStore {
       noteIds: toRestore.map(n => n.id),
     })
     for (const note of toRestore) {
+      if (configStore.config.desktopNotesEnabled === false) {
+        return
+      }
       try {
         await this.openNoteWindow(note.id)
       }
@@ -510,9 +485,7 @@ class DesktopNotesStore {
   }
 
   async hideAllWindows() {
-    for (const note of this.visibleNotes) {
-      await this.closeNoteWindow(note.id)
-    }
+    await invoke('suspend_desktop_note_windows')
   }
 
   // ==================== 删除 ====================
@@ -525,23 +498,14 @@ class DesktopNotesStore {
 
     await this.closeNoteWindow(noteId)
 
-    // 软删除：设置 deletedAt 时间戳，标记 dirty
-    this.notes = this.notes.map(n =>
-      n.id !== noteId
-        ? n
-        : {
-            ...n,
-            visible: false,
-            deletedAt: Date.now(),
-            sync: { ...n.sync, dirty: true },
-            updatedAt: Date.now(),
-          },
-    )
-
-    await this.persistNow()
+    await this.updateNote(noteId, { visible: false, deletedAt: Date.now() })
+    await this.flushPersist()
 
     // 清理 per-note bounds key（避免孤立 key 占用存储）
     void deleteNoteBounds(noteId)
+    if (note.kind === 'todo') {
+      void deleteNoteTodoPreferences(noteId).catch(error => logger.warn('Failed to delete note task preferences', { noteId, error }))
+    }
 
     // 如果同步启用且已认证，触发自动同步以推送删除
     if (configStore.config.desktopNotesSyncEnabled && this.session.authenticated) {
@@ -657,22 +621,21 @@ class DesktopNotesStore {
       // 同步前先刷新持久化，确保本地最新修改已写入
       await this.flushPersist()
       // 重新从存储读取最新数据，避免使用本窗口的过期内存快照
-      this.notes = await getDesktopNotes()
+      const snapshot = await getDesktopNotes()
 
       logger.info('Sync starting', {
-        localCount: this.notes.length,
+        localCount: snapshot.length,
         lastSyncedAt: configStore.config.desktopNotesLastSyncedAt,
         options,
       })
 
       const { notes, result } = await performFullSync(
-        this.notes,
+        snapshot,
         configStore.config.desktopNotesLastSyncedAt,
         options,
       )
 
-      this.notes = notes
-      await this.persistNow()
+      await this.applySyncedNotes(snapshot, notes)
 
       logger.info('Sync completed', {
         mergedCount: notes.length,
@@ -775,7 +738,7 @@ class DesktopNotesStore {
   private async closeNoteWindowSilent(noteId: string) {
     try {
       await invoke('close_desktop_note_window', {
-        payload: { noteId },
+        payload: { noteId, silent: true },
       })
     }
     catch (error) {
@@ -783,48 +746,49 @@ class DesktopNotesStore {
     }
   }
 
-  private handleRealtimeInsert(row: DesktopNoteRow) {
-    const existing = this.notes.find(n => n.id === row.id)
-    if (existing) {
-      return // 本地已有，可能是自己推送的
+  private async applySyncedNotes(snapshot: DesktopNote[], merged: DesktopNote[]) {
+    const previous = new Map(snapshot.map(note => [note.id, note]))
+    const patches = merged.filter(note => note !== previous.get(note.id)).map(note => ({
+      noteId: note.id,
+      updates: note,
+      ifUnchanged: { updatedAt: previous.get(note.id)?.updatedAt ?? null },
+    }))
+    if (patches.length) {
+      await saveDesktopNotePatches(patches)
     }
+    await this.init(true)
+    for (const note of snapshot) {
+      const updated = this.getNoteById(note.id)
+      if (note.visible && updated && (!updated.visible || updated.deletedAt)) {
+        await this.closeNoteWindowSilent(note.id)
+      }
+    }
+  }
 
-    const merged = mergeRemoteIntoLocal(this.notes, [row])
-    this.notes = merged
-    void this.persistNow()
+  private handleRealtimeInsert(row: DesktopNoteRow) {
+    this.handleRealtimeUpdate(row)
   }
 
   private handleRealtimeUpdate(row: DesktopNoteRow) {
-    const local = this.notes.find(n => n.id === row.id)
-    if (local && local.updatedAt >= row.updated_at) {
-      return // 本地版本不比远端旧
-    }
-
-    const wasVisible = local?.visible ?? false
-    const merged = mergeRemoteIntoLocal(this.notes, [row])
-    this.notes = merged
-    void this.persistNow()
-
-    // 远端将便签设为不可见时，关闭本地窗口（不标记 dirty 避免反向同步环）
-    const updated = this.notes.find(n => n.id === row.id)
-    if (wasVisible && updated && !updated.visible) {
-      void this.closeNoteWindowSilent(row.id)
-    }
+    void this.applyRealtimeRow(row).catch(error => logger.warn('Failed to apply synced desktop note', error))
   }
 
   private handleRealtimeDelete(row: DesktopNoteRow) {
-    const local = this.notes.find(n => n.id === row.id)
-    if (!local) {
+    void this.applyRealtimeRow(row, true).catch(error => logger.warn('Failed to apply deleted desktop note', error))
+  }
+
+  private async applyRealtimeRow(row: DesktopNoteRow, hardDeleted = false) {
+    await this.flushPersist()
+    const snapshot = await getDesktopNotes()
+    if (!hardDeleted) {
+      await this.applySyncedNotes(snapshot, mergeRemoteIntoLocal(snapshot, [row]))
       return
     }
-
-    // 标记为软删除
-    this.notes = this.notes.map(n =>
-      n.id !== row.id
-        ? n
-        : { ...n, deletedAt: Date.now(), visible: false, sync: { ...n.sync, dirty: false } },
-    )
-    void this.persistNow()
+    const now = Date.now()
+    const deleted = snapshot.map(note => note.id === row.id
+      ? { ...note, deletedAt: now, visible: false, updatedAt: now, sync: { ...note.sync, dirty: false } }
+      : note)
+    await this.applySyncedNotes(snapshot, deleted)
   }
 }
 

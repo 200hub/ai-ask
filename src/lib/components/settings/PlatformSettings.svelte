@@ -22,8 +22,9 @@
     Plus,
     Trash2,
     Zap,
-  } from 'lucide-svelte'
+  } from '@lucide/svelte'
   import { onMount, tick } from 'svelte'
+  import { SvelteSet } from 'svelte/reactivity'
   import Button from '../common/Button.svelte'
 
   const t = i18n.t
@@ -45,7 +46,7 @@
   let newPlatformPreload = $state(false)
 
   // 展开/收起的平台 ID 集合
-  let expandedPlatforms = $state<Set<string>>(new Set())
+  const expandedPlatforms = new SvelteSet<string>()
 
   // 派生：按排序顺序排列的平台列表
   const orderedPlatforms = $derived(
@@ -140,14 +141,9 @@
 
   // 切换平台展开/收起状态
   function toggleExpanded(id: string) {
-    const newSet = new Set(expandedPlatforms)
-    if (newSet.has(id)) {
-      newSet.delete(id)
+    if (!expandedPlatforms.delete(id)) {
+      expandedPlatforms.add(id)
     }
-    else {
-      newSet.add(id)
-    }
-    expandedPlatforms = newSet
   }
 
   // 打开添加模态框
@@ -174,7 +170,6 @@
     try {
       const parsed = new URL(newPlatformUrl.trim())
       if (!parsed.protocol.startsWith('http')) {
-        // eslint-disable-next-line unicorn/error-message
         throw new Error()
       }
     }
@@ -186,7 +181,6 @@
       try {
         const parsed = new URL(newPlatformIcon.trim())
         if (!parsed.protocol.startsWith('http')) {
-          // eslint-disable-next-line unicorn/error-message
           throw new Error()
         }
       }

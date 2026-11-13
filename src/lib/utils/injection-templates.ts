@@ -384,15 +384,16 @@ export const QIANWEN_TEMPLATES: InjectionTemplate[] = [
     actions: [
       {
         type: 'fill',
-        selector: 'div[class*="chatInput-"] textarea',
+        selector: '[data-slate-editor="true"][contenteditable="true"], div[class*="chatInput-"] textarea',
         content: '',
         triggerEvents: true,
+        slateEditor: true,
         delay: 300,
         timeout: 5000,
       },
       {
         type: 'click',
-        selector: 'button[class*="send"], button[class*="submit"], [class*="send-btn"], [class*="operateBtn"]',
+        selector: 'button[aria-label="发送消息"], button[aria-label="Send message"], button[class*="send"], button[class*="submit"], [class*="send-btn"], [class*="operateBtn"]',
         timeout: 3000,
       },
       {
@@ -401,19 +402,19 @@ export const QIANWEN_TEMPLATES: InjectionTemplate[] = [
         pollInterval: 1000,
         outputFormat: 'markdown',
         extractScript: `() => {
-                    if (document.querySelector('div[class*="answerToolsContent-"]')==null) {
-                      return '';
-                    }
-                    
-                    const messages = document.querySelector('div[class*="answerToolsContent-"]')
-                      .closest('div[class*="containerWrap-"]')
-                      .querySelector('.tongyi-markdown');
-                    if (!messages) {
+                    const cards = document.querySelectorAll('.answer-common-card');
+                    const card = cards[cards.length - 1];
+                    const legacyTools = document.querySelectorAll('div[class*="answerToolsContent-"]');
+                    const legacy = legacyTools[legacyTools.length - 1]
+                      ?.closest('div[class*="containerWrap-"]')
+                      ?.querySelector('.tongyi-markdown');
+                    const message = card ? card.querySelector('.qk-markdown-complete') : legacy;
+                    if (!message) {
                         return '';
                     }
-                    
-                    const text = messages.textContent?.trim() || '';
-                    const html = messages.innerHTML || '';
+
+                    const text = message.textContent?.trim() || '';
+                    const html = message.innerHTML || '';
 
                     if (text || html) {
                         return { text, html };
@@ -668,7 +669,7 @@ export const DEEPL_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
                     for (const sel of resultSelectors) {
                         const element = document.querySelector(sel);
                         if (element) {
-                            const text = element.textContent?.trim() || (element as HTMLInputElement).value?.trim();
+                            const text = element.value?.trim() || element.textContent?.trim();
                             // Filter loading states
                             if (text && text !== 'Translating...' && text !== '翻译中...' && text.length > 0) {
                                 return text;
@@ -835,7 +836,7 @@ export const BING_TRANSLATE_TEMPLATES: InjectionTemplate[] = [
                     for (const sel of resultSelectors) {
                         const element = document.querySelector(sel);
                         if (element) {
-                            const text = (element as HTMLTextAreaElement).value?.trim() || element.textContent?.trim();
+                            const text = element.value?.trim() || element.textContent?.trim();
                             if (text && text.length > 0) {
                                 return text;
                             }

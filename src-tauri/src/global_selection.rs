@@ -1,40 +1,27 @@
-//! 全局划词监听器（Global selection monitor）
-//!
-//! 职责：监听主窗口 WebView 之外的系统级划词手势，在用户结束选择时显示工具栏。
-//!
-//! 本次变更说明：
-//! - 移除键盘事件处理，完全避免对输入法/打字的干扰；
-//! - Windows 改用 Win32 低级鼠标钩子，仅分发鼠标移动与左键抬起事件；
-//! - 精简事件分支与状态（删除按下状态等不必要逻辑）；
-//! - macOS 继续使用 rdev 监听，但在回调中忽略键盘事件；
-//! - Windows UIA 文本捕获策略升级：先尝试焦点元素/窗口根元素的 TextPattern，若失败再进行“受限”子树搜索（有深度与节点数量上限），
-//!   以避免 Electron/Chromium（如 draw.io Desktop）在可访问树上大范围遍历导致的卡顿，同时保持对普通应用的兼容；
-//! - 按项目规范保留英文日志，注释改为中文便于维护。
+//! 系统级划词捕获与全局快捷键回退。
 
 use arboard::Clipboard;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
-// removed unused time imports after provider refactor
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 use rdev::ListenError;
 #[cfg(target_os = "macos")]
-use rdev::{listen, Button, Event, EventType};
-#[cfg(target_os = "windows")]
-use rdev::{Button, Event, EventType};
+use rdev::{listen, Button, EventType};
 use tauri::{AppHandle, Manager};
 
 #[cfg(target_os = "windows")]
 use std::ptr::null_mut;
 #[cfg(target_os = "windows")]
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::atomic::AtomicPtr;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
-    UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_LBUTTONUP, WM_MOUSEMOVE,
+    UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP,
 };
 
 use crate::selection_toolbar::{
@@ -42,6 +29,7 @@ use crate::selection_toolbar::{
     show_selection_toolbar_force_with_manager, show_selection_toolbar_with_manager, CursorPosition,
     ToolbarManager,
 };
+#[cfg(target_os = "macos")]
 use crate::window_control::resolve_main_window;
 
 #[cfg(target_os = "macos")]
@@ -63,8 +51,56 @@ const TRIGGER_DEBOUNCE_MS: u64 = 200;
 /// 用于防止 UIA/Accessibility API 卡死导致整个应用无响应
 const CAPTURE_TIMEOUT_MS: u64 = 2000;
 
-/// 预留节流时间窗口（当前未使用）
-const _RESERVED_SUPPRESS_MS: u64 = 0;
+const MIN_DRAG_DISTANCE_PX: f64 = 4.0;
+const MULTI_CLICK_INTERVAL_MS: u64 = 500;
+const MULTI_CLICK_DISTANCE_PX: f64 = 6.0;
+static CAPTURE_BUSY: AtomicBool = AtomicBool::new(false);
+
+struct CaptureGuard;
+
+impl CaptureGuard {
+    fn try_acquire() -> Option<Self> {
+        CAPTURE_BUSY
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .ok()
+            .map(|_| Self)
+    }
+}
+
+impl Drop for CaptureGuard {
+    fn drop(&mut self) {
+        CAPTURE_BUSY.store(false, Ordering::Release);
+    }
+}
+
+#[derive(Default)]
+struct SelectionGesture {
+    press: Option<(f64, f64)>,
+    previous_click: Option<(Instant, (f64, f64))>,
+}
+
+impl SelectionGesture {
+    fn press(&mut self, position: (f64, f64)) {
+        self.press = Some(position);
+    }
+
+    fn release(&mut self, position: (f64, f64), now: Instant) -> bool {
+        let Some(start) = self.press.take() else {
+            return false;
+        };
+        let distance = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs().max((a.1 - b.1).abs());
+        if distance(start, position) >= MIN_DRAG_DISTANCE_PX {
+            self.previous_click = None;
+            return true;
+        }
+        let repeated = self.previous_click.is_some_and(|(previous, point)| {
+            now.duration_since(previous) <= Duration::from_millis(MULTI_CLICK_INTERVAL_MS)
+                && distance(point, position) <= MULTI_CLICK_DISTANCE_PX
+        });
+        self.previous_click = Some((now, position));
+        repeated
+    }
+}
 
 /// macOS：当无辅助功能权限时的重试间隔（毫秒）
 #[cfg(target_os = "macos")]
@@ -183,6 +219,7 @@ fn normalize_selection(text: &str) -> Option<String> {
     if trimmed
         .chars()
         .filter(|character| !character.is_whitespace())
+        .take(MIN_TEXT_LENGTH)
         .count()
         < MIN_TEXT_LENGTH
     {
@@ -192,126 +229,111 @@ fn normalize_selection(text: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-// -----------------------------------------------------------------------------
-// Windows UI Automation Provider（阶段 2）
-// -----------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn captures_drags_and_nearby_double_clicks() {
+        let now = Instant::now();
+        let point = (18.0, 24.0);
+        let mut gesture = SelectionGesture::default();
+        gesture.press(point);
+        assert!(!gesture.release((19.0, 25.0), now));
+
+        gesture.press(point);
+        assert!(gesture.release(point, now + Duration::from_millis(180)));
+
+        gesture.press(point);
+        assert!(gesture.release((80.0, 25.0), now + Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn ignores_unrelated_clicks_and_unpaired_releases() {
+        let now = Instant::now();
+        let mut gesture = SelectionGesture::default();
+        assert!(!gesture.release((0.0, 0.0), now));
+        gesture.press((18.0, 24.0));
+        assert!(!gesture.release((18.0, 24.0), now));
+        gesture.press((80.0, 25.0));
+        assert!(!gesture.release((80.0, 25.0), now + Duration::from_millis(180)));
+        gesture.press((80.0, 25.0));
+        assert!(!gesture.release((80.0, 25.0), now + Duration::from_secs(1)));
+    }
+}
+
 #[cfg(target_os = "windows")]
 mod windows_uia {
-    //! Windows UI Automation Provider
-    //!
-    //! 设计目标：
-    //! - 尽可能利用 UIA 的 TextPattern 直接读取外部应用的选中文本；
-    //! - 保持对现代浏览器/编辑器的良好兼容；
-    //! - 避免在 Electron/Chromium 应用（例如 draw.io Desktop）上触发昂贵的深度遍历，导致主线程卡顿与交互受阻。
-    //!
-    //! 实现策略：
-    //! 1) 候选元素：优先从“焦点元素”和“前台窗口根元素”两类候选中尝试；
-    //! 2) 直接尝试：对候选元素调用 `GetCurrentPattern(UIA_TextPattern)`，成功则立即返回；
-    //! 3) 受限搜索：若直接尝试失败，则使用 RawView walker 进行“有界广度搜索”：
-    //!    - 最大深度 `UIA_MAX_DESCENDANT_DEPTH`（默认 3）
-    //!    - 最大访问节点上限 `UIA_MAX_DESCENDANT_NODES`（默认 400）
-    //!    - 达到任一阈值即中止搜索，确保最坏情况下的开销受控；
-    //! 4) 失败回退：若依旧失败，交由 Win32 Edit Provider 兜底。
-    //!
-    //! 权衡说明：
-    //! - 仅直接尝试会导致部分应用无法捕获（因为 TextPattern 暴露在后代节点中）；
-    //! - 不加限制的子树查找会严重卡顿（draw.io Desktop 就属于此类场景）；
-    //! - 因此选择“受限搜索”以在“功能性”和“性能”之间取得平衡。相关阈值可按需微调。
     use super::{normalize_selection, GlobalSelectionProvider};
     use std::collections::VecDeque;
+    use std::time::{Duration, Instant};
     use tauri::AppHandle;
-    use windows::Win32::Foundation::HWND;
+    use windows::core::Interface;
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
-        COINIT_APARTMENTTHREADED,
+        COINIT_MULTITHREADED,
     };
     use windows::Win32::UI::Accessibility::{
-        CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
-        IUIAutomationTextRangeArray, IUIAutomationTreeWalker, UIA_TextPatternId,
+        CUIAutomation, IUIAutomation, IUIAutomation2, IUIAutomationElement,
+        IUIAutomationTextPattern, UIA_TextPatternId,
     };
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
-    /// UIA 受限搜索的最大深度（根的直接子节点深度为 1）
-    const UIA_MAX_DESCENDANT_DEPTH: u32 = 3;
-    /// UIA 受限搜索的最大访问节点数（防止在复杂可访问树上遍历过多节点）
-    const UIA_MAX_DESCENDANT_NODES: usize = 400;
+    const UIA_CALL_TIMEOUT_MS: u32 = 250;
+    const UIA_SEARCH_BUDGET_MS: u64 = 450;
+    const UIA_MAX_DEPTH: u8 = 3;
+    const UIA_MAX_NODES: usize = 32;
+    const UIA_MAX_TEXT_LENGTH: i32 = 32768;
 
-    /// 尝试直接从元素本身获取 TextPattern；若元素未声明该模式则快速返回
-    fn try_text_pattern(element: &IUIAutomationElement) -> Option<IUIAutomationTextPattern> {
+    fn selected_text(element: &IUIAutomationElement) -> Option<String> {
         unsafe {
-            element
+            let pattern = element
                 .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
-                .ok()
+                .ok()?;
+            let ranges = pattern.GetSelection().ok()?;
+            if ranges.Length().ok()? == 0 {
+                return None;
+            }
+            let text = ranges
+                .GetElement(0)
+                .ok()?
+                .GetText(UIA_MAX_TEXT_LENGTH)
+                .ok()?;
+            normalize_selection(&text.to_string())
         }
     }
 
-    /// 在受限范围内搜索后代节点上的 TextPattern（广度优先）
-    ///
-    /// 注意：使用 RawView walker 可避免属性条件创建的额外成本；但必须控制深度与节点数以确保性能可预期。
-    fn search_descendants_for_text_pattern(
+    fn search_descendants(
         ui: &IUIAutomation,
-        element: &IUIAutomationElement,
-    ) -> Option<IUIAutomationTextPattern> {
+        roots: Vec<IUIAutomationElement>,
+        deadline: Instant,
+    ) -> Option<String> {
         unsafe {
-            let walker: IUIAutomationTreeWalker = match ui.RawViewWalker() {
-                Ok(walker) => walker,
-                Err(err) => {
-                    log::debug!(
-                        "Windows UIA provider: failed to create RawView walker: {:?}",
-                        err
-                    );
-                    return None;
+            let walker = ui.ControlViewWalker().ok()?;
+            let mut queue: VecDeque<_> = roots.into_iter().map(|root| (root, 0)).collect();
+            let mut visited = 0;
+
+            while let Some((element, depth)) = queue.pop_front() {
+                if Instant::now() >= deadline || visited >= UIA_MAX_NODES {
+                    break;
                 }
-            };
-
-            let mut queue: VecDeque<(IUIAutomationElement, u32)> = VecDeque::new();
-            queue.push_back((element.clone(), 0));
-            let mut visited: usize = 0;
-
-            while let Some((current, depth)) = queue.pop_front() {
-                if depth >= UIA_MAX_DESCENDANT_DEPTH {
-                    continue;
-                }
-
-                let mut child = walker.GetFirstChildElement(&current).ok();
+                let mut child = walker.GetFirstChildElement(&element).ok();
                 while let Some(node) = child {
-                    visited += 1;
-                    if visited > UIA_MAX_DESCENDANT_NODES {
-                        log::debug!(
-                            "Windows UIA provider: descendant search aborted after {} nodes",
-                            visited
-                        );
+                    if Instant::now() >= deadline || visited >= UIA_MAX_NODES {
                         return None;
                     }
-
-                    if let Some(pattern) = try_text_pattern(&node) {
-                        return Some(pattern);
+                    visited += 1;
+                    if let Some(text) = selected_text(&node) {
+                        return Some(text);
                     }
-
-                    if depth + 1 < UIA_MAX_DESCENDANT_DEPTH {
-                        queue.push_back((node.clone(), depth + 1));
-                    }
-
                     child = walker.GetNextSiblingElement(&node).ok();
+                    if depth + 1 < UIA_MAX_DEPTH {
+                        queue.push_back((node, depth + 1));
+                    }
                 }
             }
-
             None
         }
-    }
-
-    /// 获取元素本身或其受限后代上的 TextPattern：
-    /// 1) 先直接尝试当前元素；
-    /// 2) 失败则在限定范围内尝试其后代；
-    fn obtain_text_pattern(
-        ui: &IUIAutomation,
-        element: &IUIAutomationElement,
-    ) -> Option<IUIAutomationTextPattern> {
-        if let Some(pattern) = try_text_pattern(element) {
-            return Some(pattern);
-        }
-
-        search_descendants_for_text_pattern(ui, element)
     }
 
     pub struct WindowsUIAutomationProvider;
@@ -319,153 +341,6 @@ mod windows_uia {
     impl WindowsUIAutomationProvider {
         pub fn new() -> Self {
             Self
-        }
-
-        fn capture_impl(&self) -> Option<String> {
-            unsafe {
-                // 初始化线程 COM；已初始化返回 S_FALSE，首次成功返回 S_OK
-                let init_hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-                if init_hr.is_err() {
-                    log::debug!("Windows UIA provider COM init error: {:?}", init_hr);
-                }
-                let should_uninit = init_hr.is_ok();
-
-                let result = (|| -> windows::core::Result<Option<String>> {
-                    let ui: IUIAutomation =
-                        match CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) {
-                            Ok(ui) => ui,
-                            Err(err) => {
-                                log::debug!(
-                                "Windows UIA provider failed to create automation instance: {:?}",
-                                err
-                            );
-                                return Ok(None);
-                            }
-                        };
-
-                    let hwnd: HWND = GetForegroundWindow();
-                    if hwnd.0.is_null() {
-                        log::debug!("Windows UIA provider skipped: no foreground window");
-                        return Ok(None);
-                    }
-
-                    // 候选元素：焦点元素 + 前台窗口根元素
-                    let mut candidates: Vec<(&'static str, IUIAutomationElement)> = Vec::new();
-
-                    // 尝试获取当前焦点元素
-                    match ui.GetFocusedElement() {
-                        Ok(focus) => {
-                            candidates.push(("focus", focus));
-                        }
-                        Err(err) => {
-                            log::debug!(
-                                "Windows UIA provider: failed to get focused element: {:?}",
-                                err
-                            );
-                        }
-                    }
-
-                    // 获取前台窗口根元素作为回退
-                    match ui.ElementFromHandle(hwnd) {
-                        Ok(root) => {
-                            candidates.push(("window", root));
-                        }
-                        Err(err) => {
-                            log::debug!(
-                                "Windows UIA provider failed to resolve element from hwnd: {:?}",
-                                err
-                            );
-                        }
-                    }
-
-                    if candidates.is_empty() {
-                        log::debug!(
-                            "Windows UIA provider: no elements available for TextPattern lookup"
-                        );
-                        return Ok(None);
-                    }
-
-                    // 在候选元素上查找 TextPattern（仅检测元素本身，避免深层遍历）
-                    let mut pattern: Option<IUIAutomationTextPattern> = None;
-                    for (label, element) in &candidates {
-                        if let Some(found) = obtain_text_pattern(&ui, element) {
-                            pattern = Some(found);
-                            break;
-                        } else {
-                            log::debug!(
-                                "Windows UIA provider: {} element does not expose TextPattern",
-                                label
-                            );
-                        }
-                    }
-
-                    let pattern = match pattern {
-                        Some(pattern) => pattern,
-                        None => {
-                            log::debug!("Windows UIA provider: no TextPattern found; falling back");
-                            return Ok(None);
-                        }
-                    };
-
-                    let ranges: IUIAutomationTextRangeArray = match pattern.GetSelection() {
-                        Ok(ranges) => ranges,
-                        Err(err) => {
-                            log::debug!("Windows UIA provider: GetSelection failed: {:?}", err);
-                            return Ok(None);
-                        }
-                    };
-
-                    let length: i32 = match ranges.Length() {
-                        Ok(length) => length,
-                        Err(err) => {
-                            log::debug!(
-                                "Windows UIA provider: failed to read selection length: {:?}",
-                                err
-                            );
-                            return Ok(None);
-                        }
-                    };
-                    if length <= 0 {
-                        return Ok(None);
-                    }
-
-                    let range = match ranges.GetElement(0) {
-                        Ok(range) => range,
-                        Err(err) => {
-                            log::debug!(
-                                "Windows UIA provider: failed to get selection range: {:?}",
-                                err
-                            );
-                            return Ok(None);
-                        }
-                    };
-
-                    let text_bstr = match range.GetText(-1) {
-                        Ok(text) => text,
-                        Err(err) => {
-                            log::debug!(
-                                "Windows UIA provider: failed to read text from range: {:?}",
-                                err
-                            );
-                            return Ok(None);
-                        }
-                    };
-                    let text = text_bstr.to_string();
-                    Ok(normalize_selection(&text))
-                })();
-
-                if should_uninit {
-                    CoUninitialize();
-                }
-
-                match result {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::debug!("Windows UIA capture error: {:?}", e);
-                        None
-                    }
-                }
-            }
         }
     }
 
@@ -475,52 +350,68 @@ mod windows_uia {
         }
 
         fn capture(&self, _app: &AppHandle) -> Option<String> {
-            self.capture_impl()
+            unsafe {
+                CoInitializeEx(None, COINIT_MULTITHREADED).ok().ok()?;
+                let result = capture();
+                CoUninitialize();
+                result
+            }
         }
+    }
+
+    unsafe fn capture() -> Option<String> {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return None;
+        }
+        let ui: IUIAutomation =
+            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+        if let Ok(options) = ui.cast::<IUIAutomation2>() {
+            let _ = options.SetConnectionTimeout(UIA_CALL_TIMEOUT_MS);
+            let _ = options.SetTransactionTimeout(UIA_CALL_TIMEOUT_MS);
+        }
+
+        let deadline = Instant::now() + Duration::from_millis(UIA_SEARCH_BUDGET_MS);
+        let focused = ui.GetFocusedElement().ok();
+        if let Some(text) = focused.as_ref().and_then(selected_text) {
+            return Some(text);
+        }
+        let root = ui.ElementFromHandle(hwnd).ok();
+        if let Some(text) = root.as_ref().and_then(selected_text) {
+            return Some(text);
+        }
+        search_descendants(&ui, focused.into_iter().chain(root).collect(), deadline)
     }
 }
 
 #[cfg(target_os = "windows")]
 use windows_uia::WindowsUIAutomationProvider;
 
-// -----------------------------------------------------------------------------
-// Windows Win32 Edit 控件回退 Provider
-// -----------------------------------------------------------------------------
 #[cfg(target_os = "windows")]
 mod windows_win32 {
-    // 当 UIA 无法提供文本时，回退从经典 Win32 Edit 控件读取。
     use super::{normalize_selection, GlobalSelectionProvider};
-    use std::collections::HashSet;
-    use std::sync::OnceLock;
     use tauri::AppHandle;
     use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, RealGetWindowClassW, SendMessageW, WM_GETTEXT, WM_GETTEXTLENGTH,
+        GetGUIThreadInfo, RealGetWindowClassW, SendMessageTimeoutW, GUITHREADINFO,
+        SMTO_ABORTIFHUNG, WM_GETTEXT,
     };
 
     const EM_GETSEL: u32 = 0x00B0;
+    const MESSAGE_TIMEOUT_MS: u32 = 150;
+    const SUPPORTED_CLASSES: [&str; 5] = [
+        "Edit",
+        "RichEdit20A",
+        "RichEdit20W",
+        "RichEdit50W",
+        "RichEdit41W",
+    ];
 
     pub struct WindowsWin32EditProvider;
 
     impl WindowsWin32EditProvider {
         pub fn new() -> Self {
             Self
-        }
-
-        fn capture_impl(&self) -> Option<String> {
-            unsafe {
-                let hwnd: HWND = GetForegroundWindow();
-                if hwnd.0.is_null() {
-                    return None;
-                }
-
-                let class_name = get_window_class(hwnd)?;
-                if !is_supported_class(&class_name) {
-                    return None;
-                }
-
-                extract_selection_from_edit(hwnd).and_then(|text| normalize_selection(&text))
-            }
         }
     }
 
@@ -530,83 +421,72 @@ mod windows_win32 {
         }
 
         fn capture(&self, _app: &AppHandle) -> Option<String> {
-            self.capture_impl()
+            unsafe {
+                let mut info = GUITHREADINFO {
+                    cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                    ..Default::default()
+                };
+                GetGUIThreadInfo(0, &mut info).ok()?;
+                let hwnd = info.hwndFocus;
+                if hwnd.0.is_null() {
+                    return None;
+                }
+                let mut class = [0u16; 64];
+                let length = RealGetWindowClassW(hwnd, &mut class) as usize;
+                let class = String::from_utf16_lossy(&class[..length.min(class.len())]);
+                if !SUPPORTED_CLASSES
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&class))
+                {
+                    return None;
+                }
+
+                let text = extract_selection_from_edit(hwnd)?;
+                normalize_selection(&text)
+            }
         }
     }
 
-    fn supported_classes() -> &'static HashSet<String> {
-        static CLASSES: OnceLock<HashSet<String>> = OnceLock::new();
-        CLASSES.get_or_init(|| {
-            [
-                "Edit",
-                "RichEdit20A",
-                "RichEdit20W",
-                "RichEdit50W",
-                "RichEdit41W",
-            ]
-            .iter()
-            .map(|name| name.to_string())
-            .collect()
-        })
+    unsafe fn send_edit_message(
+        hwnd: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> Option<usize> {
+        let mut result = 0usize;
+        let success = SendMessageTimeoutW(
+            hwnd,
+            message,
+            wparam,
+            lparam,
+            SMTO_ABORTIFHUNG,
+            MESSAGE_TIMEOUT_MS,
+            Some(&mut result),
+        );
+        (success.0 != 0).then_some(result)
     }
 
-    fn is_supported_class(class: &str) -> bool {
-        supported_classes().contains(class)
-    }
-
-    unsafe fn get_window_class(hwnd: HWND) -> Option<String> {
-        let mut buffer = [0u16; 256];
-        let length = RealGetWindowClassW(hwnd, &mut buffer) as usize;
-        if length == 0 {
+    unsafe fn extract_selection_from_edit(hwnd: HWND) -> Option<String> {
+        // EM_GETSEL's packed result contains both UTF-16 offsets for short selections.
+        // Avoid cross-process pointer arguments for this control-specific message.
+        let selection = send_edit_message(hwnd, EM_GETSEL, WPARAM(0), LPARAM(0))?;
+        if selection as u32 == u32::MAX {
             return None;
         }
-        let trimmed_length = length.min(buffer.len());
-        Some(String::from_utf16_lossy(&buffer[..trimmed_length]))
-    }
-
-    /// 从 Win32 Edit 控件提取选中文本；若无选区或失败则返回 None
-    unsafe fn extract_selection_from_edit(hwnd: HWND) -> Option<String> {
-        let mut start: u32 = 0;
-        let mut end: u32 = 0;
-
-        // EM_GETSEL 以 UTF-16 code unit 返回选区起止索引
-        let _ = SendMessageW(
-            hwnd,
-            EM_GETSEL,
-            Some(WPARAM((&mut start as *mut u32) as usize)),
-            Some(LPARAM((&mut end as *mut u32) as isize)),
-        );
-
+        let start = selection & 0xffff;
+        let end = (selection >> 16) & 0xffff;
         if start >= end {
             return None;
         }
-
-        let text_length =
-            SendMessageW(hwnd, WM_GETTEXTLENGTH, Some(WPARAM(0)), Some(LPARAM(0))).0 as usize;
-        if text_length == 0 {
-            return None;
-        }
-
-        let mut buffer = vec![0u16; text_length + 1];
-        let copied = SendMessageW(
+        let mut buffer = vec![0u16; end + 1];
+        let copied = send_edit_message(
             hwnd,
             WM_GETTEXT,
-            Some(WPARAM(buffer.len())),
-            Some(LPARAM(buffer.as_mut_ptr() as isize)),
-        )
-        .0 as usize;
-
-        if copied == 0 {
-            return None;
-        }
-
-        let slice_end = end.min(copied as u32) as usize;
-        let slice_start = start.min(slice_end as u32) as usize;
-        if slice_start >= slice_end {
-            return None;
-        }
-
-        String::from_utf16(&buffer[slice_start..slice_end]).ok()
+            WPARAM(buffer.len()),
+            LPARAM(buffer.as_mut_ptr() as isize),
+        )?;
+        let end = end.min(copied).min(buffer.len());
+        (start < end).then(|| String::from_utf16_lossy(&buffer[start..end]))
     }
 }
 
@@ -722,25 +602,15 @@ mod macos_accessibility {
 #[cfg(target_os = "macos")]
 use macos_accessibility::MacosAccessibilityProvider;
 
-/// 全局划词监听共享状态
 #[derive(Default)]
 struct MonitorState {
-    /// 最近一次触发时间（去抖）
     last_trigger_at: Option<Instant>,
-    /// 最近一次捕获文本（用于重复检测）
-    last_text: Option<String>,
-    /// 最近记录的鼠标坐标 (x, y)
-    last_mouse_position: (f64, f64),
-    /// 并发保护标记（避免同时进行多次捕获）
-    capture_in_progress: bool,
 }
 
 #[cfg(target_os = "windows")]
 struct WindowsMouseHookContext {
-    app_handle: AppHandle,
-    toolbar_manager: ToolbarManager,
-    monitor_state: Arc<Mutex<MonitorState>>,
-    providers: Arc<ProviderList>,
+    gesture: SelectionGesture,
+    sender: std::sync::mpsc::SyncSender<(f64, f64)>,
 }
 
 #[cfg(target_os = "windows")]
@@ -752,41 +622,19 @@ unsafe extern "system" fn windows_mouse_hook_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    // Windows 低级鼠标钩子：仅转发鼠标移动与左键抬起至统一事件处理函数
-    if code < 0 {
-        return CallNextHookEx(None, code, wparam, lparam);
-    }
-
-    let context_ptr = WINDOWS_MOUSE_CONTEXT.load(Ordering::SeqCst);
-    if context_ptr.is_null() {
-        return CallNextHookEx(None, code, wparam, lparam);
-    }
-
-    let mouse_info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
-    let event_type = match wparam.0 as u32 {
-        WM_MOUSEMOVE => Some(EventType::MouseMove {
-            x: mouse_info.pt.x as f64,
-            y: mouse_info.pt.y as f64,
-        }),
-        WM_LBUTTONUP => Some(EventType::ButtonRelease(Button::Left)),
-        _ => None,
-    };
-
-    if let Some(event_type) = event_type {
-        let event = Event {
-            event_type,
-            name: None,
-            time: SystemTime::now(),
-        };
-
-        let context = &*context_ptr;
-        handle_event(
-            event,
-            &context.app_handle,
-            &context.toolbar_manager,
-            &context.monitor_state,
-            &context.providers,
-        );
+    if code >= 0 && matches!(wparam.0 as u32, WM_LBUTTONDOWN | WM_LBUTTONUP) {
+        let context = WINDOWS_MOUSE_CONTEXT.load(Ordering::Acquire);
+        if !context.is_null() {
+            let mouse_info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+            // The hook and its context are owned by the same message-loop thread.
+            let context = &mut *context;
+            let point = (f64::from(mouse_info.pt.x), f64::from(mouse_info.pt.y));
+            if wparam.0 as u32 == WM_LBUTTONDOWN {
+                context.gesture.press(point);
+            } else if context.gesture.release(point, Instant::now()) {
+                let _ = context.sender.try_send(point);
+            }
+        }
     }
 
     CallNextHookEx(None, code, wparam, lparam)
@@ -849,14 +697,35 @@ fn spawn_macos_selection_listener(
             let listener_state = shared_state.clone();
             let listener_providers = providers.clone();
 
+            let gesture = Mutex::new(SelectionGesture::default());
             match listen(move |event| {
-                handle_event(
-                    event,
-                    &listener_app,
-                    &listener_toolbar,
-                    &listener_state,
-                    &listener_providers,
-                );
+                if !matches!(
+                    event.event_type,
+                    EventType::ButtonPress(Button::Left) | EventType::ButtonRelease(Button::Left)
+                ) {
+                    return;
+                }
+                let Ok(point) = platform_cursor_position() else {
+                    return;
+                };
+                let Ok(mut gesture) = gesture.try_lock() else {
+                    return;
+                };
+                match event.event_type {
+                    EventType::ButtonPress(Button::Left) => gesture.press(point),
+                    EventType::ButtonRelease(Button::Left)
+                        if gesture.release(point, Instant::now()) =>
+                    {
+                        queue_selection_capture(
+                            point,
+                            &listener_app,
+                            &listener_toolbar,
+                            &listener_state,
+                            &listener_providers,
+                        );
+                    }
+                    _ => {}
+                }
             }) {
                 Ok(()) => {
                     log::warn!("Global selection monitor listener exited unexpectedly; restarting");
@@ -884,12 +753,23 @@ fn spawn_windows_selection_listener(
     providers: Arc<ProviderList>,
     shared_state: Arc<Mutex<MonitorState>>,
 ) {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    thread::spawn(move || {
+        while let Ok(point) = receiver.recv() {
+            queue_selection_capture(
+                point,
+                &app_handle,
+                &toolbar_manager,
+                &shared_state,
+                &providers,
+            );
+        }
+    });
+
     thread::spawn(move || unsafe {
         let context = Box::new(WindowsMouseHookContext {
-            app_handle,
-            toolbar_manager,
-            monitor_state: shared_state,
-            providers,
+            gesture: SelectionGesture::default(),
+            sender,
         });
         let context_ptr = Box::into_raw(context);
         WINDOWS_MOUSE_CONTEXT.store(context_ptr, Ordering::SeqCst);
@@ -912,7 +792,7 @@ fn spawn_windows_selection_listener(
         log::info!("Global selection monitor started (Windows mouse hook)"); // 启动监听线程（Windows）
 
         let mut message = MSG::default();
-        while GetMessageW(&mut message, None, 0, 0).into() {
+        while GetMessageW(&mut message, None, 0, 0).0 > 0 {
             let _ = TranslateMessage(&message);
             DispatchMessageW(&message);
         }
@@ -952,211 +832,99 @@ fn log_listener_error(error: &ListenError) {
     }
 }
 
-/// RAII 守卫：在异步任务结束时重置 capture_in_progress，确保异常退出也能复位
-struct CaptureResetGuard {
-    state: Arc<Mutex<MonitorState>>,
-}
-
-impl Drop for CaptureResetGuard {
-    fn drop(&mut self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.capture_in_progress = false;
-        }
-    }
-}
-
-/// 事件核心处理：
-/// - 鼠标移动：只更新坐标并返回；
-/// - 左键抬起：触发一次捕获流程；
-/// - 键盘事件（macOS）：直接忽略，避免输入干扰。
-///
-/// 性能优化说明：
-/// - 鼠标移动使用 try_lock 避免阻塞；
-/// - 左键抬起时合并多次锁获取为单次，减少锁竞争；
-/// - 所有状态检查在单次锁内完成后立即释放。
 #[cfg(any(target_os = "windows", target_os = "macos"))]
-fn handle_event(
-    event: Event,
+fn queue_selection_capture(
+    point: (f64, f64),
     app: &AppHandle,
     toolbar_manager: &ToolbarManager,
     monitor_state: &Arc<Mutex<MonitorState>>,
     providers: &Arc<ProviderList>,
 ) {
-    #[cfg(target_os = "macos")]
-    if matches!(
-        event.event_type,
-        EventType::KeyPress(_) | EventType::KeyRelease(_)
-    ) {
-        return;
-    }
-
-    // 鼠标移动：使用 try_lock 避免阻塞，失败则丢弃（高频事件可容忍丢失）
-    if let EventType::MouseMove { x, y } = event.event_type {
-        if let Ok(mut state) = monitor_state.try_lock() {
-            state.last_mouse_position = (x, y);
-        }
-        return;
-    }
-
-    if !matches!(event.event_type, EventType::ButtonRelease(Button::Left)) {
-        return;
-    }
-
-    // 检查功能开关（未开启则隐藏工具栏并返回）
-    let feature_enabled = match toolbar_manager.try_lock() {
-        Ok(state) => state.is_enabled(),
-        Err(_) => {
-            // 锁被占用时跳过本次触发，避免阻塞
-            log::debug!("Toolbar state lock busy, skipping this trigger");
+    let now = Instant::now();
+    if let Ok(mut state) = monitor_state.try_lock() {
+        if state.last_trigger_at.is_some_and(|previous| {
+            now.duration_since(previous) < Duration::from_millis(TRIGGER_DEBOUNCE_MS)
+        }) {
             return;
         }
-    };
-
-    if !feature_enabled {
-        schedule_hide_toolbar(app, Arc::clone(toolbar_manager));
-        return;
-    }
-
-    // 忽略主窗口自身的选中（仅响应外部应用）
-    // 注意：此检查放在锁操作之前，因为 is_focused 可能有一定开销
-    if let Some(window) = resolve_main_window(app) {
-        if window.is_focused().unwrap_or(false) {
-            return;
-        }
-    }
-
-    // 合并去抖检查和并发保护为单次锁获取，减少锁竞争
-    {
-        let mut state = match monitor_state.try_lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                // 锁被占用，说明有其他操作正在进行，跳过本次触发
-                log::debug!("Monitor state lock busy, skipping this trigger");
-                return;
-            }
-        };
-
-        let now = Instant::now();
-
-        // 去抖处理：若与上次触发间隔小于阈值则跳过
-        if let Some(last) = state.last_trigger_at {
-            if now.duration_since(last) < Duration::from_millis(TRIGGER_DEBOUNCE_MS) {
-                return;
-            }
-        }
-
-        // 并发保护：避免在慢速 UIA/Win32 操作期间再次进入捕获
-        if state.capture_in_progress {
-            log::debug!("Global selection capture skipped: previous capture still running");
-            return;
-        }
-
-        // 所有检查通过，更新状态
         state.last_trigger_at = Some(now);
-        state.capture_in_progress = true;
     }
 
-    // 克隆句柄：用于后续异步任务
-    let app_task = app.clone();
-    let toolbar_task = toolbar_manager.clone();
-    let state_task = Arc::clone(monitor_state);
-    let providers_task = Arc::clone(providers);
-
-    // 启动异步任务：避免阻塞输入钩子线程
+    let app = app.clone();
+    let toolbar_manager = toolbar_manager.clone();
+    let providers = providers.clone();
     tauri::async_runtime::spawn(async move {
-        // 守卫：确保任务结束后复位并发标记
-        let _reset_guard = CaptureResetGuard {
-            state: Arc::clone(&state_task),
-        };
+        if foreground_belongs_to_app(&app) {
+            return;
+        }
+        let identifiers = resolve_active_app_identifiers();
+        let allowed = toolbar_manager.lock().is_ok_and(|mut state| {
+            state.is_enabled()
+                && !state.is_temporarily_disabled()
+                && !identifiers.iter().any(|id| state.should_ignore_app(id))
+        });
+        if !allowed {
+            return;
+        }
 
-        // 在线程池中执行捕获（阻塞型），添加超时保护
-        // 防止 UIA/Accessibility API 卡死导致整个应用无响应
-        let capture_app = app_task.clone();
-        let capture_providers = Arc::clone(&providers_task);
-        let capture_task = tauri::async_runtime::spawn_blocking(move || {
-            capture_with_providers(&capture_app, &capture_providers)
+        let Some(guard) = CaptureGuard::try_acquire() else {
+            return;
+        };
+        #[cfg(target_os = "windows")]
+        let foreground = foreground_window_token();
+        let capture_app = app.clone();
+        let capture = tauri::async_runtime::spawn_blocking(move || {
+            let _guard = guard;
+            capture_with_providers(&capture_app, &providers)
         });
 
-        // 使用 tokio::time::timeout 添加超时保护
-        let capture_result =
-            tokio::time::timeout(Duration::from_millis(CAPTURE_TIMEOUT_MS), capture_task).await;
-
-        // 处理捕获结果（包括超时情况）
-        let selected_text = match capture_result {
-            Ok(Ok(text)) => text,
-            Ok(Err(error)) => {
-                log::error!("Global selection capture task panicked: {}", error);
-                None
-            }
-            Err(_) => {
-                // 捕获超时，这通常意味着 UIA/Accessibility API 卡住了
-                // 记录警告但不阻塞后续操作
-                log::warn!(
-                    "Global selection capture timed out after {} ms, skipping",
-                    CAPTURE_TIMEOUT_MS
-                );
-                None
-            }
-        };
-
-        // 如未获取到文本：隐藏工具栏并返回
-        let Some(selected_text) = selected_text else {
-            schedule_hide_toolbar(&app_task, toolbar_task.clone());
+        let Ok(Ok(text)) =
+            tokio::time::timeout(Duration::from_millis(CAPTURE_TIMEOUT_MS), capture).await
+        else {
+            log::debug!("Global selection capture failed or timed out");
             return;
         };
-
-        log::debug!(
-            "Global selection detected: {} characters (preview: \"{}\")",
-            selected_text.len(),
-            selected_text
-                .chars()
-                .take(50)
-                .collect::<String>()
-                .replace('\n', " ")
-                .replace('\r', "")
-        );
-
-        // 避免重复：与上次文本相同则跳过；否则使用最近记录的鼠标坐标
-        let maybe_position = {
-            let mut state = match state_task.lock() {
-                Ok(guard) => guard,
-                Err(err) => {
-                    log::error!("Failed to lock global selection state: {}", err);
-                    return;
-                }
-            };
-
-            let is_duplicate = state
-                .last_text
-                .as_ref()
-                .map(|previous| previous == &selected_text)
-                .unwrap_or(false);
-
-            if is_duplicate {
-                None
-            } else {
-                state.last_text = Some(selected_text.clone());
-                Some(CursorPosition {
-                    x: state.last_mouse_position.0,
-                    y: state.last_mouse_position.1,
-                })
-            }
-        };
-
-        let Some(position) = maybe_position else {
+        #[cfg(target_os = "windows")]
+        if foreground != foreground_window_token() {
+            return;
+        }
+        let Some(text) = text else {
             return;
         };
-
+        let position = CursorPosition {
+            x: point.0,
+            y: point.1,
+        };
         if let Err(error) =
-            show_selection_toolbar_with_manager(app_task, selected_text, position, toolbar_task)
-                .await
+            show_selection_toolbar_with_manager(app, text, position, toolbar_manager).await
         {
-            log::error!(
-                "Failed to show selection toolbar from global monitor: {}",
-                error
-            );
+            log::warn!("Failed to show selection toolbar from global monitor: {error}");
         }
     });
+}
+
+#[cfg(target_os = "windows")]
+fn foreground_window_token() -> usize {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    unsafe { GetForegroundWindow().0 as usize }
+}
+
+#[cfg(target_os = "windows")]
+fn foreground_belongs_to_app(_app: &AppHandle) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    let mut pid = 0;
+    unsafe {
+        GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut pid));
+    }
+    pid == std::process::id()
+}
+
+#[cfg(target_os = "macos")]
+fn foreground_belongs_to_app(app: &AppHandle) -> bool {
+    resolve_main_window(app).is_some_and(|window| window.is_focused().unwrap_or(false))
+        || app
+            .get_webview_window("selection-toolbar")
+            .is_some_and(|window| window.is_focused().unwrap_or(false))
 }
 
 /// 依优先级顺序使用各 provider 尝试捕获文本；第一个成功即返回，否则 None
@@ -1204,9 +972,11 @@ fn capture_with_providers(_app: &AppHandle, _providers: &ProviderList) -> Option
 /// - `None`: 无法获取任何有效文本
 fn capture_text_for_hotkey(app: &AppHandle) -> Option<String> {
     // 步骤 1: 优先使用系统原生 provider 捕获选中文本
-    let providers = build_providers();
-    if let Some(text) = capture_with_providers(app, &providers) {
-        return Some(text);
+    if let Some(_guard) = CaptureGuard::try_acquire() {
+        let providers = build_providers();
+        if let Some(text) = capture_with_providers(app, &providers) {
+            return Some(text);
+        }
     }
 
     // 步骤 2: 系统捕获失败，尝试从剪贴板读取作为回退方案

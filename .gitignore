@@ -17,6 +17,8 @@ target/
 
 # Build artifacts
 dist/
+test-results/
+playwright-report/
 *.log
 
 # IDEs

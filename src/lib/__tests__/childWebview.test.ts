@@ -8,28 +8,9 @@ import {
 import { invoke } from '@tauri-apps/api/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// basic mock for current webview window events
-vi.mock('@tauri-apps/api/webviewWindow', () => {
-  const listeners: Record<string, Array<(event: { payload?: unknown }) => void>> = {}
-  return {
-    getCurrentWebviewWindow: () => ({
-      listen: (event: string, cb: (event: { payload?: unknown }) => void) => {
-        listeners[event] ||= []
-        listeners[event].push(cb)
-        return Promise.resolve(() => {
-          const arr = listeners[event] || []
-          const idx = arr.indexOf(cb)
-          if (idx >= 0)
-            arr.splice(idx, 1)
-        })
-      },
-      // helper for tests
-      __emit: (event: string, payload?: unknown) => {
-        (listeners[event] || []).forEach(fn => fn({ payload }))
-      },
-    }),
-  }
-})
+vi.mock('@tauri-apps/api/webviewWindow', () => ({
+  getCurrentWebviewWindow: vi.fn(),
+}))
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -167,31 +148,20 @@ describe('childWebviewProxy', () => {
     })
   })
 
-  it('waits for load finished event before resolving', async () => {
-    const bounds = sampleBounds()
+  it('uses the persisted native page state even if load finished before subscribing', async () => {
     const proxy = new ChildWebviewProxy('alpha', 'https://example.com', null)
-    await proxy.ensure(bounds)
+    invokeMock.mockResolvedValue(true)
 
-    // get the mocked window to emit event
-    const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
-    interface MockWin { __emit: (event: string, payload?: unknown) => void }
-    const win = getCurrentWebviewWindow() as unknown as MockWin
-
-    const p = proxy.waitForLoadFinished(1000)
-    // not resolved yet
-    let resolved = false
-    p.then(() => {
-      resolved = true
+    await expect(proxy.waitForLoadFinished(1000)).resolves.toBe(true)
+    expect(invokeMock).toHaveBeenCalledWith('wait_child_webview_ready', {
+      payload: { id: 'alpha' },
+      timeoutMs: 1000,
     })
+  })
 
-    // emit a different id -> should not resolve
-    win.__emit('child-webview:ready', { id: 'beta' })
-    await new Promise(r => setTimeout(r, 10))
-    expect(resolved).toBe(false)
-
-    // emit the matching id -> should resolve
-    win.__emit('child-webview:ready', { id: 'alpha' })
-    await new Promise(r => setTimeout(r, 10))
-    expect(resolved).toBe(true)
+  it('reports a native page load timeout', async () => {
+    const proxy = new ChildWebviewProxy('alpha', 'https://example.com', null)
+    invokeMock.mockResolvedValue(false)
+    await expect(proxy.waitForLoadFinished(1000)).resolves.toBe(false)
   })
 })

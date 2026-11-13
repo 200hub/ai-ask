@@ -7,7 +7,7 @@
   /**
    * 侧边栏组件 - 显示AI平台图标和功能入口
    */
-  import { Languages, Settings } from 'lucide-svelte'
+  import { Languages, Settings } from '@lucide/svelte'
 
   const t = i18n.t
 

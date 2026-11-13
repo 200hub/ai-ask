@@ -136,7 +136,7 @@ export const i18n = {
   // 当前语言
   locale: {
     subscribe: currentLocale.subscribe,
-    set: (locale: Locale) => {
+    set: async (locale: Locale) => {
       if (!SUPPORTED_LOCALES.some(l => l.code === locale)) {
         return
       }
@@ -146,9 +146,8 @@ export const i18n = {
         return
       }
 
-      void ensureLocaleLoaded(locale).then(() => {
-        currentLocale.set(locale)
-      })
+      await ensureLocaleLoaded(locale)
+      currentLocale.set(locale)
     },
     get: () => {
       let value: Locale = DEFAULT_LOCALE

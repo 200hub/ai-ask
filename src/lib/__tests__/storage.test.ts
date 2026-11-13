@@ -46,6 +46,9 @@ const builtInTranslation: TranslationPlatform[] = [
 
 let storeData: StoreData = {}
 const saveSpy = vi.fn()
+const invokeSpy = vi.fn()
+
+vi.doMock('@tauri-apps/api/core', () => ({ invoke: invokeSpy }))
 
 class MockStore {
   static async load() {
@@ -60,16 +63,21 @@ class MockStore {
     storeData[key] = value
   }
 
+  async delete(key: string): Promise<void> {
+    delete storeData[key]
+  }
+
   async save(): Promise<void> {
     saveSpy()
   }
 }
 
-vi.mock('@tauri-apps/plugin-store', () => ({
+vi.doMock('@tauri-apps/plugin-store', () => ({
   Store: MockStore,
 }))
 
-vi.mock('$lib/utils/constants', () => ({
+vi.doMock('$lib/utils/constants', async importOriginal => ({
+  ...await importOriginal<typeof import('$lib/utils/constants')>(),
   BUILT_IN_AI_PLATFORMS: builtInAI,
   BUILT_IN_TRANSLATION_PLATFORMS: builtInTranslation,
   DESKTOP_NOTES: {
@@ -105,12 +113,13 @@ let deleteAIPlatform: (typeof import('$lib/utils/storage'))['deleteAIPlatform']
 let getTranslationPlatforms: (typeof import('$lib/utils/storage'))['getTranslationPlatforms']
 let resetToDefaults: (typeof import('$lib/utils/storage'))['resetToDefaults']
 let getDesktopNotes: (typeof import('$lib/utils/storage'))['getDesktopNotes']
-let saveDesktopNotes: (typeof import('$lib/utils/storage'))['saveDesktopNotes']
+let saveDesktopNotePatches: (typeof import('$lib/utils/storage'))['saveDesktopNotePatches']
 let loadNoteBounds: (typeof import('$lib/utils/storage'))['loadNoteBounds']
 
 beforeEach(async () => {
   storeData = {}
   saveSpy.mockClear()
+  invokeSpy.mockClear()
   vi.resetModules()
 
   const storageModule = await import('$lib/utils/storage')
@@ -123,11 +132,25 @@ beforeEach(async () => {
   getTranslationPlatforms = storageModule.getTranslationPlatforms
   resetToDefaults = storageModule.resetToDefaults
   getDesktopNotes = storageModule.getDesktopNotes
-  saveDesktopNotes = storageModule.saveDesktopNotes
+  saveDesktopNotePatches = storageModule.saveDesktopNotePatches
   loadNoteBounds = storageModule.loadNoteBounds
 })
 
 describe('storage utilities', () => {
+  it('keeps Todo view preferences independent per note and clears them on removal', async () => {
+    const { deleteNoteTodoPreferences, loadNoteTodoPreferences, saveNoteTodoPreferences } = await import('$lib/utils/storage')
+    await Promise.all([
+      saveNoteTodoPreferences('first', { hideCompleted: true, sort: 'deadline' }),
+      saveNoteTodoPreferences('second', { hideCompleted: false, sort: 'priority' }),
+    ])
+    expect(await loadNoteTodoPreferences('first')).toEqual({ hideCompleted: true, sort: 'deadline' })
+    expect(await loadNoteTodoPreferences('second')).toEqual({ hideCompleted: false, sort: 'priority' })
+
+    await deleteNoteTodoPreferences('first')
+    expect(await loadNoteTodoPreferences('first')).toEqual({ hideCompleted: false, sort: 'manual' })
+    expect(await loadNoteTodoPreferences('second')).toEqual({ hideCompleted: false, sort: 'priority' })
+  })
+
   it('returns default config on first load and persists it', async () => {
     const config = await getConfig()
 
@@ -174,6 +197,17 @@ describe('storage utilities', () => {
     expect(updated.proxy).toEqual({ type: 'custom', host: 'proxy.local', port: '7000' })
     expect(updated.theme).toBe('dark')
     expect(storeData[STORAGE_KEYS.CONFIG]).toMatchObject({ theme: 'dark' })
+  })
+
+  it('keeps changes from concurrent configuration updates', async () => {
+    await saveConfig(DEFAULT_CONFIG)
+
+    await Promise.all([
+      updateConfig({ theme: 'dark' }),
+      updateConfig({ desktopNotesEnabled: true }),
+    ])
+
+    expect(await getConfig()).toMatchObject({ theme: 'dark', desktopNotesEnabled: true })
   })
 
   it('initializes AI platforms from built-ins when empty', async () => {
@@ -294,31 +328,10 @@ describe('storage utilities', () => {
     expect(notes[0].bounds.height).toBeGreaterThanOrEqual(180)
   })
 
-  it('persists desktop notes through the shared store', async () => {
-    await saveDesktopNotes([
-      {
-        id: 'note-2',
-        title: 'Saved',
-        content: '- item',
-        color: 'mint',
-        visible: true,
-        bounds: { x: 38, y: 43, width: 307, height: 281 },
-        createdAt: 10,
-        updatedAt: 11,
-        deletedAt: null,
-        sync: {
-          dirty: true,
-          lastSyncedAt: null,
-        },
-      },
-    ])
-
-    expect(storeData.desktop_notes).toEqual([
-      expect.objectContaining({
-        id: 'note-2',
-        color: 'mint',
-      }),
-    ])
+  it('delegates note patches to the native transaction', async () => {
+    const patches = [{ noteId: 'note-2', updates: { content: '- item' } }]
+    await saveDesktopNotePatches(patches)
+    expect(invokeSpy).toHaveBeenCalledWith('persist_desktop_note_patches', { patches })
   })
 
   it('ignores corrupted per-note bounds instead of returning poisoned coordinates', async () => {

@@ -1,165 +1,146 @@
-# Release
-
-# Main release workflow triggered by version tags
-# Coordinates validation, building, and GitHub Release creation
-#
-# Workflow Steps:
-#   1. Validate: Check version format and consistency across files
-#   2. Build Desktop: Build Windows (x64, ARM64), macOS (Intel, ARM), Linux (x64)
-#   3. Build Mobile: Build Android (APK/AAB) and iOS (IPA) if secrets are configured
-#   4. Release: Create GitHub Release with all artifacts (use GitHub auto-generated notes)
-#
-# Platform Support:
-#   - Windows: x64, ARM64 (MSI, NSIS installers)
-#   - macOS: Intel, Apple Silicon (DMG, App bundle)
-#   - Linux: x64 (DEB, AppImage)
-#   - Android: APK, AAB (requires signing secrets)
-#   - iOS: IPA (requires signing secrets)
-#
-# Required Secrets for Mobile (optional):
-#   - ANDROID_KEYSTORE, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
-#   - IOS_CERTIFICATE_P12, IOS_CERTIFICATE_PASSWORD, IOS_PROVISIONING_PROFILE
+name: Release
 
 on:
-  # Trigger on version tags (v*.*.*)
   push:
-    tags:
-      - 'v*.*.*'
-      - 'v*'          # allow any v-prefixed tag
-      - '*.*.*'       # allow tags without v prefix
-  # Also run when a GitHub Release is published
-  release:
-    types: [published]
-  
-  # Allow manual trigger with version input
+    branches: [main]
+    tags: ['v*.*.*']
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version number (without v prefix, e.g., 1.0.0)'
-        required: true
-        type: string
 
-# Required permissions
 permissions:
-  contents: write  # For creating releases and uploading assets
+  contents: read
 
 jobs:
-  # Step 1: Validate version consistency
-  validate:
-    name: Validate Version
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-      
-      - name: Validate version format and consistency
-        run: node .github/scripts/validate-version.js
-  
-  # Step 2: Generate custom release notes (no file writes)
-  release-notes:
-    name: Generate Release Notes
-    needs: validate
+  prepare:
+    name: Resolve Release Version
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     outputs:
-      notes: ${{ steps.generate.outputs.notes }}
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+      pending: ${{ steps.version.outputs.pending }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+          persist-credentials: false
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - name: Generate notes
-        id: generate
-        run: node .github/scripts/generate-release-notes.js
-
-  # Step 3: Build desktop platforms
-  build-desktop:
-    name: Build Desktop Platforms
-    needs: validate
-    uses: ./.github/workflows/build-desktop.yml
-  
-  # Step 3b: Build mobile platforms (optional, requires secrets)
-  build-mobile:
-    name: Build Mobile Platforms
-    needs: validate
-    uses: ./.github/workflows/build-mobile.yml
-    secrets: inherit
-  
-  # Step 4: Create GitHub Release with artifacts
-  release:
-    name: Create GitHub Release
-    needs: [validate, release-notes, build-desktop, build-mobile]
-    if: always() && needs.validate.result == 'success' && needs.release-notes.result == 'success'
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      
-      - name: Get version from tag
+      - name: Resolve version and source commit
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
-            echo "TAG=v${{ inputs.version }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "release" ]; then
-            TAG_NAME="${{ github.event.release.tag_name }}"
-            echo "TAG=${TAG_NAME}" >> $GITHUB_OUTPUT
-            # Strip leading 'v' if present to get pure version number
-            VERSION=${TAG_NAME#v}
-            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          else
-            # push event on tag
-            TAG_REF="${GITHUB_REF#refs/tags/}"
-            echo "TAG=${TAG_REF}" >> $GITHUB_OUTPUT
-            VERSION=${TAG_REF#v}
-            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          node .github/scripts/validate-version.js --source-only
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          tag="v$version"
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "$tag" ]]; then
+            echo "::error::The pushed tag $GITHUB_REF_NAME does not match $tag in the source."
+            exit 1
           fi
-      
-      # Download all artifacts from previous jobs into ./artifacts
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          if jq -e --arg tag "$tag" 'any(.[][]; .tag_name == $tag and .draft == false)' <<< "$releases" > /dev/null; then
+            echo "$tag already has a published Release."
+            echo 'pending=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            sha=$(git rev-parse "refs/tags/$tag^{commit}")
+            if ! git merge-base --is-ancestor "$sha" origin/main; then
+              echo "::error::The existing tag $tag is outside main."
+              exit 1
+            fi
+            git checkout --detach "$sha"
+            GITHUB_REF_NAME="$tag" node .github/scripts/validate-version.js
+          else
+            sha=$(git rev-parse HEAD)
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "sha=$sha"
+            echo 'pending=true'
+          } >> "$GITHUB_OUTPUT"
+
+  desktop:
+    name: Build Desktop Platforms
+    needs: prepare
+    if: needs.prepare.outputs.pending == 'true'
+    uses: ./.github/workflows/build-desktop.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.sha }}
+
+  publish:
+    name: Publish GitHub Release
+    needs: [prepare, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-release-${{ needs.prepare.outputs.tag }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Check installers and publish
+        shell: bash
+        run: |
+          version=${TAG#v}
+          shopt -s nullglob globstar
+          assets=()
 
-      # List all artifacts for debugging (do not fail if none)
-      - name: List artifacts
-        run: |
-          echo "📦 Available artifacts:"
-          if [ -d artifacts ]; then
-            find artifacts -type f -exec echo "  {}" \;
-          else
-            echo "  (none)"
+          require_installer() {
+            local expected=$1
+            shift
+            if [[ "$#" != 1 || ! -s "$1" ]]; then
+              echo "::error::Expected one non-empty $expected installer."
+              exit 1
+            fi
+            assets+=("$1")
+          }
+
+          require_installer 'Windows x64 NSIS' "artifacts/windows-x64-$version"/**/*.exe
+          require_installer 'Windows ARM64 NSIS' "artifacts/windows-arm64-$version"/**/*.exe
+          require_installer 'Linux x64 DEB' "artifacts/linux-x64-$version"/**/*.deb
+          require_installer 'Linux x64 AppImage' "artifacts/linux-x64-$version"/**/*.AppImage
+          require_installer 'macOS Intel DMG' "artifacts/macos-intel-$version"/**/*.dmg
+          require_installer 'macOS Apple Silicon DMG' "artifacts/macos-arm64-$version"/**/*.dmg
+
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          state=$(jq -r --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | first | if . == null then "missing" elif .draft then "draft" else "published" end' <<< "$releases")
+          if [[ "$state" == published ]]; then
+            echo "$TAG already has a published Release."
+            exit 0
           fi
-      
-      # Delete existing release if it exists (for re-runs)
-      - name: Delete existing release
-        continue-on-error: true
-        run: |
-          gh release delete ${{ steps.version.outputs.TAG }} --yes --cleanup-tag || true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      # Create GitHub Release
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.version.outputs.TAG }}
-          name: AI Ask ${{ steps.version.outputs.TAG }}
-          body: ${{ needs.release-notes.outputs.notes }}
-          draft: false
-          prerelease: ${{ contains(steps.version.outputs.TAG, '-') }}
-          files: |
-            artifacts/**/*
-          fail_on_unmatched_files: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          git fetch --tags origin
+          if ! git show-ref --verify --quiet "refs/tags/$TAG"; then
+            git tag "$TAG" "$SOURCE_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+          if [[ "$(git rev-parse "refs/tags/$TAG^{commit}")" != "$SOURCE_SHA" ]]; then
+            echo "::error::The existing tag $TAG does not point to the built commit $SOURCE_SHA."
+            exit 1
+          fi
+
+          if [[ "$state" == missing ]]; then
+            flags=()
+            if [[ "${version%%+*}" == *-* ]]; then
+              flags+=(--prerelease)
+            fi
+            gh release create "$TAG" --verify-tag --draft --generate-notes --title "AI Ask $TAG" "${flags[@]}"
+          fi
+          gh release upload "$TAG" "${assets[@]}" --clobber
+          gh release edit "$TAG" --verify-tag --draft=false
+          gh release view "$TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"

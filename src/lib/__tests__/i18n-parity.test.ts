@@ -4,6 +4,7 @@ import type { TranslationDict } from '../i18n'
  * 确保四种 locale 的 key 集合完全相同，避免漏翻译。
  */
 import { describe, expect, it } from 'vitest'
+import { i18n } from '../i18n'
 import { enUS } from '../i18n/locales/en-US'
 import { jaJP } from '../i18n/locales/ja-JP'
 import { koKR } from '../i18n/locales/ko-KR'
@@ -24,6 +25,19 @@ function flatten(dict: TranslationDict, prefix = '', out = new Set<string>()): S
 }
 
 describe('i18n locale parity', () => {
+  it('loads the configured task editor labels before the locale promise resolves', async () => {
+    try {
+      await i18n.locale.set('en-US')
+      expect(i18n.t('desktopNotes.todo.deadline')).toBe('Due date')
+      await i18n.locale.set('ja-JP')
+      expect(i18n.t('desktopNotes.todo.deadline')).toBe('期限')
+      await i18n.locale.set('ko-KR')
+      expect(i18n.t('desktopNotes.todo.deadline')).toBe('마감일')
+    }
+    finally {
+      await i18n.locale.set('zh-CN')
+    }
+  })
   const zh = flatten(zhCN as unknown as TranslationDict)
   const en = flatten(enUS as unknown as TranslationDict)
   const ja = flatten(jaJP as unknown as TranslationDict)

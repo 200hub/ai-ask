@@ -2,13 +2,15 @@
  * 应用配置状态管理 - 使用 Svelte 5 Runes
  */
 import type { AppConfig } from '../types/config'
+import type { ShortcutKind, ShortcutStatus } from '../types/shortcut'
 
 import { invoke } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 
 import { DEFAULT_CONFIG } from '../types/config'
+import { GLOBAL_SHORTCUT_COMMANDS } from '../utils/constants'
 import { logger } from '../utils/logger'
-import { getConfig, saveConfig, updateConfig } from '../utils/storage'
+import { getConfig, saveConfig, updateConfig, withConfigWrite } from '../utils/storage'
 
 /**
  * 配置管理类
@@ -22,6 +24,7 @@ class ConfigStore {
 
   // 辅助功能权限状态（macOS）
   accessibilityPermissionGranted = $state<boolean>(true)
+  shortcutStatuses = $state<Partial<Record<ShortcutKind, ShortcutStatus>>>({})
 
   /**
    * 初始化配置
@@ -222,25 +225,26 @@ class ConfigStore {
     }
   }
 
-  /**
-   * 设置全局快捷键
-   */
-  async setGlobalHotkey(hotkey: string) {
-    await this.update({ globalHotkey: hotkey })
+  async refreshShortcuts() {
+    try {
+      return await withConfigWrite(async () => {
+        const statuses = await invoke<ShortcutStatus[]>(GLOBAL_SHORTCUT_COMMANDS.GET_STATUSES)
+        this.shortcutStatuses = Object.fromEntries(statuses.map(status => [status.kind, status]))
+        return statuses.filter(status => status.failure !== null)
+      })
+    }
+    catch (error) {
+      logger.warn('Could not read global shortcut statuses', error)
+      return []
+    }
   }
 
-  /**
-   * 设置翻译快捷键
-   */
-  async setTranslationHotkey(hotkey: string) {
-    await this.update({ translationHotkey: hotkey })
-  }
-
-  /**
-   * 设置划词工具栏快捷键
-   */
-  async setSelectionToolbarHotkey(hotkey: string) {
-    await this.update({ selectionToolbarHotkey: hotkey })
+  async setShortcut(kind: ShortcutKind, accelerator: string) {
+    await withConfigWrite(async () => {
+      const status = await invoke<ShortcutStatus>(GLOBAL_SHORTCUT_COMMANDS.SET, { kind, accelerator })
+      this.config[kind] = status.accelerator
+      this.shortcutStatuses[kind] = status
+    })
   }
 
   /**

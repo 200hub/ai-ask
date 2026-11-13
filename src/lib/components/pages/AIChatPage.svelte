@@ -19,6 +19,7 @@
   import { WebviewReflowScheduler, WebviewWindowEventManager } from '$lib/utils/webview-events'
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
   import { onDestroy, onMount } from 'svelte'
+  import { SvelteMap } from 'svelte/reactivity'
 
   type ManagedWebview = ChildWebviewProxy
   const t = i18n.t
@@ -35,7 +36,7 @@
   const reflowScheduler = new WebviewReflowScheduler()
 
   /** 子 webview 映射表: platformId -> 子 webview 代理 */
-  let webviewWindows = $state<Map<string, ManagedWebview>>(new Map())
+  const webviewWindows = new SvelteMap<string, ManagedWebview>()
 
   /** 当前激活的平台ID */
   let activePlatformId = $state<string | null>(null)
@@ -110,7 +111,7 @@
 
     await Promise.all(closeTasks)
 
-    webviewWindows = new Map() as typeof webviewWindows
+    webviewWindows.clear()
     shouldRestoreWebviews = false
 
     // 递增序列号，触发重新显示当前平台

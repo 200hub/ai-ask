@@ -8,7 +8,7 @@ These instructions help AI coding agents work productively in this repo. Focus o
 
 ## Big Picture
 
-- **Tech stack**: Tauri 2.x (Rust backend) + SvelteKit 2 (SPA mode) + Svelte 5 Runes
+- **Tech stack**: Tauri 2.x (Rust backend) + SvelteKit 3 (SPA mode) + Svelte 5 Runes
 - **Architecture**: Main window (Svelte SPA) + child webviews (one per AI platform, managed by Rust)
 - **Why**: SPA for fast UI; child webviews isolate AI sites (sessions, proxy, security)
 - **Key pattern**: Frontend coordinates via `ChildWebviewProxy` wrapper → Rust manages actual webviews via `invoke()` commands

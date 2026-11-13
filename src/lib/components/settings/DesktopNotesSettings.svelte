@@ -1,16 +1,18 @@
 <script lang='ts'>
-  import type { DesktopNoteBounds } from '$lib/types/desktop-note'
+  import type { DesktopNote, DesktopNoteBounds, DesktopNoteKind } from '$lib/types/desktop-note'
   import { i18n } from '$lib/i18n'
+  import { appState } from '$lib/stores/app.svelte'
   import { configStore } from '$lib/stores/config.svelte'
   import { desktopNotesStore } from '$lib/stores/desktop-notes.svelte'
   import {
     DESKTOP_NOTE_COLOR_PRESETS,
-    DESKTOP_NOTES,
     SUPABASE,
   } from '$lib/utils/constants'
+  import { parseDesktopNoteTodos } from '$lib/utils/desktop-note-todo'
   import { logger } from '$lib/utils/logger'
+  import { watchDesktopNotes } from '$lib/utils/storage'
   import { isSupabaseAvailable, resetPassword } from '$lib/utils/supabase'
-  import { onDestroy, onMount } from 'svelte'
+  import { onMount } from 'svelte'
 
   const t = i18n.t
 
@@ -21,41 +23,33 @@
   let authStatus = $state('')
 
   const activeNotes = $derived(desktopNotesStore.activeNotes)
-  const uniqueActiveNotes = $derived.by(() => {
-    const seen = new Set<string>()
-    const result: typeof activeNotes = []
-    for (const note of activeNotes) {
-      if (seen.has(note.id)) {
-        continue
-      }
-      seen.add(note.id)
-      result.push(note)
-    }
-    return result
-  })
   const session = $derived(desktopNotesStore.session)
   const lastSyncedAt = $derived(configStore.config.desktopNotesLastSyncedAt)
   // 云同步后端是否可用（开发阶段可能未配置，打包后一定可用）
   const syncAvailable = $derived(isSupabaseAvailable())
 
-  // 设置页与便签窗口处于不同 Tauri webview，store 实例独立。
-  // 每次进入设置页时强制重新读取持久化数据，保证列表数据最新。
-  // 同时定期轮询刷新，确保便签窗口的修改能及时反映到设置页列表。
-  let refreshTimer: ReturnType<typeof setInterval> | null = null
-
   onMount(() => {
-    void desktopNotesStore.init(true)
     void desktopNotesStore.refreshSession()
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    const refresh = () => {
+      if (!disposed && !isBusy) {
+        void desktopNotesStore.init(true).catch(error => logger.warn('Failed to refresh desktop notes', error))
+      }
+    }
+    void watchDesktopNotes(refresh).then((cleanup) => {
+      if (disposed) {
+        cleanup()
+        return
+      }
+      unlisten = cleanup
+      refresh()
+    }).catch(error => logger.warn('Failed to subscribe to desktop note changes', error))
+    refresh()
 
-    refreshTimer = setInterval(() => {
-      void desktopNotesStore.init(true)
-    }, DESKTOP_NOTES.SETTINGS_REFRESH_INTERVAL_MS)
-  })
-
-  onDestroy(() => {
-    if (refreshTimer) {
-      clearInterval(refreshTimer)
-      refreshTimer = null
+    return () => {
+      disposed = true
+      unlisten?.()
     }
   })
 
@@ -92,6 +86,13 @@
     return `${Math.round(bounds.width)}×${Math.round(bounds.height)}`
   }
 
+  function notePreview(note: DesktopNote): string {
+    if (note.kind === 'todo') {
+      return parseDesktopNoteTodos(note.content).map(item => item.text).join('\n')
+    }
+    return note.content
+  }
+
   async function handleFeatureToggle(event: Event) {
     const enabled = (event.target as HTMLInputElement).checked
     isBusy = true
@@ -99,7 +100,8 @@
     try {
       await configStore.setDesktopNotesEnabled(enabled)
       if (enabled) {
-        await desktopNotesStore.restoreVisibleWindows({ recoverHidden: false })
+        await desktopNotesStore.init(true)
+        await desktopNotesStore.restoreVisibleWindows()
       }
       else {
         await desktopNotesStore.hideAllWindows()
@@ -107,6 +109,7 @@
     }
     catch (error) {
       logger.error('Failed to toggle desktop notes feature', error)
+      appState.setError(t('desktopNotes.openError'))
     }
     finally {
       isBusy = false
@@ -123,16 +126,15 @@
     }
   }
 
-  async function handleCreateNote() {
+  async function handleCreateNote(kind: DesktopNoteKind) {
     isBusy = true
     try {
-      const note = await desktopNotesStore.createNote()
-      if (configStore.config.desktopNotesEnabled) {
-        await desktopNotesStore.openNoteWindow(note.id)
-      }
+      const note = await desktopNotesStore.createNote(kind)
+      await handleOpenNote(note.id)
     }
     catch (error) {
       logger.error('Failed to create desktop note', error)
+      appState.setError(t('desktopNotes.openError'))
     }
     finally {
       isBusy = false
@@ -140,11 +142,22 @@
   }
 
   async function handleOpenNote(noteId: string) {
+    const wasBusy = isBusy
+    isBusy = true
     try {
-      await desktopNotesStore.openNoteWindow(noteId)
+      await desktopNotesStore.init(true)
+      if (!configStore.config.desktopNotesEnabled) {
+        await configStore.setDesktopNotesEnabled(true)
+        await desktopNotesStore.restoreVisibleWindows()
+      }
+      await desktopNotesStore.openNoteWindow(noteId, true)
     }
     catch (error) {
       logger.error('Failed to open desktop note', { noteId, error })
+      appState.setError(t('desktopNotes.openError'))
+    }
+    finally {
+      isBusy = wasBusy
     }
   }
 
@@ -272,6 +285,7 @@
       <label class='toggle-switch'>
         <input
           type='checkbox'
+          aria-label={t('desktopNotes.enabled')}
           checked={configStore.config.desktopNotesEnabled}
           onchange={handleFeatureToggle}
           disabled={isBusy}
@@ -286,8 +300,11 @@
         <span class='label-description'>{t('desktopNotes.createDescription')}</span>
       </div>
       <div class='actions-row'>
-        <button class='btn-primary' type='button' onclick={handleCreateNote} disabled={isBusy}>
+        <button class='btn-primary' type='button' onclick={() => handleCreateNote('markdown')} disabled={isBusy}>
           {t('desktopNotes.create')}
+        </button>
+        <button class='btn-secondary' type='button' onclick={() => handleCreateNote('todo')} disabled={isBusy}>
+          {t('desktopNotes.todo.create')}
         </button>
       </div>
     </div>
@@ -296,29 +313,30 @@
   <div class='setting-group'>
     <h3 class='group-title'>{t('desktopNotes.listTitle')}</h3>
 
-    {#if uniqueActiveNotes.length === 0}
+    {#if activeNotes.length === 0}
       <div class='empty-state'>{t('desktopNotes.empty')}</div>
     {:else}
       <div class='note-list'>
-        {#each uniqueActiveNotes as note (note.id)}
+        {#each activeNotes as note (note.id)}
+          {@const preview = notePreview(note)}
           <div class='note-card'>
             <div class='note-card-header'>
               <div class='note-color' style={colorPreviewStyle(note.color)}>
                 {t(`desktopNotes.colors.${note.color}`)}
               </div>
               <div class='note-meta'>
-                <div class='note-title'>{note.content ? note.content.split('\n')[0].replace(/^#+\s*/, '').slice(0, 30) : t('desktopNotes.emptyContent')}</div>
+                <div class='note-title'>{preview ? preview.split('\n')[0].replace(/^#+\s*/, '').slice(0, 30) : t('desktopNotes.emptyContent')}</div>
                 <div class='note-subtitle'>
-                  {noteSizeLabel(note.bounds)}
+                  {t(note.kind === 'todo' ? 'desktopNotes.todo.label' : 'desktopNotes.markdownLabel')} · {noteSizeLabel(note.bounds)}
                 </div>
               </div>
             </div>
-            <div class='note-preview'>{note.content || t('desktopNotes.emptyContent')}</div>
+            <div class='note-preview'>{preview || t('desktopNotes.emptyContent')}</div>
             <div class='note-actions'>
-              <button class='btn-secondary' type='button' onclick={() => handleOpenNote(note.id)}>
+              <button class='btn-secondary' type='button' disabled={isBusy} onclick={() => handleOpenNote(note.id)}>
                 {t('desktopNotes.open')}
               </button>
-              <button class='btn-danger' type='button' onclick={() => handleDeleteNote(note.id)}>
+              <button class='btn-danger' type='button' disabled={isBusy} onclick={() => handleDeleteNote(note.id)}>
                 {t('desktopNotes.delete')}
               </button>
             </div>

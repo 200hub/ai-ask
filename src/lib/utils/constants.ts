@@ -209,7 +209,7 @@ export const BUILT_IN_TRANSLATION_PLATFORMS: TranslationPlatform[] = [
  */
 export const APP_INFO = {
   name: 'AI Ask',
-  version: '0.0.1-beta.8',
+  version: '0.0.1-beta.9',
   description: '一个简洁高效的AI问答助手',
   author: 'AI Ask Team',
   repository: 'https://github.com/200hub/ai-ask',
@@ -263,6 +263,19 @@ export const SELECTION_TOOLBAR_SHORTCUTS = [
   'Alt+Shift+S',
 ]
 
+export const GLOBAL_SHORTCUT_SETTINGS = [
+  { kind: 'globalHotkey', options: AVAILABLE_SHORTCUTS },
+  { kind: 'translationHotkey', options: TRANSLATION_SHORTCUTS },
+  { kind: 'selectionToolbarHotkey', options: SELECTION_TOOLBAR_SHORTCUTS },
+] as const
+
+export const GLOBAL_SHORTCUT_OPTIONS = GLOBAL_SHORTCUT_SETTINGS.flatMap(({ options }) => options)
+
+export const GLOBAL_SHORTCUT_COMMANDS = {
+  GET_STATUSES: 'get_global_shortcut_statuses',
+  SET: 'set_global_shortcut',
+} as const
+
 /**
  * 默认窗口配置
  */
@@ -274,39 +287,20 @@ export const DEFAULT_WINDOW_CONFIG = {
 }
 
 /**
- * 侧边栏配置
- */
-export const SIDEBAR_CONFIG = {
-  width: 70,
-  iconSize: 40,
-  gap: 12,
-}
-
-/**
  * 时间相关常量（毫秒）
  */
 export const TIMING = {
-  /** 快捷键限流时间间隔 */
-  SHORTCUT_THROTTLE_MS: 350,
-  /** 隐藏窗口前等待时间 */
-  HIDE_WINDOW_DELAY_MS: 100,
-  /** 代理测试超时时间（秒） */
-  PROXY_TEST_TIMEOUT_SECS: 10,
+  PLATFORM_PRELOAD_DELAY_MS: 1000,
   /** 错误消息自动清除时间 */
   ERROR_AUTO_CLEAR_MS: 5000,
   /** WebView 最小显示加载动画的时长（毫秒） */
   MIN_WEBVIEW_LOADING_MS: 800,
   /** WebView 复用场景下的最小加载动画时长（毫秒），用于加速已存在窗口的切换体验 */
-  /** WebView 复用场景下的最小时长（毫秒） */
   MIN_WEBVIEW_LOADING_WARM_MS: 120,
   /** WebView 聚焦后额外的就绪等待时间（毫秒） */
   WEBVIEW_READY_EXTRA_DELAY_MS: 200,
   /** 等待子 WebView 加载完成的最长时间（毫秒） - 用于新创建的 WebView */
   CHILD_WEBVIEW_READY_TIMEOUT_MS: 8000,
-  /** 等待已存在的子 WebView 就绪的超时时间（毫秒） - 更短的超时用于已创建的 WebView */
-  EXISTING_WEBVIEW_READY_TIMEOUT_MS: 2000,
-  /** 显示加载状态的最小延迟（毫秒） - 如果 WebView 很快就绪，不显示加载动画 */
-  LOADING_INDICATOR_MIN_DELAY_MS: 500,
 } as const
 
 /**
@@ -315,8 +309,6 @@ export const TIMING = {
 export const NETWORK = {
   /** 代理测试目标 URL */
   PROXY_TEST_URL: 'https://www.google.com',
-  /** HTTP 重定向限制次数 */
-  HTTP_REDIRECT_LIMIT: 5,
 } as const
 
 /**
@@ -333,16 +325,11 @@ export const EVENTS = {
   TRANSLATION_HOTKEY_TRIGGERED: 'translation-hotkey-triggered',
   /** 确保翻译可见事件 */
   ENSURE_TRANSLATION_VISIBLE: 'ensureTranslationVisible',
-  /** 子 WebView 页面开始加载 */
-  CHILD_WEBVIEW_LOAD_STARTED: 'child-webview:load-started',
-  /** 子 WebView 页面加载完成 */
-  CHILD_WEBVIEW_READY: 'child-webview:ready',
   /** 注入结果（通过特殊导航传回） */
   CHILD_WEBVIEW_INJECTION_RESULT: 'child-webview:injection-result',
+  SELECTION_RESULT_STATE: 'selection-result:state',
   /** 划词工具栏临时禁用状态更新事件 */
   SELECTION_TOOLBAR_TEMP_DISABLE_CHANGED: 'selection-toolbar:temporary-disable-changed',
-  /** 请求主窗口打开便签事件 */
-  DESKTOP_NOTES_OPEN: 'desktop-notes:open',
 } as const
 
 /**
@@ -356,6 +343,13 @@ export const DESKTOP_NOTE_COLOR_PRESETS = [
   { id: 'rose', name: 'Rose', background: '#FFE2EA', accent: '#E64980', text: '#5B1830' },
   { id: 'slate', name: 'Slate', background: '#E6ECF5', accent: '#52667A', text: '#1E2933' },
 ] as const
+
+export const DESKTOP_NOTE_TODO_PRIORITIES = ['high', 'normal', 'low'] as const
+export const DESKTOP_NOTE_TODO_SORT_MODES = ['manual', 'priority', 'deadline'] as const
+export const DEFAULT_DESKTOP_NOTE_TODO_PREFERENCES = { hideCompleted: false, sort: 'manual' } as const
+export const DESKTOP_NOTE_TODO_PREFERENCES_KEY_PREFIX = 'note_todo_preferences_'
+export const DESKTOP_NOTE_TODO_METADATA_PREFIX = '<!-- ai-ask:todo '
+export const DESKTOP_NOTE_TODO_METADATA_SUFFIX = ' -->'
 
 /**
  * 桌面便签默认配置
@@ -373,21 +367,16 @@ export const DESKTOP_NOTES = {
   DEFAULT_SCREEN_WIDTH: 1920,
   /** 默认参考屏幕逻辑高度（测试/SSR 环境无 screen 对象时的回退值） */
   DEFAULT_SCREEN_HEIGHT: 1080,
-  /**
-   * 便签位置合理范围（逻辑像素）。
-   *
-   * 目的不是支持多屏推导，而是拦截明显脏掉的 OS 坐标，
-   * 比如窗口在关闭/隐藏阶段偶发返回的 `-21333`。
-   */
+  /** 旧版全局坐标的合理范围。带显示器标识的新坐标使用原生工作区验证。 */
   POSITION_SANITY_LIMIT_X: 7680,
   POSITION_SANITY_LIMIT_Y: 4320,
   WINDOW_LABEL_PREFIX: 'desktop-note-',
   WINDOW_ROUTE: '/sticky-note',
   SAVE_DEBOUNCE_MS: 250,
   SYNC_DEBOUNCE_MS: 800,
+  GEOMETRY_DEBOUNCE_MS: 250,
+  GEOMETRY_CAPTURE_EVENT: 'desktop-note:capture-geometry',
   MAX_NOTES_PER_SYNC: 100,
-  /** 设置页面轮询刷新间隔（毫秒），用于与便签窗口同步数据 */
-  SETTINGS_REFRESH_INTERVAL_MS: 2000,
 } as const
 
 /**
@@ -563,6 +552,7 @@ export const SELECTION_TOOLBAR = {
  * 划词浮动结果窗口配置常量
  */
 export const SELECTION_RESULT_WINDOW = {
+  PROVIDER_READY_TIMEOUT_MS: 20_000,
   /** 结果窗口宽度（逻辑像素） */
   WINDOW_WIDTH: 360,
   /** 结果窗口默认高度（逻辑像素） */
@@ -577,6 +567,7 @@ export const SELECTION_RESULT_WINDOW = {
   AUTO_CLOSE_DELAY_MS: 30000,
   /** 注入超时时间（毫秒） */
   INJECTION_TIMEOUT_MS: 60000,
+  RESPONSE_STABILITY_MS: 600,
   /** 注入轮询间隔（毫秒） */
   INJECTION_POLL_INTERVAL_MS: 1000,
 } as const

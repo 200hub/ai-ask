@@ -119,6 +119,13 @@ pub(crate) async fn show_window(window: Window) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub(crate) async fn show_main_window_for_selection(app: tauri::AppHandle) -> Result<(), String> {
+    let main_window =
+        resolve_main_window(&app).ok_or_else(|| "Main window not found".to_string())?;
+    show_main_window(&main_window).await
+}
+
+#[tauri::command]
 pub(crate) async fn hide_window(window: Window) -> Result<(), String> {
     hide_main_window(&window).await
 }
@@ -149,7 +156,7 @@ pub(crate) async fn open_platform_in_main_window(
         resolve_main_window(&app).ok_or_else(|| "Main window not found".to_string())?;
 
     // 显示主窗口
-    show_main_window(&main_window).await?;
+    show_main_window_without_restore(&main_window).await?;
 
     // 发送事件让前端切换到指定平台
     main_window

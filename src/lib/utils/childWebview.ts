@@ -6,10 +6,16 @@
  */
 
 import type { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { EVENTS } from '$lib/utils/constants'
+import { TIMING } from '$lib/utils/constants'
 import { logger } from '$lib/utils/logger'
 import { invoke } from '@tauri-apps/api/core'
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+
+export function waitForChildWebviewReady(id: string, timeoutMs: number): Promise<boolean> {
+  return invoke<boolean>('wait_child_webview_ready', {
+    payload: { id },
+    timeoutMs,
+  })
+}
 
 /**
  * 子 WebView 边界信息接口
@@ -183,8 +189,7 @@ export class ChildWebviewProxy {
     }
   }
 
-  async ensure(bounds: ChildWebviewBounds) {
-    this.#lastBounds = bounds
+  async ensure(bounds?: ChildWebviewBounds) {
     try {
       await invoke('ensure_child_webview', {
         payload: {
@@ -194,7 +199,9 @@ export class ChildWebviewProxy {
           proxyUrl: this.proxyUrl,
         },
       })
-      this.#isVisible = false
+      if (bounds) {
+        this.#lastBounds = bounds
+      }
     }
     catch (error) {
       logger.error('Failed to ensure child webview', { id: this.id, error })
@@ -207,7 +214,6 @@ export class ChildWebviewProxy {
       return
     }
 
-    this.#lastBounds = bounds
     try {
       await invoke('set_child_webview_bounds', {
         payload: {
@@ -215,6 +221,7 @@ export class ChildWebviewProxy {
           bounds,
         },
       })
+      this.#lastBounds = bounds
     }
     catch (error) {
       logger.error('Failed to update child webview bounds', { id: this.id, error })
@@ -239,51 +246,8 @@ export class ChildWebviewProxy {
     }
   }
 
-  /**
-   * 等待该子 WebView 当前页面加载完成（基于 Rust 端的 on_page_load 事件）
-   * - 默认超时时间为 15s，超时后将继续执行，不会抛错
-   */
-  async waitForLoadFinished(timeoutMs = 15000): Promise<void> {
-    try {
-      const mainWindow = getCurrentWebviewWindow()
-      const eventName = EVENTS.CHILD_WEBVIEW_READY
-      let unlisten: unknown = null
-
-      const waitEvent = new Promise<void>((resolve) => {
-        mainWindow
-          .listen(eventName, (event) => {
-            const payload = event.payload as { id?: string } | undefined
-            if (payload?.id === this.#label) {
-              resolve()
-            }
-          })
-          .then((fn) => {
-            unlisten = fn
-          })
-          .catch((e) => {
-            logger.warn('Failed to listen child-webview ready event', e)
-            resolve()
-          })
-      })
-
-      const timeout = new Promise<void>((resolve) => {
-        setTimeout(resolve, timeoutMs)
-      })
-
-      await Promise.race([waitEvent, timeout])
-
-      if (typeof unlisten === 'function') {
-        try {
-          (unlisten as () => void)()
-        }
-        catch (e) {
-          logger.debug('Failed to unlisten child-webview ready', e)
-        }
-      }
-    }
-    catch (error) {
-      logger.warn('waitForLoadFinished failed, proceeding', { id: this.#label, error })
-    }
+  async waitForLoadFinished(timeoutMs: number = TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS): Promise<boolean> {
+    return waitForChildWebviewReady(this.#label, timeoutMs)
   }
 
   async hide() {

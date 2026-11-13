@@ -4,26 +4,22 @@
  * 说明：
  * - `deletedAt` 用于软删除标记（时间戳），null 表示活跃
  * - `visible` 编码在 bounds JSONB 中随 Supabase 同步
- * - `bounds` 采用屏幕百分比 (0~1) 存储，但仅设备本地保存（不跨设备同步）
+ * - `bounds` 仅在设备本地保存
  * - 使用 Supabase Auth + PostgreSQL 进行云端同步
  */
 export type DesktopNoteColor = 'sunny' | 'mint' | 'sky' | 'lavender' | 'rose' | 'slate'
+export type DesktopNoteKind = 'markdown' | 'todo'
 
 /**
- * 便签位置/大小 —— 逻辑像素（CSS 像素，相对虚拟桌面原点）
- *
- * 设计上不做任何屏幕/显示器感知：保存什么坐标就还原什么坐标。
- * 用户拔插显示器、切换主屏的处理交给 OS（OS 自己会把窗口拉回可见区域）。
+ * 逻辑像素位置和大小。带 monitor 时，位置相对于该显示器的工作区。
+ * 旧数据没有 monitor，位置相对于虚拟桌面原点。
  */
 export interface DesktopNoteBounds {
-  /** 逻辑像素 x 坐标（相对虚拟桌面原点） */
   x: number
-  /** 逻辑像素 y 坐标（相对虚拟桌面原点） */
   y: number
-  /** 逻辑像素宽度 */
   width: number
-  /** 逻辑像素高度 */
   height: number
+  monitor?: string
 }
 
 /**
@@ -40,16 +36,24 @@ export interface DesktopNote {
   id: string
   title: string
   content: string
+  /** 未指定时兼容旧版 Markdown 便签。 */
+  kind?: DesktopNoteKind
   color: DesktopNoteColor
   /** 窗口是否可见（编码在 bounds JSONB 中随 Supabase 同步） */
   visible: boolean
-  /** 窗口位置/大小（百分比格式，仅设备本地） */
+  /** 窗口位置和大小，仅设备本地保存 */
   bounds: DesktopNoteBounds
   createdAt: number
   updatedAt: number
   /** 软删除时间戳，null 表示活跃 */
   deletedAt: number | null
   sync: DesktopNoteSyncState
+}
+
+export interface DesktopNotePatch {
+  noteId: string
+  updates: Partial<Omit<DesktopNote, 'sync'>> & { sync?: Partial<DesktopNoteSyncState> }
+  ifUnchanged?: { updatedAt: number | null }
 }
 
 /**
@@ -61,7 +65,7 @@ export interface DesktopNoteRow {
   title: string
   content: string
   color: string
-  bounds: DesktopNoteBounds
+  bounds: Partial<DesktopNoteBounds> & { visible?: boolean, kind?: DesktopNoteKind }
   created_at: number
   updated_at: number
   deleted_at: number | null

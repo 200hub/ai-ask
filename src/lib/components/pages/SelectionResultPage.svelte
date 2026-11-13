@@ -14,7 +14,7 @@
   import { formatExtractedContent } from '$lib/utils/injection-format'
   import { logger } from '$lib/utils/logger'
   import { invoke } from '@tauri-apps/api/core'
-  import { listen } from '@tauri-apps/api/event'
+  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
   import { marked } from 'marked'
   import { onDestroy, onMount } from 'svelte'
   import '$lib/styles/base.css'
@@ -47,31 +47,31 @@
     text: string
     platformId: string
     platformName: string
-    webviewId?: string
     errorMessage?: string
   }
 
   /**
    * 注入结果事件负载
    */
-  interface InjectionResultPayload {
-    id: string
+  interface InjectionResult {
     success: boolean
-    result?: {
-      success: boolean
-      results?: Array<{
-        index: number
-        type: string
-        result: {
-          success: boolean
-          content?: string
-          html?: string
-          format?: string
-        }
-      }>
-      error?: string
-    }
+    results?: Array<{
+      index: number
+      type: string
+      result: {
+        success: boolean
+        content?: string
+        html?: string
+        format?: string
+      }
+    }>
     error?: string
+  }
+
+  interface ResultWindowSnapshot {
+    requestId: number
+    request: ResultWindowRequest
+    outcome: { Ok: InjectionResult } | { Err: string } | null
   }
 
   // ============ 状态 ============
@@ -84,23 +84,15 @@
   let platformId = $state('')
   let platformName = $state('')
   let platformType = $state<PlatformType>('ai')
-  let currentWebviewId = $state<string | null>(null)
+  let currentRequestId = $state<number | null>(null)
+  let latestRequestId = -1
   let selectedText = $state('') // 选中的文本
   let isPinned = $state(false) // 是否钉住（置顶且不自动消失）
   let isMaximized = $state(false) // 是否最大化
   let autoCloseTimer: ReturnType<typeof setTimeout> | null = null
 
   let unlistenRequest: UnlistenFn | null = null
-  let unlistenResult: UnlistenFn | null = null
-  let unlistenError: UnlistenFn | null = null
-
-  // ============ Markdown 配置 ============
-
-  // 配置 marked
-  marked.setOptions({
-    gfm: true,
-    breaks: true,
-  })
+  let mounted = false
 
   // ============ 派生状态 ============
 
@@ -176,41 +168,23 @@
 
   // ============ 核心操作 ============
 
-  /**
-   * 隐藏或关闭当前结果窗口
-   * - 主结果窗口 (selection-result): 只隐藏，可复用
-   * - 动态创建的窗口 (selection-result-N): 直接关闭销毁
-   */
   async function hideResultWindow(): Promise<void> {
+    const requestId = currentRequestId
+    if (requestId === null) {
+      return
+    }
+
     clearAutoCloseTimer()
     try {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
-      const currentWindow = WebviewWindow.getCurrent()
-      const windowLabel = currentWindow.label
-
-      if (windowLabel === 'selection-result') {
-        // 主结果窗口只隐藏，不关闭
-        // 如果窗口是最大化状态，先恢复正常尺寸
-        if (isMaximized) {
-          try {
-            await currentWindow.unmaximize()
-          }
-          catch (e) {
-            logger.warn('Failed to unmaximize window before hiding', e)
-          }
-        }
-        // 重置状态
+      await invoke('dismiss_selection_result_window', { requestId })
+      if (currentRequestId === requestId) {
+        currentRequestId = null
         isPinned = false
         isMaximized = false
-        await currentWindow.hide()
-      }
-      else {
-        // 动态创建的窗口直接关闭销毁
-        await currentWindow.close()
       }
     }
     catch (error) {
-      logger.error('Failed to hide/close result window', error)
+      logger.error('Failed to dismiss result window', error)
     }
   }
 
@@ -219,146 +193,69 @@
    */
   function renderMarkdown(content: string): string {
     try {
-      const html = marked.parse(content)
-      // marked.parse 可能返回 Promise，但在同步模式下返回 string
-      if (typeof html === 'string') {
-        return html
+      const html = marked.parse(content, { gfm: true, breaks: true })
+      const documentNode = new DOMParser().parseFromString(html, 'text/html')
+      for (const element of documentNode.body.querySelectorAll('*')) {
+        if (!/^(?:A|BLOCKQUOTE|BR|CODE|DEL|EM|H[1-6]|HR|LI|OL|P|PRE|STRONG|TABLE|TBODY|TD|TH|THEAD|TR|UL)$/.test(element.tagName)) {
+          element.remove()
+          continue
+        }
+        for (const attribute of [...element.attributes]) {
+          const safeLink = element.tagName === 'A' && attribute.name === 'href' && /^(?:https?:\/\/|mailto:)/i.test(attribute.value)
+          const safeListStart = element.tagName === 'OL' && attribute.name === 'start' && /^\d+$/.test(attribute.value)
+          if (!safeLink && !safeListStart) {
+            element.removeAttribute(attribute.name)
+          }
+        }
       }
-      return content
+      return documentNode.body.innerHTML
     }
     catch (error) {
       logger.error('Failed to render markdown', error)
-      return content
+      return ''
     }
   }
 
-  /**
-   * 处理请求事件
-   * 如果窗口被钉住，则创建新窗口处理新请求
-   */
-  async function handleRequest(payload: ResultWindowRequest): Promise<void> {
-    logger.info('Selection result window received request', {
-      actionType: payload.actionType,
-      platformId: payload.platformId,
-      textLength: payload.text.length,
-      webviewId: payload.webviewId,
-      isPinned,
-      hasResult,
-    })
-
-    // 只有主结果窗口 (selection-result) 才能创建新窗口
-    // 通过检查当前窗口标签来判断是否是主窗口
-    const currentWindowLabel = await import('@tauri-apps/api/webviewWindow').then(
-      m => m.WebviewWindow.getCurrent().label,
-    )
-    const isMainResultWindow = currentWindowLabel === 'selection-result'
-
-    // 如果主窗口被钉住，则创建新窗口来处理新请求
-    // 注意：只要钉住了就创建新窗口，不管是否有内容（避免覆盖正在查看的内容）
-    if (isPinned && isMainResultWindow) {
-      logger.info('Main result window is pinned, requesting new window')
-      try {
-        await invoke('create_new_result_window_with_request', {
-          request: {
-            action_type: payload.actionType,
-            text: payload.text,
-            platform_id: payload.platformId,
-            platform_name: payload.platformName,
-            webview_id: payload.webviewId,
-            error_message: payload.errorMessage,
-          },
-        })
-      }
-      catch (error) {
-        logger.error('Failed to create new result window', error)
-      }
+  function applySnapshot(snapshot: ResultWindowSnapshot): void {
+    const { requestId, request, outcome } = snapshot
+    if (requestId < latestRequestId || (requestId === latestRequestId && currentRequestId === null)) {
       return
     }
 
-    // 如果不是主结果窗口（是动态创建的窗口），且已钉住，忽略新请求
-    // 动态创建的窗口不能再创建新窗口，避免无限嵌套
-    if (isPinned && !isMainResultWindow) {
-      logger.debug('Non-main result window ignoring new request (already pinned)')
-      return
-    }
-
-    // 重置状态（包括钉住和最大化状态）
-    // 主窗口被隐藏后重新显示时需要重置这些状态
-    isPinned = false
-    isMaximized = false
-    actionType = payload.actionType
-    platformId = payload.platformId
-    platformName = payload.platformName
-    currentWebviewId = payload.webviewId || null
-    selectedText = payload.text // 保存选中的文本
-
-    // 根据 actionType 设置 platformType
-    platformType = payload.actionType === 'translate' ? 'translation' : 'ai'
-
-    // 清除之前的定时器
-    clearAutoCloseTimer()
-
-    // 如果请求中携带了错误信息，直接显示错误状态
-    if (payload.errorMessage) {
-      isLoading = false
-      errorMessage = t(payload.errorMessage) || payload.errorMessage
+    if (requestId !== currentRequestId) {
+      latestRequestId = requestId
+      currentRequestId = requestId
+      isPinned = false
+      isMaximized = false
+      actionType = request.actionType
+      platformId = request.platformId
+      platformName = request.platformName
+      selectedText = request.text
+      platformType = actionType === 'translate' ? 'translation' : 'ai'
+      isLoading = !request.errorMessage
+      errorMessage = request.errorMessage ? mapErrorMessage(request.errorMessage) : null
       resultContent = ''
       resultHtml = ''
-      return
+      clearAutoCloseTimer()
     }
 
-    // 否则进入加载状态
-    isLoading = true
-    errorMessage = null
-    resultContent = ''
-    resultHtml = ''
-  }
-
-  /**
-   * 处理注入结果
-   * 只处理与当前请求匹配的 webviewId 结果
-   */
-  function handleInjectionResult(payload: InjectionResultPayload): void {
-    // 必须有 currentWebviewId 才能处理结果（确保是正在等待结果的窗口）
-    if (!currentWebviewId) {
-      logger.debug('Ignoring injection result: no active request', {
-        received: payload.id,
-      })
+    if (!isLoading || !outcome) {
       return
     }
-
-    // 过滤：只处理匹配当前 webviewId 的结果
-    if (payload.id !== currentWebviewId) {
-      logger.debug('Ignoring injection result for different webview', {
-        expected: currentWebviewId,
-        received: payload.id,
-      })
-      return
-    }
-
-    // 防止重复处理：如果已经不在加载状态，说明结果已经处理过了
-    if (!isLoading) {
-      logger.debug('Ignoring injection result: already processed', {
-        id: payload.id,
-      })
-      return
-    }
-
-    logger.info('Selection result window processing injection result', {
-      id: payload.id,
-      success: payload.success,
-    })
 
     isLoading = false
-
-    if (!payload.success || !payload.result?.success) {
-      errorMessage = mapErrorMessage(payload.error || payload.result?.error)
-      logger.warn('Injection failed', { error: errorMessage })
+    if ('Err' in outcome) {
+      errorMessage = mapErrorMessage(outcome.Err)
+      return
+    }
+    const payload = outcome.Ok
+    if (!payload.success) {
+      errorMessage = mapErrorMessage(payload.error)
       return
     }
 
     // 提取结果内容
-    const extractResult = payload.result?.results?.find(r => r.type === 'extract')
+    const extractResult = payload.results?.find(r => r.type === 'extract')
     if (!extractResult || !extractResult.result?.success) {
       errorMessage = t('selectionResult.noResult')
       logger.warn('No extract result found')
@@ -432,16 +329,22 @@
    * 切换钉住状态
    */
   async function handleTogglePin(): Promise<void> {
-    isPinned = !isPinned
-    logger.info('Pin state toggled', { isPinned })
-
-    // 更新窗口置顶状态
+    const requestId = currentRequestId
+    if (requestId === null) {
+      return
+    }
+    const pinned = !isPinned
     try {
-      await invoke('set_selection_result_always_on_top', { alwaysOnTop: isPinned })
+      await invoke('set_selection_result_pinned', { requestId, pinned })
     }
     catch (error) {
-      logger.error('Failed to set always on top', error)
+      logger.error('Failed to change result window pin state', error)
+      return
     }
+    if (currentRequestId !== requestId) {
+      return
+    }
+    isPinned = pinned
 
     // 钉住时取消自动关闭定时器
     if (isPinned) {
@@ -458,9 +361,7 @@
    */
   async function handleToggleMaximize(): Promise<void> {
     try {
-      const currentWindow = await import('@tauri-apps/api/webviewWindow').then(
-        m => m.WebviewWindow.getCurrent(),
-      )
+      const currentWindow = getCurrentWebviewWindow()
       if (isMaximized) {
         await currentWindow.unmaximize()
       }
@@ -510,8 +411,6 @@
       await invoke('open_platform_in_main_window', {
         platformId,
         platformType,
-        text: selectedText || null,
-        action: actionType,
       })
       // 隐藏结果窗口
       await hideResultWindow()
@@ -523,72 +422,38 @@
 
   // ============ 生命周期 ============
 
-  onMount(async () => {
-    // 获取当前窗口
-    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
-    const currentWindow = WebviewWindow.getCurrent()
-    const currentWindowLabel = currentWindow.label
-    const isMainResultWindow = currentWindowLabel === 'selection-result'
-
-    logger.info('SelectionResultPage mounted', { windowLabel: currentWindowLabel, isMainResultWindow })
-
-    // 使用 currentWindow.listen() 只接收发送到本窗口的事件
-    // 这样可以避免不同窗口之间的事件串扰
-    try {
-      unlistenRequest = await currentWindow.listen<ResultWindowRequest>(
-        'selection-result:request',
-        (event) => {
-          logger.debug('Received selection-result:request event', {
-            windowLabel: currentWindowLabel,
-            actionType: event.payload.actionType,
-          })
-          void handleRequest(event.payload)
-        },
-      )
-    }
-    catch (error) {
-      logger.error('Failed to listen for result request', error)
-    }
-
-    // 监听注入结果事件 - 这个需要全局监听因为是从其他 webview 发出的
-    try {
-      unlistenResult = await listen<InjectionResultPayload>(
-        EVENTS.CHILD_WEBVIEW_INJECTION_RESULT,
-        (event) => {
-          handleInjectionResult(event.payload)
-        },
-      )
-    }
-    catch (error) {
-      logger.error('Failed to listen for injection result', error)
-    }
-
-    // 监听错误事件（从 selection-bridge 发送）
-    try {
-      unlistenError = await listen<{ errorMessage: string }>(
-        'selection-result:error',
-        (event) => {
-          logger.warn('Selection result window received error', event.payload)
-          isLoading = false
-          errorMessage = t(event.payload.errorMessage) || event.payload.errorMessage
-        },
-      )
-    }
-    catch (error) {
-      logger.error('Failed to listen for error event', error)
-    }
-
-    // 添加全局事件监听
+  onMount(() => {
+    mounted = true
     window.addEventListener('keydown', handleKeydown)
     window.addEventListener('blur', handleWindowBlur)
+    const currentWindow = getCurrentWebviewWindow()
 
-    logger.info('Selection result page mounted')
+    void (async () => {
+      try {
+        const unlisten = await currentWindow.listen<ResultWindowSnapshot>(EVENTS.SELECTION_RESULT_STATE, event => applySnapshot(event.payload))
+        if (!mounted) {
+          unlisten()
+          return
+        }
+        unlistenRequest = unlisten
+        const snapshot = await invoke<ResultWindowSnapshot | null>('get_selection_result_state')
+        if (mounted && snapshot) {
+          applySnapshot(snapshot)
+        }
+      }
+      catch (error) {
+        logger.error('Failed to load selection result state', error)
+        if (mounted) {
+          isLoading = false
+          errorMessage = t('selectionResult.failed')
+        }
+      }
+    })()
   })
 
   onDestroy(() => {
+    mounted = false
     unlistenRequest?.()
-    unlistenResult?.()
-    unlistenError?.()
     clearAutoCloseTimer()
     window.removeEventListener('keydown', handleKeydown)
     window.removeEventListener('blur', handleWindowBlur)
@@ -599,6 +464,8 @@
 
 <div
   class='result-container'
+  role='region'
+  aria-label={completedTitle}
   onpointerenter={handlePointerEnter}
   onpointerleave={handlePointerLeave}
 >

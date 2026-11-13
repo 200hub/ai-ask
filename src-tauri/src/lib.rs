@@ -14,6 +14,8 @@ mod proxy;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod selection_toolbar;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod shortcuts;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod update;
 mod utils;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -24,9 +26,7 @@ mod window_control;
 pub use utils::{decode_base64, decode_base64url, decode_base64url_to_json};
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use std::sync::{Arc, Mutex};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::{
@@ -39,19 +39,24 @@ use tauri::{
 use tauri::Manager;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use desktop_notes::{close_desktop_note_window, ensure_desktop_note_window};
+use desktop_notes::{
+    capture_desktop_note_bounds, close_desktop_note_window, ensure_desktop_note_window,
+    persist_desktop_note_patches, suspend_desktop_note_windows, DesktopNoteWindows,
+};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use global_selection::{check_accessibility_permission, request_accessibility_permission};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use proxy::test_proxy_connection;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use selection_toolbar::{
-    create_new_result_window_with_request, get_cursor_position, get_selection_toolbar_state,
-    hide_selection_result_window, hide_selection_toolbar, set_selection_toolbar_enabled,
-    set_selection_toolbar_ignored_apps, set_selection_toolbar_temporary_disabled_until,
-    show_selection_result_window, show_selection_toolbar, update_selection_result_position,
-    ToolbarManager,
+    dismiss_selection_result_window, get_cursor_position, get_selection_result_state,
+    get_selection_toolbar_state, hide_selection_toolbar, publish_selection_result,
+    set_selection_result_pinned, set_selection_toolbar_enabled, set_selection_toolbar_ignored_apps,
+    set_selection_toolbar_temporary_disabled_until, show_selection_result_window,
+    show_selection_toolbar, ResultWindowManager, ToolbarManager,
 };
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use shortcuts::{get_global_shortcut_statuses, set_global_shortcut, ShortcutManager};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use update::{
     check_update, download_update, get_download_status, init as init_update, install_update_now,
@@ -61,8 +66,8 @@ use update::{
 use webview::{
     check_child_webview_exists, clear_child_webview_cache, close_child_webview,
     ensure_child_webview, evaluate_child_webview_script, focus_child_webview,
-    hide_all_child_webviews, hide_child_webview, set_child_webview_bounds, show_child_webview,
-    ChildWebviewManager,
+    hide_all_child_webviews, hide_child_webview, run_selection_injection, set_child_webview_bounds,
+    show_child_webview, wait_child_webview_ready, ChildWebviewManager,
 };
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use window_control::{
@@ -162,8 +167,18 @@ fn run_desktop() {
     log::info!("Initializing desktop application");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_window("main") {
+                tauri::async_runtime::spawn(async move {
+                    let _ = show_main_window(&window).await;
+                });
+            }
+        }))
         .manage(ChildWebviewManager::default())
+        .manage(DesktopNoteWindows::default())
         .manage(ToolbarManager::default())
+        .manage(ResultWindowManager::default())
+        .manage(ShortcutManager::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -173,6 +188,7 @@ fn run_desktop() {
             Some(vec!["--flag1", "--flag2"]),
         ))
         .setup(|app| {
+            desktop_notes::watch_displays(app.handle().clone());
             log::debug!("Desktop application setup starting");
 
             global_selection::start_global_selection_monitor(app.handle().clone());
@@ -260,109 +276,7 @@ fn run_desktop() {
 
             let handle = app.handle().clone();
             init_update(handle.clone());
-            let last_shortcut_trigger = Arc::new(Mutex::new(None::<Instant>));
-
-            // 注册主快捷键
-            #[cfg(target_os = "macos")]
-            let main_shortcut = "Cmd+Shift+A";
-            #[cfg(not(target_os = "macos"))]
-            let main_shortcut = "Ctrl+Shift+A";
-
-            use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
-            if let Ok(shortcut) = main_shortcut.parse::<Shortcut>() {
-                log::info!("Registering main shortcut: {}", shortcut);
-                let throttle = last_shortcut_trigger.clone();
-                let handle_clone = handle.clone();
-                let _ =
-                    app.global_shortcut()
-                        .on_shortcut(shortcut, move |_app, _event, _shortcut| {
-                            // 锁中毒时仍然恢复内部状态，避免因一次 panic 永久禁用快捷键
-                            let mut last = match throttle.lock() {
-                                Ok(guard) => guard,
-                                Err(poisoned) => {
-                                    log::warn!(
-                                        "Shortcut throttle mutex poisoned, recovering inner state"
-                                    );
-                                    poisoned.into_inner()
-                                }
-                            };
-                            let now = Instant::now();
-                            if let Some(previous) = *last {
-                                let elapsed = now.duration_since(previous);
-                                if elapsed < Duration::from_millis(350) {
-                                    log::debug!(
-                                        "Shortcut trigger throttled: {}ms < 350ms",
-                                        elapsed.as_millis()
-                                    );
-                                    return;
-                                }
-                            }
-
-                            *last = Some(now);
-                            log::debug!("Main shortcut triggered");
-
-                            let app_handle = handle_clone.clone();
-                            tauri::async_runtime::spawn(async move {
-                                if let Some(window) = resolve_main_window(&app_handle) {
-                                    let _ = toggle_main_window_visibility(&window).await;
-                                }
-                            });
-                        });
-            }
-
-            // 注册翻译快捷键
-            #[cfg(target_os = "macos")]
-            let translation_shortcut = "Cmd+Shift+T";
-            #[cfg(not(target_os = "macos"))]
-            let translation_shortcut = "Ctrl+Shift+T";
-
-            if let Ok(shortcut) = translation_shortcut.parse::<Shortcut>() {
-                log::info!("Registering translation shortcut: {}", shortcut);
-                let handle_clone = handle.clone();
-                let _ =
-                    app.global_shortcut()
-                        .on_shortcut(shortcut, move |_app, _event, _shortcut| {
-                            log::debug!("Translation shortcut triggered");
-
-                            let app_handle = handle_clone.clone();
-                            tauri::async_runtime::spawn(async move {
-                                if let Some(window) = resolve_main_window(&app_handle) {
-                                    if show_main_window(&window).await.is_ok() {
-                                        let _ = window.emit("translation-hotkey-triggered", ());
-                                    }
-                                }
-                            });
-                        });
-            }
-
-            // 注册划词工具栏快捷键
-            #[cfg(target_os = "macos")]
-            let selection_shortcut = "Cmd+Shift+S";
-            #[cfg(not(target_os = "macos"))]
-            let selection_shortcut = "Ctrl+Shift+S";
-
-            if let Ok(shortcut) = selection_shortcut.parse::<Shortcut>() {
-                log::info!("Registering selection toolbar shortcut: {}", shortcut);
-                let handle_clone = handle.clone();
-                let _ =
-                    app.global_shortcut()
-                        .on_shortcut(shortcut, move |_app, _event, _shortcut| {
-                            log::debug!("Selection toolbar shortcut triggered");
-
-                            let app_handle = handle_clone.clone();
-                            if let Some(toolbar_state) = app_handle.try_state::<ToolbarManager>() {
-                                let toolbar_manager = toolbar_state.inner().clone();
-                                global_selection::trigger_toolbar_from_hotkey(
-                                    app_handle,
-                                    toolbar_manager,
-                                );
-                            } else {
-                                log::warn!(
-                                    "Selection toolbar shortcut triggered but manager state missing"
-                                );
-                            }
-                        });
-            }
+            shortcuts::initialize(&handle);
 
             log::info!("Desktop application setup completed");
             Ok(())
@@ -389,6 +303,7 @@ fn run_desktop() {
             show_window,
             hide_window,
             open_platform_in_main_window,
+            window_control::show_main_window_for_selection,
             ensure_child_webview,
             set_child_webview_bounds,
             show_child_webview,
@@ -408,6 +323,8 @@ fn run_desktop() {
             enable_auto_launch,
             disable_auto_launch,
             is_auto_launch_enabled,
+            get_global_shortcut_statuses,
+            set_global_shortcut,
             show_selection_toolbar,
             hide_selection_toolbar,
             set_selection_toolbar_enabled,
@@ -416,11 +333,17 @@ fn run_desktop() {
             get_selection_toolbar_state,
             get_cursor_position,
             show_selection_result_window,
-            hide_selection_result_window,
-            update_selection_result_position,
-            create_new_result_window_with_request,
+            dismiss_selection_result_window,
+            get_selection_result_state,
+            publish_selection_result,
+            set_selection_result_pinned,
+            run_selection_injection,
+            wait_child_webview_ready,
             ensure_desktop_note_window,
             close_desktop_note_window,
+            capture_desktop_note_bounds,
+            persist_desktop_note_patches,
+            suspend_desktop_note_windows,
             check_accessibility_permission,
             request_accessibility_permission
         ])

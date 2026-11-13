@@ -6,14 +6,14 @@
  *
  * 使用 vitest + jsdom 环境下的纯 JS 模拟，不依赖真实 Tauri 运行时。
  */
-import type { DesktopNote } from '$lib/types/desktop-note'
+import type { DesktopNote, DesktopNotePatch } from '$lib/types/desktop-note'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // ==================== Mock 外部依赖 ====================
 
 const mockGetDesktopNotes = vi.fn()
-const mockSaveDesktopNotes = vi.fn()
+const mockSaveDesktopNotePatches = vi.fn()
 const mockSaveNoteBounds = vi.fn()
 const mockLoadNoteBounds = vi.fn()
 const mockDeleteNoteBounds = vi.fn()
@@ -22,7 +22,7 @@ const mockSetDesktopNotesLastSyncedAt = vi.fn()
 
 vi.mock('$lib/utils/storage', () => ({
   getDesktopNotes: () => mockGetDesktopNotes(),
-  saveDesktopNotes: (notes: DesktopNote[]) => mockSaveDesktopNotes(notes),
+  saveDesktopNotePatches: (patches: DesktopNotePatch[]) => mockSaveDesktopNotePatches(patches),
   saveNoteBounds: (...args: unknown[]) => mockSaveNoteBounds(...args),
   loadNoteBounds: (...args: unknown[]) => mockLoadNoteBounds(...args),
   deleteNoteBounds: (...args: unknown[]) => mockDeleteNoteBounds(...args),
@@ -85,7 +85,7 @@ beforeEach(async () => {
   vi.resetModules()
   vi.useFakeTimers()
   mockGetDesktopNotes.mockReset()
-  mockSaveDesktopNotes.mockReset()
+  mockSaveDesktopNotePatches.mockReset()
   mockSaveNoteBounds.mockReset()
   mockLoadNoteBounds.mockReset()
   mockDeleteNoteBounds.mockReset()
@@ -93,7 +93,7 @@ beforeEach(async () => {
   mockSetDesktopNotesLastSyncedAt.mockReset()
 
   mockGetDesktopNotes.mockResolvedValue([])
-  mockSaveDesktopNotes.mockResolvedValue(undefined)
+  mockSaveDesktopNotePatches.mockResolvedValue(undefined)
   mockSaveNoteBounds.mockResolvedValue(undefined)
   mockLoadNoteBounds.mockResolvedValue(null)
   mockDeleteNoteBounds.mockResolvedValue(undefined)
@@ -113,7 +113,7 @@ describe('sticky note e2e - 创建便签', () => {
     expect(note.visible).toBe(true)
     expect(note.deletedAt).toBeNull()
     expect(desktopNotesStore.activeNotes).toHaveLength(1)
-    expect(mockSaveDesktopNotes).toHaveBeenCalled()
+    expect(mockSaveDesktopNotePatches).toHaveBeenCalled()
   })
 
   it('新建便签后立即打开窗口（主窗口路径）', async () => {
@@ -196,9 +196,15 @@ describe('sticky note e2e - 几何持久化', () => {
     expect(loaded!.bounds).toEqual(savedBounds)
   })
 
-  it('init() 后加载 per-note bounds 合并逻辑 — 占位验证', async () => {
-    // 占位测试，仅验证流程不会报错
-    expect(true).toBe(true)
+  it('显示器相对位置保存并恢复时保留显示器标识', async () => {
+    const bounds = { x: 48, y: 96, width: 320, height: 280, monitor: 'DISPLAY2' }
+    mockGetDesktopNotes.mockResolvedValue([createTestNote({ id: 'n-display' })])
+    mockLoadNoteBounds.mockResolvedValue(bounds)
+    await desktopNotesStore.init()
+    await desktopNotesStore.openNoteWindow('n-display')
+    expect(mockInvoke).toHaveBeenCalledWith('ensure_desktop_note_window', {
+      payload: { noteId: 'n-display', bounds },
+    })
   })
 })
 
@@ -349,6 +355,20 @@ describe('sticky note e2e - 恢复窗口', () => {
     expect(updated!.visible).toBe(true)
     expect(updated!.sync.dirty).toBe(true)
   })
+
+  it('先持久化打开状态，让新窗口初始化时能读取，原生命令失败时回滚', async () => {
+    const note = createTestNote({ id: 'n-retry', visible: false })
+    mockGetDesktopNotes.mockResolvedValue([note])
+    mockInvoke.mockRejectedValueOnce(new Error('window creation failed'))
+    await desktopNotesStore.init()
+
+    await expect(desktopNotesStore.openNoteWindow(note.id)).rejects.toThrow('window creation failed')
+    expect(mockSaveDesktopNotePatches.mock.invocationCallOrder[0]).toBeLessThan(mockInvoke.mock.invocationCallOrder[0])
+    expect(desktopNotesStore.getNoteById(note.id)?.visible).toBe(false)
+    expect(mockSaveDesktopNotePatches.mock.lastCall?.[0]).toEqual([
+      expect.objectContaining({ noteId: note.id, updates: expect.objectContaining({ visible: false }) }),
+    ])
+  })
 })
 
 // ==================== 场景 10：应用退出前落盘 ====================
@@ -360,20 +380,20 @@ describe('sticky note e2e - 退出前落盘', () => {
     await desktopNotesStore.init()
 
     await desktopNotesStore.updateNoteContent('n-flush', 'pending change')
-    mockSaveDesktopNotes.mockClear()
+    mockSaveDesktopNotePatches.mockClear()
 
     await desktopNotesStore.flushPersistPublic()
 
-    expect(mockSaveDesktopNotes).toHaveBeenCalled()
-    const saved = mockSaveDesktopNotes.mock.calls[0][0] as DesktopNote[]
-    expect(saved.find(n => n.id === 'n-flush')?.content).toBe('pending change')
+    expect(mockSaveDesktopNotePatches).toHaveBeenCalled()
+    const saved = mockSaveDesktopNotePatches.mock.calls[0][0] as DesktopNotePatch[]
+    expect(saved.find(n => n.noteId === 'n-flush')?.updates.content).toBe('pending change')
   })
 })
 
 // ==================== 场景 11：全部隐藏（设置页开关） ====================
 
 describe('sticky note e2e - hideAllWindows', () => {
-  it('hideAllWindows 应对所有可见便签触发关闭流程', async () => {
+  it('总开关暂停窗口，再恢复仍保留原来的可见便签', async () => {
     const notes = [
       createTestNote({ id: 'v1', visible: true }),
       createTestNote({ id: 'v2', visible: true }),
@@ -385,16 +405,13 @@ describe('sticky note e2e - hideAllWindows', () => {
     mockInvoke.mockClear()
     await desktopNotesStore.hideAllWindows()
 
-    const closeCalls = mockInvoke.mock.calls.filter(
-      ([cmd]) => cmd === 'close_desktop_note_window',
-    )
-    expect(closeCalls).toHaveLength(2)
-    const ids = closeCalls.map(c => (c[1] as { payload: { noteId: string } }).payload.noteId)
-    expect(ids.sort()).toEqual(['v1', 'v2'])
-
-    // 本地 visible 状态也应全部置为 false
-    expect(desktopNotesStore.getNoteById('v1')!.visible).toBe(false)
-    expect(desktopNotesStore.getNoteById('v2')!.visible).toBe(false)
+    expect(mockInvoke.mock.calls).toEqual([['suspend_desktop_note_windows']])
+    expect(desktopNotesStore.visibleNotes.map(note => note.id)).toEqual(['v1', 'v2'])
+    await desktopNotesStore.restoreVisibleWindows()
+    expect(mockInvoke.mock.calls.slice(1).map(([command, args]) => [command, args.payload.noteId])).toEqual([
+      ['ensure_desktop_note_window', 'v1'],
+      ['ensure_desktop_note_window', 'v2'],
+    ])
   })
 })
 

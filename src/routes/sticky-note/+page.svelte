@@ -1,15 +1,17 @@
 <script lang='ts'>
+  import type { Locale } from '$lib/i18n'
+  import type { DesktopNoteBounds, DesktopNoteColor } from '$lib/types/desktop-note'
+  import type { DesktopNoteTodoPreferences } from '$lib/utils/desktop-note-todo'
   import type { UnlistenFn } from '@tauri-apps/api/event'
-  import { i18n } from '$lib/i18n'
+  import DesktopNoteTodoEditor from '$lib/components/DesktopNoteTodoEditor.svelte'
+  import { DEFAULT_LOCALE, i18n } from '$lib/i18n'
   import { configStore } from '$lib/stores/config.svelte'
   import { desktopNotesStore } from '$lib/stores/desktop-notes.svelte'
-
-  import {
-    DESKTOP_NOTE_COLOR_PRESETS,
-    DESKTOP_NOTES,
-  } from '$lib/utils/constants'
+  import { DEFAULT_DESKTOP_NOTE_TODO_PREFERENCES, DESKTOP_NOTE_COLOR_PRESETS, DESKTOP_NOTES } from '$lib/utils/constants'
   import { renderDesktopNoteMarkdown } from '$lib/utils/desktop-note-markdown'
   import { logger } from '$lib/utils/logger'
+  import { loadNoteTodoPreferences, saveNoteTodoPreferences } from '$lib/utils/storage'
+  import { invoke } from '@tauri-apps/api/core'
   import { listen } from '@tauri-apps/api/event'
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
   import { onMount } from 'svelte'
@@ -17,101 +19,64 @@
 
   const t = i18n.t
   const appWindow = getCurrentWebviewWindow()
-
   const noteId = new URLSearchParams(window.location.search).get('noteId') ?? ''
 
-  // 编辑 / 预览切换
   let mode = $state<'edit' | 'preview'>('preview')
-  // 颜色面板展开态
   let colorPanelOpen = $state(false)
-  // 颜色切换期间暂停几何回写，避免误写位置
-  let geometryPaused = $state(false)
-  // 已经进入关闭流程，用于避免重入
+  let locale = $state<Locale | null>(null)
+  let todoPreferences = $state<DesktopNoteTodoPreferences>(DEFAULT_DESKTOP_NOTE_TODO_PREFERENCES)
+  let todoPreferencesReady = $state(false)
   let closing = false
-
-  let unlistenTheme: UnlistenFn | null = null
-  let unlistenMoved: UnlistenFn | null = null
-  let unlistenResized: UnlistenFn | null = null
-  let unlistenBlur: UnlistenFn | null = null
-  let unlistenClose: UnlistenFn | null = null
-  let unlistenBeforeExit: UnlistenFn | null = null
-  let geometryTimer: ReturnType<typeof setTimeout> | null = null
+  let geometryTimer: ReturnType<typeof setTimeout> | undefined
+  let pendingTodoPreferences = Promise.resolve()
 
   const currentNote = $derived(noteId ? desktopNotesStore.getNoteById(noteId) : null)
+  const isTodo = $derived(currentNote?.kind === 'todo')
   const previewHtml = $derived(renderDesktopNoteMarkdown(currentNote?.content ?? ''))
   const syncStatus = $derived(desktopNotesStore.lastAutoSyncStatus)
 
-  function computeDark(theme: 'system' | 'light' | 'dark') {
-    return theme === 'dark'
-      || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  }
-
   function applyTheme(theme: 'system' | 'light' | 'dark') {
-    document.documentElement.classList.toggle('dark', computeDark(theme))
+    const dark = theme === 'dark'
+      || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    document.documentElement.classList.toggle('dark', dark)
   }
 
-  /**
-   * 读取当前窗口几何并以逻辑像素形式写回 store（仅本地持久化）。
-   *
-   * 设计原则：钉死在系统给的逻辑坐标，不做任何屏幕/显示器感知。
-   * 所有异常被吞掉，只记录 warn，绝不阻塞关闭/退出流程。
-   *
-   * 参数 `force`：为 true 时绕过 `geometryPaused`。
-   * 用于关闭路径 — 即使窗口刚换过颜色也必须落盘位置。
-   */
-  async function commitCurrentGeometry(force = false): Promise<void> {
+  async function commitCurrentGeometry() {
     if (!noteId) {
       return
     }
-    if (!force && geometryPaused) {
-      return
-    }
-
     try {
-      const [physPosition, physSize, scaleFactor] = await Promise.all([
-        appWindow.outerPosition(),
-        appWindow.innerSize(),
-        appWindow.scaleFactor(),
-      ])
-
-      const logicalPos = physPosition.toLogical(scaleFactor)
-      const logicalSize = physSize.toLogical(scaleFactor)
-
-      await desktopNotesStore.updateNoteBounds(noteId, {
-        x: Math.round(logicalPos.x),
-        y: Math.round(logicalPos.y),
-        width: Math.max(Math.round(logicalSize.width), DESKTOP_NOTES.MIN_WIDTH),
-        height: Math.max(Math.round(logicalSize.height), DESKTOP_NOTES.MIN_HEIGHT),
-      })
+      const bounds = await invoke<DesktopNoteBounds | null>('capture_desktop_note_bounds')
+      if (bounds) {
+        await desktopNotesStore.updateNoteBounds(noteId, bounds)
+      }
     }
     catch (error) {
       logger.warn('Failed to commit sticky note geometry', error)
     }
   }
 
-  /** 防抖同步几何到本地，然后触发内容/颜色等的云同步 */
   function scheduleGeometrySync() {
-    if (!noteId || geometryPaused) {
-      return
-    }
-
-    if (geometryTimer) {
-      clearTimeout(geometryTimer)
-    }
-
+    clearTimeout(geometryTimer)
     geometryTimer = setTimeout(() => {
-      if (geometryPaused) {
-        return
-      }
-      void commitCurrentGeometry().then(() => triggerAutoSync())
-    }, 300)
+      geometryTimer = undefined
+      void commitCurrentGeometry()
+    }, DESKTOP_NOTES.GEOMETRY_DEBOUNCE_MS)
   }
 
-  async function handleContentInput(event: Event) {
-    if (!noteId) {
-      return
-    }
-    await desktopNotesStore.updateNoteContent(noteId, (event.target as HTMLTextAreaElement).value)
+  function handleContentChange(content: string) {
+    void desktopNotesStore.updateNoteContent(noteId, content)
+    triggerAutoSync()
+  }
+
+  function handleTodoPreferencesChange(preferences: DesktopNoteTodoPreferences) {
+    todoPreferences = preferences
+    pendingTodoPreferences = saveNoteTodoPreferences(noteId, preferences)
+      .catch(error => logger.warn('Failed to save note task preferences', { noteId, error }))
+  }
+
+  function handleContentInput(event: Event) {
+    handleContentChange((event.target as HTMLTextAreaElement).value)
   }
 
   function handleEditorBlur() {
@@ -119,210 +84,136 @@
     triggerAutoSync()
   }
 
-  /** 颜色切换：暂停几何同步避免误触发位置回写 */
-  async function handleColorChange(colorId: string) {
-    if (!noteId) {
-      return
-    }
-
-    geometryPaused = true
-    try {
-      await desktopNotesStore.updateNoteColor(
-        noteId,
-        colorId as NonNullable<typeof currentNote>['color'],
-      )
-    }
-    finally {
-      setTimeout(() => {
-        geometryPaused = false
-      }, 500)
-    }
+  async function handleColorChange(color: DesktopNoteColor) {
+    await desktopNotesStore.updateNoteColor(noteId, color)
     colorPanelOpen = false
     triggerAutoSync()
   }
 
   function triggerAutoSync() {
-    if (
-      configStore.config.desktopNotesSyncEnabled
-      && desktopNotesStore.session.authenticated
-    ) {
+    if (configStore.config.desktopNotesSyncEnabled && desktopNotesStore.session.authenticated) {
       desktopNotesStore.queueAutoSync()
     }
   }
 
-  /**
-   * 关闭按钮点击：直接请求关闭窗口。
-   * 所有持久化由 onCloseRequested 统一处理，保证无论 X 按钮、系统菜单、
-   * Alt+F4 还是 Rust 侧 window.close() 都走同一流程。
-   */
   async function handleCloseWindow() {
-    if (closing) {
-      return
-    }
     try {
       await appWindow.close()
     }
     catch (error) {
-      logger.error('appWindow.close() failed', error)
+      logger.error('Failed to close sticky note', error)
     }
   }
 
-  function toggleColorPanel() {
-    colorPanelOpen = !colorPanelOpen
+  function handleGlobalDoubleClick(event: MouseEvent) {
+    const target = event.target as HTMLElement | null
+    if (!isTodo && target?.closest('.content-area')) {
+      mode = 'edit'
+    }
   }
 
   onMount(() => {
-    const handleGlobalDoubleClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null
-      if (target?.closest('.content-area')) {
-        mode = 'edit'
-      }
-    }
-
+    const unlisteners: UnlistenFn[] = []
+    let disposed = false
     window.addEventListener('dblclick', handleGlobalDoubleClick)
 
-    void (async () => {
-      await configStore.init()
-      await desktopNotesStore.init()
+    function register(registration: Promise<UnlistenFn>) {
+      void registration.then((cleanup) => {
+        if (disposed) {
+          cleanup()
+        }
+        else {
+          unlisteners.push(cleanup)
+        }
+      }).catch(error => logger.warn('Failed to register sticky note event listener', error))
+    }
+
+    const loadAppearance = configStore.init().then(async () => {
       applyTheme(configStore.config.theme)
-
-      const foundNote = noteId ? desktopNotesStore.getNoteById(noteId) : null
-      if (!foundNote && noteId) {
-        logger.warn('Sticky note window: note not found after init', {
-          noteId,
-          totalNotes: desktopNotesStore.notes.length,
-        })
+      const requestedLocale = configStore.config.locale ?? DEFAULT_LOCALE
+      await i18n.locale.set(requestedLocale)
+      document.documentElement.lang = requestedLocale
+      locale = requestedLocale
+    })
+    const loadNote = desktopNotesStore.init().then(async () => {
+      if (!currentNote && noteId) {
+        logger.warn('Sticky note not found in local storage', { noteId })
       }
+      if (currentNote?.kind === 'todo') {
+        try {
+          todoPreferences = await loadNoteTodoPreferences(noteId)
+        }
+        catch (error) {
+          logger.warn('Failed to load note task preferences', { noteId, error })
+        }
+      }
+      todoPreferencesReady = true
+      void desktopNotesStore.refreshSession()
+    })
+    const ready = Promise.all([loadAppearance, loadNote])
+    void ready.catch(error => logger.error('Failed to initialize sticky note', error))
 
-      await desktopNotesStore.refreshSession()
-
+    register(appWindow.onCloseRequested(async (event) => {
+      event.preventDefault()
+      if (closing) {
+        return
+      }
+      closing = true
       try {
-        // 先注册 close 监听，避免其他监听失败导致关闭链路失效
-        // 规范 Tauri v2 模式：preventDefault → 异步落盘 → destroy()
-        // 权限：desktop-notes.json 中已开启 core:window:allow-destroy
-        unlistenClose = await appWindow.onCloseRequested(async (event) => {
-          if (closing) {
-            return
-          }
-          closing = true
-          event.preventDefault()
-
-          try {
-            // 关闭路径：force=true 绕过 geometryPaused 与 monitor-change 拦截，
-            // 确保即使颜色刚切换也能落盘最后一次位置
-            await commitCurrentGeometry(true)
-            if (noteId) {
-              await desktopNotesStore.markNoteHiddenLocally(noteId)
-            }
-            // 关闭前必须立即同步（不能依赖防抖 queueAutoSync，destroy 会在防抖触发前销毁 webview）
-            // 不在此处检查 session.authenticated——直接尝试同步，失败时优雅降级到本地落盘
-            // （syncWithSupabase 内部的 getCurrentUser 使用 Supabase 实际 auth 状态，不依赖内存 session）
-            if (configStore.config.desktopNotesSyncEnabled) {
-              await desktopNotesStore.syncWithSupabase()
-            }
-            else {
-              await desktopNotesStore.flushPersistPublic()
-            }
-          }
-          catch (error) {
-            logger.warn('Sticky note pre-close persist/sync failed', error)
-            // 同步失败时兜底落盘，保证本地状态不丢
-            try {
-              await desktopNotesStore.flushPersistPublic()
-            }
-            catch { /* ignore */ }
-          }
-
-          try {
-            // 使用 destroy() 强制关闭，不触发新的 closeRequested 事件
-            // 权限：desktop-notes.json 中已开启 core:window:allow-destroy
-            await appWindow.destroy()
-          }
-          catch (error) {
-            logger.error('appWindow.destroy() failed', error)
-            closing = false
-          }
-        })
+        await ready
+        if (geometryTimer) {
+          clearTimeout(geometryTimer)
+          geometryTimer = undefined
+          await commitCurrentGeometry()
+        }
+        await desktopNotesStore.markNoteHiddenLocally(noteId)
+        await Promise.all([desktopNotesStore.flushPersistPublic(), pendingTodoPreferences])
       }
       catch (error) {
-        logger.error('Failed to register sticky note close listener', error)
+        logger.warn('Failed to save sticky note before closing', error)
       }
-
       try {
-        unlistenTheme = await listen<{ theme?: 'system' | 'light' | 'dark' }>(
-          'theme-changed',
-          (event) => {
-            applyTheme(event.payload?.theme ?? configStore.config.theme)
-          },
-        )
+        await appWindow.destroy()
       }
       catch (error) {
-        logger.warn('Failed to register theme listener for sticky note', error)
+        logger.error('Failed to destroy sticky note', error)
       }
+      finally {
+        closing = false
+      }
+    }))
 
+    register(listen<{ theme?: 'system' | 'light' | 'dark' }>('theme-changed', event =>
+      applyTheme(event.payload?.theme ?? configStore.config.theme)))
+    register(listen('app-before-exit', async () => {
       try {
-        // 托盘退出：只落盘待写内容/颜色等变更，不重新读取几何（避免在 OS 强制移位后保存错误坐标）
-        // bounds 变更已通过 per-note key 实时写入，无需在此再次 commit。
-        unlistenBeforeExit = await listen('app-before-exit', async () => {
-          try {
-            await desktopNotesStore.flushPersistPublic()
-          }
-          catch (error) {
-            logger.warn('app-before-exit flush failed', error)
-          }
-        })
+        if (geometryTimer) {
+          clearTimeout(geometryTimer)
+          await commitCurrentGeometry()
+        }
+        await Promise.all([desktopNotesStore.flushPersistPublic(), pendingTodoPreferences])
       }
       catch (error) {
-        logger.warn('Failed to register app-before-exit listener for sticky note', error)
+        logger.warn('Failed to save sticky note before exit', error)
       }
-
-      try {
-        unlistenMoved = await appWindow.onMoved(() => scheduleGeometrySync())
-      }
-      catch (error) {
-        logger.warn('Failed to register moved listener for sticky note', error)
-      }
-
-      try {
-        unlistenResized = await appWindow.onResized(() => scheduleGeometrySync())
-      }
-      catch (error) {
-        logger.warn('Failed to register resized listener for sticky note', error)
-      }
-
-      try {
-        unlistenBlur = await appWindow.listen('tauri://blur', () => {
-          if (mode === 'edit') {
-            mode = 'preview'
-          }
-          triggerAutoSync()
-        })
-      }
-      catch (error) {
-        logger.warn('Failed to register blur listener for sticky note', error)
-      }
-    })()
+    }))
+    register(appWindow.listen(DESKTOP_NOTES.GEOMETRY_CAPTURE_EVENT, scheduleGeometrySync))
+    register(appWindow.listen('tauri://blur', handleEditorBlur))
 
     return () => {
+      disposed = true
       window.removeEventListener('dblclick', handleGlobalDoubleClick)
-      unlistenTheme?.()
-      unlistenMoved?.()
-      unlistenResized?.()
-      unlistenBlur?.()
-      unlistenClose?.()
-      unlistenBeforeExit?.()
-      if (geometryTimer) {
-        clearTimeout(geometryTimer)
-      }
+      unlisteners.forEach(cleanup => cleanup())
+      clearTimeout(geometryTimer)
     }
   })
 </script>
 
 <svelte:head>
-  <title>{t('desktopNotes.windowTitle')}</title>
+  <title>{locale ? t('desktopNotes.windowTitle') : ''}</title>
 </svelte:head>
 
-{#if currentNote}
+{#if currentNote && locale}
   <div class='note-shell' data-color={currentNote.color}>
     <header class='note-header'>
       <div class='header-tools'>
@@ -330,7 +221,7 @@
           class='color-dot-btn'
           type='button'
           title={t('desktopNotes.changeColor')}
-          onclick={toggleColorPanel}
+          onclick={() => { colorPanelOpen = !colorPanelOpen }}
         >
           <span class='color-dot current'></span>
         </button>
@@ -367,7 +258,16 @@
     {/if}
 
     <div class='content-area'>
-      {#if mode === 'edit'}
+      {#if isTodo}
+        {#if todoPreferencesReady}
+          <DesktopNoteTodoEditor
+            content={currentNote.content}
+            preferences={todoPreferences}
+            onChange={handleContentChange}
+            onPreferencesChange={handleTodoPreferencesChange}
+          />
+        {/if}
+      {:else if mode === 'edit'}
         <textarea
           class='note-editor'
           value={currentNote.content}
@@ -395,7 +295,7 @@
       </div>
     {/if}
   </div>
-{:else if !desktopNotesStore.initialized}
+{:else if !desktopNotesStore.initialized || !locale}
   <div class='empty-shell loading'>
     <p>{t('desktopNotes.loading')}</p>
   </div>

@@ -196,12 +196,14 @@
   async function initializeStores() {
     try {
       await configStore.init()
-      await desktopNotesStore.init()
+      void configStore.refreshShortcuts().then((failed) => {
+        if (failed.length > 0) {
+          appState.setError(t('general.shortcutsStartupWarning'))
+        }
+      })
+      void initializeDesktopNotes()
       await platformsStore.init()
       await translationStore.init()
-
-      await desktopNotesStore.refreshSession()
-      desktopNotesStore.startAuthListener()
 
       const translatorId = configStore.config.currentTranslator
       if (translatorId) {
@@ -214,38 +216,11 @@
       const lastPlatformId
         = configStore.config.lastUsedPlatform
           || configStore.config.defaultPlatform
-      if (lastPlatformId) {
+      if (lastPlatformId && appState.currentView === 'welcome') {
         const platform = platformsStore.getPlatformById(lastPlatformId)
         if (platform && platform.enabled) {
           appState.switchToChatView(platform)
         }
-      }
-
-      if (configStore.config.desktopNotesEnabled) {
-        // 启动时：如果开启同步且已认证，先执行同步（以远端数据为准，关闭前已同步到 Supabase）
-        if (
-          configStore.config.desktopNotesSyncEnabled
-          && desktopNotesStore.session.authenticated
-        ) {
-          try {
-            const result = await desktopNotesStore.syncWithSupabase({
-              preferRemote: true,
-              fullPull: true,
-            })
-            logger.info('Startup desktop notes sync completed', {
-              pushed: result.pushed,
-              pulled: result.pulled,
-            })
-          }
-          catch (error) {
-            logger.warn('Startup desktop notes sync failed', error)
-          }
-        }
-
-        // 同步后恢复窗口：仅恢复 visible=true 的便签（visible 状态已跨设备同步）
-        // 设计上不再做屏幕切换重定位 — 钉死保存的逻辑像素坐标，
-        // 用户拔插显示器、切换主屏的处理交给 OS。
-        await desktopNotesStore.restoreVisibleWindows({ recoverHidden: false })
       }
 
       // 预加载默认平台（异步，不阻塞初始化）
@@ -253,6 +228,29 @@
     }
     catch (error) {
       logger.error('Failed to initialize application stores:', error)
+    }
+  }
+
+  async function initializeDesktopNotes() {
+    try {
+      await desktopNotesStore.init()
+      if (configStore.config.desktopNotesEnabled) {
+        await desktopNotesStore.restoreVisibleWindows()
+      }
+
+      await desktopNotesStore.refreshSession()
+      if (configStore.config.desktopNotesSyncEnabled && desktopNotesStore.session.authenticated) {
+        await desktopNotesStore.syncWithSupabase({ fullPull: true })
+        if (configStore.config.desktopNotesEnabled) {
+          await desktopNotesStore.restoreVisibleWindows()
+        }
+      }
+    }
+    catch (error) {
+      logger.warn('Desktop notes initialization failed', error)
+    }
+    finally {
+      desktopNotesStore.startAuthListener()
     }
   }
 
@@ -325,12 +323,8 @@
         appState.switchToTranslationView()
         window.dispatchEvent(new CustomEvent('ensureTranslationVisible'))
 
-        // 如果有文本，执行翻译操作
         if (payload.text && payload.action === 'translate') {
-          // 延迟执行以确保 webview 已显示
-          setTimeout(() => {
-            void executeTranslation(payload.text as string)
-          }, 300)
+          void executeTranslation(payload.text, platform.id)
         }
       }
       else {
@@ -343,17 +337,8 @@
       if (platform) {
         appState.switchToChatView(platform)
 
-        // 如果有文本，执行相应操作
-        if (payload.text) {
-          // 延迟执行以确保 webview 已显示
-          setTimeout(() => {
-            if (payload.action === 'translate') {
-              void executeTranslation(payload.text as string)
-            }
-            else if (payload.action === 'explain') {
-              void executeExplanation(payload.text as string)
-            }
-          }, 300)
+        if (payload.text && payload.action === 'explain') {
+          void executeExplanation(payload.text, platform.id)
         }
       }
       else {
