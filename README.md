@@ -158,21 +158,22 @@ AI Ask 是基于 **Tauri 2.x** + **Svelte 5** 构建的现代化桌面应用，�
 - **独立窗口**
   - 每个便签在独立的无边框 Tauri 窗口中渲染，可自由拖拽、缩放
   - 支持 Markdown 编辑与实时预览（双击编辑、失焦自动切回预览）
+  - 待办便签支持直接新增、编辑、勾选和删除事项，每项可选优先级和截止日期
   - 6 种颜色主题（sunny、mint、sky、lavender、rose、slate），跟随深色/浅色模式
+  - Windows 显示桌面时保留已打开的便签，切回应用后恢复普通窗口层级
 - **云端同步**
   - 基于 Supabase（PostgreSQL + Realtime）实现跨设备同步
   - 使用邮箱 + 密码认证，无需第三方 OAuth
-  - 同步字段：标题、内容、颜色、窗口位置/大小（含屏幕参考尺寸）
+  - 同步便签类型、标题、内容、颜色和显示状态，窗口位置和大小保存在当前设备
   - 同步策略：Last-Writer-Wins（以 updatedAt 为准），编辑后自动防抖同步
   - Realtime 订阅：其他设备的变更实时推送到本地
-- **跨分辨率适配**
-  - 保存 bounds 时记录当前屏幕逻辑尺寸（refScreenWidth / refScreenHeight）
-  - 打开窗口时按屏幕比例等比缩放，确保不同分辨率 / DPI 下位置和大小一致
+- **多显示器适配**
+  - 保存相对于显示器工作区的偏移和逻辑尺寸，恢复时按目标显示器 DPI 换算
+  - 显示器断开时回退到主屏工作区，接回后按原显示器位置恢复
   - 最小尺寸限制：240×180 逻辑像素
 - **启动恢复**
-  - 程序启动时优先拉取远端最新数据（preferRemote + fullPull）
-  - 同步完成后恢复所有可见便签窗口，包含异常关闭前未正常关闭的窗口（recoverHidden）
-  - 即使同步失败也不阻塞本地便签恢复
+  - 启动时先恢复本地打开的便签，再后台同步
+  - 关闭总开关时暂停显示便签，再次启用会恢复打开的窗口
 - **软删除**
   - 删除操作设置 deletedAt 时间戳，同步到 Supabase 后可跨设备生效
   - 活跃便签列表自动过滤已删除项
@@ -193,6 +194,7 @@ AI Ask 是基于 **Tauri 2.x** + **Svelte 5** 构建的现代化桌面应用，�
 ### 🪟 窗口与交互
 
 - **主窗口**
+  - 桌面端重复启动时唤回已有主窗口
   - 单页应用（SPA），渲染稳定、切换迅速
   - 无边框设计，自定义标题栏
   - 顶部标题栏可拖拽（按钮区域禁用拖拽，避免误操作）
@@ -222,6 +224,7 @@ AI Ask 是基于 **Tauri 2.x** + **Svelte 5** 构建的现代化桌面应用，�
   - **主窗口切换**：Ctrl/Cmd+Shift+A（可自定义）
   - **翻译快捷键**：Ctrl/Cmd+Shift+T（可自定义）
   - **划词工具栏**：Ctrl/Cmd+Shift+S（可自定义）
+  - 检查应用内重复和系统占用，注册失败时保留原绑定，并在设置中显示原因与重试入口
   - 隐藏流程：事件广播 → 隐藏 Webview → 延迟 100ms → 隐藏主窗口
   - 快捷键节流：350ms 内重复触发会被自动忽略，避免经常性抖动
 
@@ -253,7 +256,7 @@ AI Ask 是基于 **Tauri 2.x** + **Svelte 5** 构建的现代化桌面应用，�
     - 全局快捷键（主窗口切换）
     - 翻译快捷键（快速打开翻译）
     - 划词工具栏快捷键（选中文字后显示）
-    - 支持 8 种预设组合，并同步到 Rust 端注册，含 350ms 节流
+    - 支持多组预设，在 Rust 端即时注册，并对重复按键做节流
   - **启动**：
     - 开机自启动（系统登录时自动运行）
     - 自动更新（后台下载，下次启动安装，可选择自动或手动下载）
@@ -329,17 +332,17 @@ AI Ask 是基于 **Tauri 2.x** + **Svelte 5** 构建的现代化桌面应用，�
 #### 技术栈
 
 - **前端**
-  - 框架：SvelteKit 2.x + Svelte 5（Runes API）
-  - 语言：TypeScript 5.6
-  - 构建：Vite 6
-  - UI 库：lucide-svelte（图标）
+  - 框架：SvelteKit 3 + Svelte 5（Runes API）
+  - 语言：TypeScript 6.0
+  - 构建：Vite 8
+  - UI 库：@lucide/svelte（图标）
   - 样式：纯 CSS + CSS Variables
   - 测试：Vitest + jsdom
 - **后端**
-  - 框架：Tauri 2.0
-  - 语言：Rust 1.70+（Edition 2021）
-  - 核心依赖：tauri-plugin-store、global-shortcut、autostart、rdev、reqwest
-  - 平台特定：windows crate（Windows）、accessibility（macOS）
+  - 框架：Tauri 2.12
+  - 语言：Rust stable（Edition 2021）
+  - 核心依赖：tauri-plugin-store、global-shortcut、single-instance、autostart、reqwest
+  - 平台特定：windows crate（Windows）、accessibility 和 rdev（macOS）
   - 测试：Cargo test + tempfile
 
 #### 后端模块
@@ -404,17 +407,21 @@ pnpm tauri dev          # 开发模式
 pnpm tauri build        # 生产构建
 pnpm run check          # TypeScript 检查
 pnpm lint               # ESLint + Rust fmt/clippy
-pnpm test               # 所有测试（前后端）
+pnpm test               # 前端和 Rust 测试
+pnpm test:e2e           # Playwright Windows 原生验收（需隔离构建）
 pnpm version:sync       # 同步版本号
 ```
+
+在 Windows 交互式桌面安装依赖后，运行 `powershell -ExecutionPolicy Bypass -File e2e/run-windows.ps1` 进行原生端到端验收。脚本用独立应用标识和数据目录构建测试客户端，截图在 `test-results/windows-e2e`，HTML 报告在 `playwright-report`。
+
+实机专项验收默认不运行。双屏扩展并保持 Windows 解锁时，设置 `$env:AI_ASK_E2E_MANUAL_DESKTOP = '1'`，给上述脚本加 `--grep 'manual Windows'`。查看测试目录内 `next-step.json`，按提示切换虚拟桌面、Windows 投影模式，并在显示桌面后勾选测试便签。实际平台验收可设置 `$env:AI_ASK_E2E_LIVE_PLATFORMS = '1'` 并加 `--grep 'live'`；只使用独立测试配置和固定示例文本，平台登录、限流或访问阻塞单独记录。两类验收请串行运行。
 
 ### ✨ 体验优化
 
 - **窗口管理**：`ChildWebviewProxy` 统一计算边界，`hideAllWebviews → show` 事件链兼容托盘/快捷键/设置页；翻译/聊天窗口移动、缩放、失焦都会同步重排
 - **性能优化**：
-  - 组件层面使用懒加载（chat/translation/settings/debug），首屏仅加载 Welcome
-  - `preloadDefaultPlatforms` + 冷/暖启动最小加载时间，兼顾响应速度与视觉稳定
-  - Webview Ready 事件 + 智能超时（新建 8s/复用 2s），注入逻辑始终等待可用后再执行
+  - 视图组件按需加载，翻译模块在启动空闲时预取，设置页按需挂载
+  - 翻译窗口先显示，注入等 WebView 就绪后执行，悬浮结果按请求关联
   - i18n 包按需加载，图标本地化避免网络抖动
 - **用户体验**：
   - Header UpdateBanner、LoadingSpinner、错误 toast、倒计时提示完善反馈链路
@@ -425,7 +432,7 @@ pnpm version:sync       # 同步版本号
 ### 🛡️ 质量保障
 
 - **代码规范**：TypeScript 严格模式、Svelte Runes only、CSS Variables、Rust clippy
-- **测试覆盖**：前端 147 个测试、后端 31 个测试
+- **测试覆盖**：Vitest、Rust 单元测试、Windows 原生 Playwright E2E
 - **质量门禁**：类型检查零错误、Lint 零警告、所有测试通过
 
 ---
@@ -434,9 +441,9 @@ pnpm version:sync       # 同步版本号
 
 ### 环境要求
 
-- **Node.js**: 18.0+
-- **pnpm**: 8.0+
-- **Rust**: 1.70+ （会自动通过 rustup 安装）
+- **Node.js**：24.15+（CI 使用 Node.js 24）
+- **pnpm**：12.18.0（见 `packageManager`）
+- **Rust**：stable（Windows 验证使用 1.97）
 - **操作系统**：Windows 10/11、macOS 10.15+、Linux（主流发行版）
 
 ### 平台特定要求
