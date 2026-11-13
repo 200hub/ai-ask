@@ -413,6 +413,8 @@ pnpm test:e2e           # Playwright Windows 原生验收（需隔离构建）
 pnpm version:sync       # 同步版本号
 ```
 
+发布新版本时，先更新 `src-tauri/tauri.conf.json`，运行 `pnpm version:sync`，再把同步后的文件一起提交。合并到 `main` 后，发布工作流会构建五个桌面目标，并在六个安装包齐全时创建版本标签和 GitHub Release。已有标签但发布未完成时，可以重跑发布工作流。
+
 在 Windows 交互式桌面安装依赖后，运行 `powershell -ExecutionPolicy Bypass -File e2e/run-windows.ps1` 进行原生端到端验收。脚本用独立应用标识和数据目录构建测试客户端，截图在 `test-results/windows-e2e`，HTML 报告在 `playwright-report`。
 
 实机专项验收默认不运行。双屏扩展并保持 Windows 解锁时，设置 `$env:AI_ASK_E2E_MANUAL_DESKTOP = '1'`，给上述脚本加 `--grep 'manual Windows'`。查看测试目录内 `next-step.json`，按提示切换虚拟桌面、Windows 投影模式，并在显示桌面后勾选测试便签。仅验收虚拟桌面时可将该变量设为 `virtual`，无需接外屏。实际平台验收可设置 `$env:AI_ASK_E2E_LIVE_PLATFORMS = '1'` 并加 `--grep 'live'`；只使用独立测试配置和固定示例文本，平台登录、限流或访问阻塞单独记录。两类验收请串行运行。
