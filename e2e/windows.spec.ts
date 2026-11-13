@@ -199,7 +199,14 @@ interface NativeWindowState {
   cloakFlags: number
   centerHitsWindow: boolean
   topmost: boolean
-  rect: { left: number, top: number, right: number, bottom: number }
+  rect: NativeRect
+}
+
+interface NativeRect {
+  left: number
+  top: number
+  right: number
+  bottom: number
 }
 
 interface DesktopState {
@@ -709,7 +716,7 @@ async function displayTopology(): Promise<DisplayTopology> {
 
 test('manual Windows topology and virtual desktop acceptance', async () => {
   const mode = process.env.AI_ASK_E2E_MANUAL_DESKTOP
-  test.skip(mode !== '1' && mode !== 'virtual', 'Requires someone at the Windows desktop to switch displays and virtual desktops')
+  test.skip(mode !== '1' && mode !== 'virtual' && mode !== 'projection', 'Requires someone at the Windows desktop to switch displays and virtual desktops')
   test.setTimeout(15 * 60_000)
   await requireInputDesktop()
   const testInfo = test.info()
@@ -722,6 +729,12 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
     const { left, top, right, bottom } = state.rect
     return left >= area.x - 8 && top >= area.y - 8
       && right <= area.x + area.width + 8 && bottom <= area.y + area.height + 8
+  }
+  function frameMatches(current: NativeRect, original: NativeRect, tolerance = 0) {
+    return Math.abs(current.left - original.left) <= tolerance
+      && Math.abs(current.top - original.top) <= tolerance
+      && Math.abs(current.right - original.right) <= tolerance
+      && Math.abs(current.bottom - original.bottom) <= tolerance
   }
   await seedConfig()
   const app = await openApp(testInfo)
@@ -765,15 +778,26 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
     evidence.baseline = { topology: original, note: baseline, saved }
 
     const manualWait = { timeout: 180_000, intervals: [250, 500, 1000] }
-    await checkpoint('switch-away', '新建并切换到一个 Windows 虚拟桌面（Win+Ctrl+D），停留约 5 秒。')
-    await expect.poll(async () => (await probe!.inspect()).note.cloakFlags, manualWait).toBeGreaterThan(0)
-    evidence.virtualDesktopAway = await probe.inspect()
-    await checkpoint('switch-back', '回到原虚拟桌面（Win+Ctrl+←），先不要切换投影。')
-    await expect.poll(async () => {
-      const state = (await probe!.inspect()).note
-      return { cloakFlags: state.cloakFlags, rect: state.rect, visible: state.visible }
-    }, manualWait).toEqual({ cloakFlags: 0, rect: baseline.rect, visible: true })
-    evidence.virtualDesktopBack = await probe.inspect()
+    if (mode !== 'projection') {
+      await checkpoint('switch-away', '切换到另一 Windows 虚拟桌面（Win+Ctrl+→ 或 Win+Ctrl+D），等提示再切回。')
+      await expect.poll(async () => (await probe!.inspect()).main.cloakFlags, manualWait).toBeGreaterThan(0)
+      let away = await probe.inspect()
+      await expect.poll(async () => {
+        away = await probe!.inspect()
+        return away.main.cloakFlags > 0 && away.note.visible && !away.note.iconic
+          && !away.note.cloakFlags && away.note.centerHitsWindow && frameMatches(away.note.rect, baseline.rect)
+      }).toBe(true)
+      const virtualPath = testInfo.outputPath('virtual-desktop-note.png')
+      evidence.virtualDesktopAway = await probe.inspect('Inspect', virtualPath)
+      await testInfo.attach('virtual-desktop-note', { path: virtualPath, contentType: 'image/png' })
+      await checkpoint('switch-back', '回到原虚拟桌面（Win+Ctrl+←），先不要切换投影。')
+      await expect.poll(async () => {
+        const state = await probe!.inspect()
+        return state.main.cloakFlags === 0 && state.note.visible && !state.note.cloakFlags
+          && !state.note.iconic && frameMatches(state.note.rect, baseline.rect)
+      }, manualWait).toBe(true)
+      evidence.virtualDesktopBack = await probe.inspect()
+    }
     if (virtualOnly) {
       await checkpoint('complete', '已记录虚拟桌面切换和原位置恢复。')
       return
@@ -810,8 +834,11 @@ test('manual Windows topology and virtual desktop acceptance', async () => {
     }, { ...manualWait, intervals: [1200, 1600] }).toBe(true)
     await expect.poll(async () => {
       const state = (await probe!.inspect()).note
-      return { rect: state.rect, visible: state.visible, topmost: state.topmost }
-    }).toEqual({ rect: baseline.rect, visible: true, topmost: false })
+      // Whole logical pixels round at the monitor's DPI; compare at most one logical pixel per edge.
+      const tolerance = Math.ceil(Math.max(target!.dpi.x, target!.dpi.y) / 96)
+      return state.visible && !state.topmost && !state.iconic && !state.cloakFlags
+        && frameMatches(state.rect, baseline.rect, tolerance)
+    }).toBe(true)
     evidence.extendRestored = { topology: extended, desktop: await probe.inspect(), saved: await readSavedBounds() }
     expect(await readSavedBounds()).toEqual(saved)
     await expect(completed).toBeChecked()

@@ -1,7 +1,7 @@
 import type { Browser, BrowserContext, Page, TestInfo } from '@playwright/test'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { basename, resolve } from 'node:path'
 import process from 'node:process'
@@ -9,6 +9,16 @@ import { chromium, expect, test } from '@playwright/test'
 
 const executable = process.env.AI_ASK_E2E_EXE
 const dataDirectory = process.env.AI_ASK_E2E_DATA
+const manualLogin = process.env.AI_ASK_E2E_MANUAL_LOGIN
+const MANUAL_LOGIN_TIMEOUT_MS = 8 * 60_000
+
+if (manualLogin && !['chatgpt', 'qianwen'].includes(manualLogin)) {
+  throw new Error('AI_ASK_E2E_MANUAL_LOGIN must be chatgpt or qianwen')
+}
+
+if (manualLogin) {
+  test.use({ trace: 'off', screenshot: 'off', video: 'off' })
+}
 
 test.skip(
   process.platform !== 'win32' || !executable || !dataDirectory || process.env.AI_ASK_E2E_LIVE_PLATFORMS !== '1',
@@ -99,22 +109,46 @@ async function openLiveApp(platform: Platform, testInfo: TestInfo) {
   }
   await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
   const endpoint = `http://127.0.0.1:${address.port}`
+  const manualProfile = manualLogin
+    ? await mkdtemp(resolve(dataDirectory!, 'manual-login-profile-'))
+    : undefined
   const app = spawn(executable!, [], {
     windowsHide: true,
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${address.port}` },
+    env: {
+      ...process.env,
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${address.port}`,
+      ...(manualProfile ? { WEBVIEW2_USER_DATA_FOLDER: manualProfile } : {}),
+    },
   })
   const log: string[] = []
-  app.stdout.on('data', chunk => log.push(String(chunk)))
-  app.stderr.on('data', chunk => log.push(String(chunk)))
+  app.stdout.on('data', (chunk) => {
+    if (!manualProfile) {
+      log.push(String(chunk))
+    }
+  })
+  app.stderr.on('data', (chunk) => {
+    if (!manualProfile) {
+      log.push(String(chunk))
+    }
+  })
   const exited = once(app, 'exit')
   let browser: Browser | undefined
   async function close() {
-    if (app.exitCode === null && app.signalCode === null) {
-      app.kill()
-      await exited
+    try {
+      if (app.exitCode === null && app.signalCode === null) {
+        app.kill()
+        await exited
+      }
+      await browser?.close().catch(() => {})
+      if (!manualProfile) {
+        await testInfo.attach('native-log', { body: log.join(''), contentType: 'text/plain' })
+      }
     }
-    await browser?.close().catch(() => {})
-    await testInfo.attach('native-log', { body: log.join(''), contentType: 'text/plain' })
+    finally {
+      if (manualProfile) {
+        await rm(manualProfile, { recursive: true, force: true, maxRetries: 15, retryDelay: 300 })
+      }
+    }
   }
   try {
     await expect.poll(async () => (await fetch(`${endpoint}/json/version`).catch(() => null))?.ok, {
@@ -129,6 +163,40 @@ async function openLiveApp(platform: Platform, testInfo: TestInfo) {
   catch (error) {
     await close()
     throw error
+  }
+}
+
+async function waitForManualLogin(main: Page, platform: Platform) {
+  const readyPath = resolve(dataDirectory!, 'manual-login-ready.txt')
+  const continuePath = resolve(dataDirectory!, 'manual-login-continue.txt')
+  await rm(readyPath, { force: true })
+  await rm(continuePath, { force: true })
+  try {
+    await invoke(main, 'open_platform_in_main_window', {
+      platformId: platform.id,
+      platformType: 'ai',
+    })
+    await expect(main.locator('.chat-container')).toBeVisible()
+    await expect(main.locator('.chat-container .loading-overlay')).toHaveCount(0)
+    expect(await invoke(main, 'check_child_webview_exists', { payload: { id: platform.target } })).toBe(true)
+    await writeFile(readyPath, [
+      `Platform: ${platform.id}`,
+      'Sign in manually in the isolated AI Ask window. Open a new chat, leave its input blank, and return to the embedded platform.',
+      'When ready, create the following empty confirmation file within eight minutes.',
+      continuePath,
+    ].join('\n'), { flag: 'wx' })
+    await expect.poll(
+      () => access(continuePath).then(() => true, () => false),
+      {
+        message: `Wait for manual sign-in confirmation at ${continuePath}`,
+        intervals: [500, 1000],
+        timeout: MANUAL_LOGIN_TIMEOUT_MS,
+      },
+    ).toBe(true)
+  }
+  finally {
+    await rm(readyPath, { force: true })
+    await rm(continuePath, { force: true })
   }
 }
 
@@ -214,9 +282,16 @@ async function detectProviderBlock(
 for (const platform of platforms) {
   test(`live ${platform.id} returns a floating result`, async () => {
     const testInfo = test.info()
+    test.skip(Boolean(manualLogin && manualLogin !== platform.id), 'Manual sign-in runs only the selected AI platform')
+    if (manualLogin) {
+      test.setTimeout(MANUAL_LOGIN_TIMEOUT_MS + 120_000)
+    }
     const app = await openLiveApp(platform, testInfo)
-    const trace = watchLiveSite(app.context, platform)
+    const trace = manualLogin ? undefined : watchLiveSite(app.context, platform)
     try {
+      if (manualLogin) {
+        await waitForManualLogin(app.main, platform)
+      }
       await invoke(app.main, 'show_selection_toolbar', { text: platform.text, position: { x: 400, y: 360 } })
       const toolbar = await findWindow(app.context, 'selection-toolbar')
       const action = toolbar.getByRole('button', { name: platform.action, exact: true })
@@ -228,37 +303,41 @@ for (const platform of platforms) {
       await expect(output.or(error)).toBeVisible({ timeout: 65_000 })
       await capture(result, testInfo, `live-${platform.id}-result`)
 
-      const child = app.context.pages().find(page => matchesDomain(page.url(), platform))
-      const providerState = await child?.evaluate(() => ({
-        title: document.title,
-        readyState: document.readyState,
-        editors: [...document.querySelectorAll('textarea,[contenteditable="true"]')].slice(0, 5).map(element => ({
-          tag: element.tagName,
-          id: element.id,
-          role: element.getAttribute('role'),
-          slate: element.getAttribute('data-slate-editor'),
-        })),
-      })).catch(() => null)
-      await testInfo.attach('provider-state', {
-        body: JSON.stringify(providerState ?? null),
-        contentType: 'application/json',
-      })
+      if (trace) {
+        const child = app.context.pages().find(page => matchesDomain(page.url(), platform))
+        const providerState = await child?.evaluate(() => ({
+          title: document.title,
+          readyState: document.readyState,
+          editors: [...document.querySelectorAll('textarea,[contenteditable="true"]')].slice(0, 5).map(element => ({
+            tag: element.tagName,
+            id: element.id,
+            role: element.getAttribute('role'),
+            slate: element.getAttribute('data-slate-editor'),
+          })),
+        })).catch(() => null)
+        await testInfo.attach('provider-state', {
+          body: JSON.stringify(providerState ?? null),
+          contentType: 'application/json',
+        })
 
-      const blocked = await detectProviderBlock(app.context, platform, trace)
-      if (blocked) {
-        testInfo.annotations.push({ type: 'provider-block', description: blocked })
+        const blocked = await detectProviderBlock(app.context, platform, trace)
+        if (blocked) {
+          testInfo.annotations.push({ type: 'provider-block', description: blocked })
+          test.skip(true, blocked)
+        }
       }
-      test.skip(Boolean(blocked), blocked ?? undefined)
       const errorCount = await error.count()
       expect(errorCount, errorCount ? await error.textContent() ?? '' : '').toBe(0)
       await expect(result.locator('.original-content')).toHaveText(platform.text)
       await expect(output).toContainText(platform.expected)
     }
     finally {
-      await testInfo.attach('provider-network', {
-        body: JSON.stringify(trace, null, 2),
-        contentType: 'application/json',
-      })
+      if (trace) {
+        await testInfo.attach('provider-network', {
+          body: JSON.stringify(trace, null, 2),
+          contentType: 'application/json',
+        })
+      }
       await app.close()
     }
   })
