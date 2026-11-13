@@ -187,11 +187,10 @@ async function openSettings(page: Page) {
 }
 
 async function addTodo(page: Page, text: string) {
-  const edit = page.getByRole('button', { name: '编辑待办清单' })
-  const finish = page.getByRole('button', { name: '完成编辑' })
-  await expect(edit.or(finish)).toBeVisible()
-  if (await edit.isVisible()) {
-    await edit.press('Enter')
+  const editor = page.locator('.todo-editor')
+  await expect(editor).toBeVisible()
+  if (await editor.getAttribute('data-editing') === 'false') {
+    await editor.dispatchEvent('dblclick')
   }
   const input = page.getByRole('textbox', { name: '新待办事项，按回车添加' })
   await input.fill(text)
@@ -591,7 +590,7 @@ test('native Todo and Markdown notes survive pause and restart', async () => {
     await expect(restored.getByRole('checkbox', { name: '切换完成状态' }).first()).toBeChecked()
     await expect(restored.getByRole('combobox', { name: '排序' })).toHaveCount(0)
     await expect(restored.getByRole('checkbox', { name: '隐藏已完成' })).toHaveCount(0)
-    await restored.getByRole('button', { name: '编辑待办清单' }).press('Enter')
+    await restored.locator('.view-edit-shortcut').press('F2')
     await expect(restored.getByRole('textbox', { name: '编辑待办事项' }).nth(1)).toHaveValue('并发保存时验证翻译和解释窗口')
     await expect(restored.locator('time[datetime="2026-11-20"]')).toBeVisible()
     await restored.getByRole('button', { name: '优先级', exact: true }).nth(1).press('Enter')
@@ -695,7 +694,7 @@ test('native Todo sorts, hides completed tasks and persists manual ordering', as
     const restored = await findWindow(app.context, label)
     await expect(restored.getByRole('checkbox', { name: '隐藏已完成' })).toHaveCount(0)
     await expect(restored.getByRole('combobox', { name: '排序' })).toHaveCount(0)
-    await restored.getByRole('button', { name: '编辑待办清单' }).press('Enter')
+    await restored.locator('.view-edit-shortcut').press('F2')
     await expect(restored.getByRole('checkbox', { name: '隐藏已完成' })).toBeChecked()
     await expect(restored.getByRole('combobox', { name: '排序' })).toHaveValue('deadline')
     await order([third, second, first], restored)
@@ -722,13 +721,18 @@ test('native Todo view keeps controls out of the list and preserves nested tasks
     await create.press('Enter')
     const todo = await findWindow(app.context, 'desktop-note-')
     const label = (await getLabel(todo))!
-    const view = todo.getByRole('button', { name: '编辑待办清单' })
+    const view = todo.locator('.todo-editor')
     const finish = todo.getByRole('button', { name: '完成编辑' })
     const rootText = '发布演示版本'
     const childText = '检查会议投影'
     const grandchildText = '核对便签位置'
-    await expect(view).toBeVisible()
+    await expect(view).toHaveAttribute('data-editing', 'false')
+    await expect(todo.locator('.todo-controls')).toHaveCount(0)
+    const shortcut = await todo.locator('.view-edit-shortcut').boundingBox()
+    expect(shortcut?.width).toBeLessThanOrEqual(1)
     await expect(todo.getByRole('combobox', { name: '排序' })).toHaveCount(0)
+    await view.dblclick({ position: { x: 20, y: 20 } })
+    await expect(view).toHaveAttribute('data-editing', 'true')
     await addTodo(todo, rootText)
     await expect(todo.getByRole('button', { name: '添加', exact: true })).toHaveCount(0)
     for (const [depth, title] of [childText, grandchildText].entries()) {
@@ -748,6 +752,7 @@ test('native Todo view keeps controls out of the list and preserves nested tasks
     await todo.locator('input[type=date]').fill('2026-11-25')
     await screenshot(todo, testInfo, 'todo-nested-edit')
     await finish.press('Enter')
+    await expect(view).toHaveAttribute('data-editing', 'false')
     await expect(todo.getByRole('combobox', { name: '排序' })).toHaveCount(0)
     await expect(todo.getByRole('checkbox', { name: '隐藏已完成' })).toHaveCount(0)
     await expect(todo.getByRole('textbox')).toHaveCount(0)
@@ -755,7 +760,11 @@ test('native Todo view keeps controls out of the list and preserves nested tasks
     const completed = todo.locator('li[data-task-depth="2"]').getByRole('checkbox', { name: '切换完成状态' })
     await completed.check()
     await expect(completed).toBeChecked()
+    await completed.dispatchEvent('dblclick', { bubbles: true })
+    await expect(view).toHaveAttribute('data-editing', 'false')
     await screenshot(todo, testInfo, 'todo-nested-view')
+    await todo.getByText(rootText, { exact: true }).dblclick()
+    await expect(view).toHaveAttribute('data-editing', 'true')
     await expect.poll(async () => {
       const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
       return config.desktop_notes?.find((note: { content: string }) => note.content.includes(rootText))?.content

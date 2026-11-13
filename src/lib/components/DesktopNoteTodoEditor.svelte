@@ -18,7 +18,7 @@
     removeDesktopNoteTodo,
     serializeDesktopNoteTodos,
   } from '$lib/utils/desktop-note-todo'
-  import { CalendarDays, Check, Flag, GripVertical, ListPlus, Pencil, X } from '@lucide/svelte'
+  import { CalendarDays, Check, Flag, GripVertical, ListPlus, X } from '@lucide/svelte'
   import { tick } from 'svelte'
 
   type Props = {
@@ -44,6 +44,7 @@
   let childDraft = $state('')
   let editing = $state(false)
   let addChildTo = $state<number | null>(null)
+  let viewEditButton = $state<HTMLButtonElement>()
   let newItemInput = $state<HTMLInputElement>()
   let childInput = $state<HTMLInputElement>()
   let listElement = $state<HTMLUListElement>()
@@ -72,9 +73,26 @@
     addChildTo = null
     childDraft = ''
     endDrag()
+    await tick()
     if (editing) {
-      await tick()
       newItemInput?.focus()
+    }
+    else {
+      viewEditButton?.focus()
+    }
+  }
+
+  function enterEditOnDoubleClick(event: MouseEvent) {
+    if (!editing && event.target instanceof Element
+      && !event.target.closest('input, label, button, a, select, textarea, [contenteditable]')) {
+      void toggleEditing()
+    }
+  }
+
+  function handleViewShortcut(event: KeyboardEvent) {
+    if (event.key === 'F2') {
+      event.preventDefault()
+      void toggleEditing()
     }
   }
 
@@ -273,48 +291,52 @@
   }
 </script>
 
-<div class='todo-editor'>
-  <div class='todo-controls'>
-    <div class='display-options'>
-      {#if editing && items.length}
-        <label class='sort-control'>
-          <span>{t('desktopNotes.todo.sort')}</span>
-          <select
-            value={preferences.sort}
-            onchange={event => changePreferences({
-              sort: DESKTOP_NOTE_TODO_SORT_MODES.find(mode => mode === event.currentTarget.value) ?? preferences.sort,
-            })}
-          >
-            {#each DESKTOP_NOTE_TODO_SORT_MODES as sort (sort)}
-              <option value={sort}>{t(`desktopNotes.todo.sortModes.${sort}`)}</option>
-            {/each}
-          </select>
-        </label>
-        <label class='filter-control'>
-          <input
-            type='checkbox'
-            checked={preferences.hideCompleted}
-            onchange={event => changePreferences({ hideCompleted: event.currentTarget.checked })}
-          />
-          <span>{t('desktopNotes.todo.hideCompleted')}</span>
-        </label>
-      {/if}
+<div class='todo-editor' role='group' aria-label={t('desktopNotes.todo.label')} data-editing={editing} ondblclick={enterEditOnDoubleClick}>
+  {#if editing}
+    <div class='todo-controls'>
+      <div class='display-options'>
+        {#if items.length}
+          <label class='sort-control'>
+            <span>{t('desktopNotes.todo.sort')}</span>
+            <select
+              value={preferences.sort}
+              onchange={event => changePreferences({
+                sort: DESKTOP_NOTE_TODO_SORT_MODES.find(mode => mode === event.currentTarget.value) ?? preferences.sort,
+              })}
+            >
+              {#each DESKTOP_NOTE_TODO_SORT_MODES as sort (sort)}
+                <option value={sort}>{t(`desktopNotes.todo.sortModes.${sort}`)}</option>
+              {/each}
+            </select>
+          </label>
+          <label class='filter-control'>
+            <input
+              type='checkbox'
+              checked={preferences.hideCompleted}
+              onchange={event => changePreferences({ hideCompleted: event.currentTarget.checked })}
+            />
+            <span>{t('desktopNotes.todo.hideCompleted')}</span>
+          </label>
+        {/if}
+      </div>
+      <button
+        class='icon-button edit-toggle'
+        type='button'
+        aria-label={t('desktopNotes.todo.finishEditing')}
+        title={t('desktopNotes.todo.finishEditing')}
+        onclick={toggleEditing}
+      ><Check aria-hidden='true' /></button>
     </div>
+  {:else}
     <button
-      class='icon-button edit-toggle'
+      class='view-edit-shortcut'
       type='button'
-      aria-label={t(editing ? 'desktopNotes.todo.finishEditing' : 'desktopNotes.todo.editList')}
-      aria-pressed={editing}
-      title={t(editing ? 'desktopNotes.todo.finishEditing' : 'desktopNotes.todo.editList')}
+      aria-keyshortcuts='Enter F2'
+      bind:this={viewEditButton}
       onclick={toggleEditing}
-    >
-      {#if editing}
-        <Check aria-hidden='true' />
-      {:else}
-        <Pencil aria-hidden='true' />
-      {/if}
-    </button>
-  </div>
+      onkeydown={handleViewShortcut}
+    >{t('desktopNotes.todo.editList')}</button>
+  {/if}
 
   {#if visibleItems.length}
     <ul class='todo-items' class:editing bind:this={listElement}>
@@ -515,10 +537,29 @@
 
 <style>
   .todo-editor {
+    position: relative;
+    flex: 1;
     padding: 0.5rem;
     overflow: auto;
     min-height: 0;
     color: var(--note-text);
+  }
+
+  .view-edit-shortcut {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .todo-editor:has(.view-edit-shortcut:focus-visible) {
+    outline: 2px solid var(--note-accent);
+    outline-offset: -2px;
   }
 
   .todo-items {
