@@ -348,7 +348,6 @@ export const DESKTOP_NOTE_TODO_PRIORITIES = ['high', 'normal', 'low'] as const
 export const DESKTOP_NOTE_TODO_INDENT_SIZE = 2
 export const DESKTOP_NOTE_TODO_MARKDOWN_TAB_SIZE = 4
 export const DESKTOP_NOTE_TODO_MAX_DEPTH = 7
-export const DESKTOP_NOTE_TODO_DRAFT_MAX_ROWS = 4
 export const DESKTOP_NOTE_TODO_SORT_MODES = ['manual', 'priority', 'deadline'] as const
 export const DEFAULT_DESKTOP_NOTE_TODO_PREFERENCES = { hideCompleted: false, sort: 'manual' } as const
 export const DESKTOP_NOTE_TODO_PREFERENCES_KEY_PREFIX = 'note_todo_preferences_'

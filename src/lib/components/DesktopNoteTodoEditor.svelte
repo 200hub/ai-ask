@@ -4,7 +4,6 @@
   import { configStore } from '$lib/stores/config.svelte'
   import {
     DEFAULT_DESKTOP_NOTE_TODO_PREFERENCES,
-    DESKTOP_NOTE_TODO_DRAFT_MAX_ROWS,
     DESKTOP_NOTE_TODO_PRIORITIES,
     DESKTOP_NOTE_TODO_SORT_MODES,
   } from '$lib/utils/constants'
@@ -99,7 +98,7 @@
   }
 
   function draftRows(value: string) {
-    return value.split('\n', DESKTOP_NOTE_TODO_DRAFT_MAX_ROWS).length
+    return value.split('\n').length
   }
 
   function handleAddKeydown(event: KeyboardEvent, parentIndex?: number) {
@@ -685,9 +684,12 @@
   }
 
   .todo-add {
+    field-sizing: content;
     display: block;
     width: 100%;
+    max-height: 70vh;
     border-color: color-mix(in srgb, var(--note-accent) 45%, transparent);
+    overflow: auto;
     resize: none;
   }
 
