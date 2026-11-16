@@ -5,9 +5,10 @@ import {
   getDesktopNoteTodoParentIndex,
   getDesktopNoteTodoSiblingIndex,
   getVisibleDesktopNoteTodos,
-  insertDesktopNoteSubtask,
+  insertDesktopNoteTodos,
   moveDesktopNoteTodo,
   normalizeDesktopNoteTodoPreferences,
+  parseDesktopNoteTodoDraft,
   parseDesktopNoteTodos,
   removeDesktopNoteTodo,
   serializeDesktopNoteTodos,
@@ -148,6 +149,54 @@ describe('desktop note to-do list preferences', () => {
   })
 })
 
+describe('desktop note to-do drafts', () => {
+  it('adds one task per nonblank line and keeps literal text', () => {
+    expect(parseDesktopNoteTodoDraft('  整理周报 \r\n\t\r\n 2026.11 发布\r检查 - 状态\n-3°C 检查设备\n ')).toEqual([
+      { text: '整理周报', completed: false },
+      { text: '2026.11 发布', completed: false },
+      { text: '检查 - 状态', completed: false },
+      { text: '-3°C 检查设备', completed: false },
+    ])
+    expect(parseDesktopNoteTodoDraft('\n \t\r\n - \n1.\n- [ ]\n+ [x]   ')).toEqual([])
+  })
+
+  it('recognizes ordered and unordered Markdown lists with nested checkboxes', () => {
+    const draft = [
+      '1. 准备发布',
+      '\t- [ ] 核对版本',
+      '',
+      '    + [X] 验证回滚',
+      '      * 核对依赖',
+      '    2) 更新文档',
+      '2. 归档',
+      '3) [x] 完成确认',
+      '通知团队',
+      '  - 下一步',
+    ].join('\n')
+
+    expect(parseDesktopNoteTodoDraft(draft)).toEqual([
+      { text: '准备发布', completed: false },
+      { text: '核对版本', completed: false, depth: 1 },
+      { text: '验证回滚', completed: true, depth: 1 },
+      { text: '核对依赖', completed: false, depth: 2 },
+      { text: '更新文档', completed: false, depth: 1 },
+      { text: '归档', completed: false },
+      { text: '完成确认', completed: true },
+      { text: '通知团队', completed: false },
+      { text: '下一步', completed: false },
+    ])
+  })
+
+  it('recognizes metadata when pasting an existing Todo checklist', () => {
+    const tasks = [
+      { text: '会议准备', completed: false, priority: 'high', deadline: '2026-11-25' },
+      { text: '预订会议室', completed: true, depth: 1 },
+    ] satisfies DesktopNoteTodo[]
+
+    expect(parseDesktopNoteTodoDraft(serializeDesktopNoteTodos(tasks))).toEqual(tasks)
+  })
+})
+
 describe('desktop note to-do hierarchies', () => {
   const items: (DesktopNoteTodo & { id: number })[] = [
     { id: 0, text: 'Completed parent', completed: true, priority: 'low' },
@@ -206,16 +255,33 @@ describe('desktop note to-do hierarchies', () => {
     expect(getDesktopNoteTodoSiblingIndex(items, 5, 'previous')).toBeNull()
   })
 
-  it('inserts after the parent subtree and limits new nesting', () => {
+  it('appends a batch to the note or inserts it after the parent subtree', () => {
     const child = { id: 8, text: 'New child', completed: false, priority: 'high' } as const
-    const next = insertDesktopNoteSubtask(items, 0, child)
-    expect(next.map(({ id }) => id)).toEqual([0, 1, 2, 3, 8, 4, 5, 6, 7])
-    expect(next[4]).toEqual({ ...child, depth: 1 })
-    expect(insertDesktopNoteSubtask(items, 1, child)[3].depth).toBe(2)
-    expect(insertDesktopNoteSubtask(items, -1, child)).toBe(items)
-    const deepest = [...items, { ...child, depth: DESKTOP_NOTE_TODO_MAX_DEPTH }]
-    expect(canInsertDesktopNoteSubtask(deepest, deepest.length - 1)).toBe(false)
-    expect(insertDesktopNoteSubtask(deepest, deepest.length - 1, child)).toBe(deepest)
+    const grandchild = { text: 'New grandchild', completed: true, depth: 1 }
+    const additions = [child, grandchild]
+    expect(insertDesktopNoteTodos(items, additions)).toEqual([...items, ...additions])
+    expect(insertDesktopNoteTodos(items, additions, 0)).toEqual([
+      ...items.slice(0, 4),
+      { ...child, depth: 1 },
+      { ...grandchild, depth: 2 },
+      ...items.slice(4),
+    ])
+    expect(insertDesktopNoteTodos(items, [child], 1)[3].depth).toBe(2)
+    expect(insertDesktopNoteTodos(items, [])).toBe(items)
+    expect(insertDesktopNoteTodos(items, additions, -1)).toBe(items)
+  })
+
+  it('retains all inserted tasks within the note’s nesting limit', () => {
+    const deep = Array.from({ length: DESKTOP_NOTE_TODO_MAX_DEPTH }, (_, depth) => ({
+      text: `Task ${depth}`,
+      completed: false,
+      depth,
+    }))
+    const additions = parseDesktopNoteTodoDraft('- New child\n  - New descendant')
+    const next = insertDesktopNoteTodos(deep, additions, deep.length - 1)
+    expect(next.slice(deep.length)).toEqual(additions.map(item => ({ ...item, depth: DESKTOP_NOTE_TODO_MAX_DEPTH })))
+    expect(canInsertDesktopNoteSubtask(next, next.length - 1)).toBe(false)
+    expect(insertDesktopNoteTodos(next, additions, next.length - 1)).toBe(next)
   })
 })
 
