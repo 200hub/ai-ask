@@ -568,9 +568,16 @@
   }
 
   .todo-items {
+    --todo-row-border: color-mix(in srgb, var(--note-accent) 8%, transparent);
+    --todo-indent-border: color-mix(in srgb, var(--note-accent) 18%, transparent);
     list-style: none;
     padding: 0;
     margin: 0 0 0.5rem;
+  }
+
+  .todo-items.editing {
+    --todo-row-border: color-mix(in srgb, var(--note-accent) 22%, transparent);
+    --todo-indent-border: color-mix(in srgb, var(--note-accent) 48%, transparent);
   }
 
   .todo-row {
@@ -586,12 +593,12 @@
   .todo-items li {
     position: relative;
     margin-inline-start: calc(var(--task-depth) * 0.45rem);
-    border-bottom: 1px solid color-mix(in srgb, var(--note-accent) 22%, transparent);
+    border-bottom: 1px solid var(--todo-row-border);
   }
 
   .todo-items li:not([data-task-depth='0']) {
     padding-inline-start: 0.25rem;
-    border-inline-start: 1px solid color-mix(in srgb, var(--note-accent) 48%, transparent);
+    border-inline-start: 1px solid var(--todo-indent-border);
   }
 
   .todo-items li.dragged {
