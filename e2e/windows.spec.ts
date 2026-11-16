@@ -238,7 +238,7 @@ async function addTodo(page: Page, text: string) {
   if (await editor.getAttribute('data-editing') === 'false') {
     await editor.dispatchEvent('dblclick')
   }
-  const input = page.getByRole('textbox', { name: '新待办事项，按回车添加' })
+  const input = page.getByRole('textbox', { name: '新待办事项，每行一条，回车添加' })
   await input.fill(text)
   await input.press('Enter')
 }
@@ -582,7 +582,7 @@ test('native Todo and Markdown notes survive pause and restart', async () => {
     await expect(todo.locator('input[type=date]')).toBeVisible()
     await screenshot(todo, testInfo, 'todo-details')
     await todo.locator('input[type=date]').fill('2026-11-20')
-    await todo.getByRole('textbox', { name: '新待办事项，按回车添加' }).focus()
+    await todo.getByRole('textbox', { name: '新待办事项，每行一条，回车添加' }).focus()
     await expect(todo.locator('time[datetime="2026-11-20"]')).toBeVisible()
     await screenshot(todo, testInfo, 'todo-note')
 
@@ -815,7 +815,7 @@ test('native Todo view keeps controls out of the list and preserves nested tasks
     for (const [depth, title] of [childText, grandchildText].entries()) {
       const parent = todo.locator(`li[data-task-depth="${depth}"]`)
       await parent.getByRole('button', { name: '添加子任务' }).press('Enter')
-      const input = todo.getByRole('textbox', { name: '新子任务，按回车添加' })
+      const input = todo.getByRole('textbox', { name: '新子任务，每行一条，回车添加' })
       await input.fill(title)
       await input.press('Enter')
       await expect(todo.locator(`li[data-task-depth="${depth + 1}"] input.todo-text`).first()).toHaveValue(title)
@@ -852,6 +852,93 @@ test('native Todo view keeps controls out of the list and preserves nested tasks
     await expect(restored.locator('li[data-task-depth="1"] .todo-text')).toHaveText(childText)
     await expect(restored.locator('li[data-task-depth="2"] input[type=checkbox]')).toBeChecked()
     await expect(restored.locator('time[datetime="2026-11-25"]')).toBeVisible()
+  }
+  finally {
+    await app.close()
+  }
+})
+
+test('native Todo adds multiline drafts and nested Markdown tasks in batches', async () => {
+  const testInfo = test.info()
+  await seedConfig()
+  let app = await openApp(testInfo)
+  try {
+    await openSettings(app.main)
+    await app.main.getByRole('button', { name: /桌面便签/ }).press('Enter')
+    await app.main.getByRole('checkbox', { name: '启用桌面便签' }).press('Space')
+    const create = app.main.getByRole('button', { name: '新建待办便签' })
+    await expect(create).toBeEnabled()
+    await create.press('Enter')
+    const todo = await findWindow(app.context, 'desktop-note-')
+    const label = (await getLabel(todo))!
+    await todo.locator('.view-edit-shortcut').press('F2')
+
+    const root = todo.getByRole('textbox', { name: '新待办事项，每行一条，回车添加' })
+    const rows = todo.locator('.todo-items > li')
+    await root.fill('收集反馈')
+    await root.press('Shift+Enter')
+    await todo.keyboard.insertText('整理议程')
+    await expect(root).toHaveValue('收集反馈\n整理议程')
+    await expect(rows).toHaveCount(0)
+    await root.press('Enter')
+    await expect(rows).toHaveCount(2)
+    await expect(root).toHaveValue('')
+
+    const markdown = [
+      '1. 准备发布',
+      '   - [x] 验证升级',
+      '',
+      '     + 记录测试结果',
+      '2) 通知团队',
+    ].join('\n')
+    await root.focus()
+    await todo.keyboard.insertText(markdown)
+    await expect(root).toHaveValue(markdown)
+    await expect(rows).toHaveCount(2)
+    await root.scrollIntoViewIfNeeded()
+    await root.evaluate(element => element.scrollTo({ top: 0 }))
+    await screenshot(todo, testInfo, 'todo-bulk-markdown-draft')
+    await root.press('Enter')
+    await expect(rows).toHaveCount(6)
+
+    const parent = rows.filter({ has: todo.getByTitle('准备发布', { exact: true }) })
+    await parent.getByRole('button', { name: '添加子任务' }).press('Enter')
+    const child = todo.getByRole('textbox', { name: '新子任务，每行一条，回车添加' })
+    await expect(child).toBeFocused()
+    await todo.keyboard.insertText('- 准备公告\n  * [ ] 核对链接\n- 确认发送时间')
+    await child.press('Enter')
+    await expect(child).toHaveValue('')
+    await expect(rows).toHaveCount(9)
+    await todo.getByRole('button', { name: '完成编辑' }).click()
+
+    const expected = [
+      ['收集反馈', '0', false],
+      ['整理议程', '0', false],
+      ['准备发布', '0', false],
+      ['验证升级', '1', true],
+      ['记录测试结果', '2', false],
+      ['准备公告', '1', false],
+      ['核对链接', '2', false],
+      ['确认发送时间', '1', false],
+      ['通知团队', '0', false],
+    ]
+    const checkTasks = (page: Page) => expect.poll(() => page.locator('.todo-items > li').evaluateAll(items => items.map(row => [
+      row.querySelector('.todo-text')?.textContent,
+      row.getAttribute('data-task-depth'),
+      row.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked,
+    ]))).toEqual(expected)
+    await checkTasks(todo)
+    await todo.locator('.todo-editor').evaluate(element => element.scrollTo({ top: 0 }))
+    await screenshot(todo, testInfo, 'todo-bulk-nested-tasks')
+
+    const noteId = new URL(todo.url()).searchParams.get('noteId')
+    await expect.poll(async () => {
+      const config = JSON.parse(await readFile(resolve(dataDirectory!, 'config.json'), 'utf8'))
+      return config.desktop_notes?.find((note: { id: string }) => note.id === noteId)?.content
+    }).toContain('  - [ ] 准备公告\n    - [ ] 核对链接\n  - [ ] 确认发送时间')
+    await app.close()
+    app = await openApp(testInfo)
+    await checkTasks(await findWindow(app.context, label))
   }
   finally {
     await app.close()

@@ -1,6 +1,7 @@
 import {
   DEFAULT_DESKTOP_NOTE_TODO_PREFERENCES,
   DESKTOP_NOTE_TODO_INDENT_SIZE,
+  DESKTOP_NOTE_TODO_MARKDOWN_TAB_SIZE,
   DESKTOP_NOTE_TODO_MAX_DEPTH,
   DESKTOP_NOTE_TODO_METADATA_PREFIX,
   DESKTOP_NOTE_TODO_METADATA_SUFFIX,
@@ -151,13 +152,27 @@ export function canInsertDesktopNoteSubtask(items: readonly DesktopNoteTodo[], p
   return Boolean(items[parentIndex]) && getDesktopNoteTodoDepth(items[parentIndex]) < DESKTOP_NOTE_TODO_MAX_DEPTH
 }
 
-export function insertDesktopNoteSubtask<T extends DesktopNoteTodo>(items: T[], parentIndex: number, item: T): T[] {
+export function insertDesktopNoteTodos(
+  items: DesktopNoteTodo[],
+  additions: readonly DesktopNoteTodo[],
+  parentIndex?: number,
+): DesktopNoteTodo[] {
+  if (!additions.length) {
+    return items
+  }
+  if (parentIndex === undefined) {
+    return [...items, ...additions]
+  }
   if (!canInsertDesktopNoteSubtask(items, parentIndex)) {
     return items
   }
   const end = subtreeEnd(items, parentIndex)
-  const child = { ...item, depth: getDesktopNoteTodoDepth(items[parentIndex]) + 1 }
-  return [...items.slice(0, end), child, ...items.slice(end)]
+  const childDepth = getDesktopNoteTodoDepth(items[parentIndex]) + 1
+  const children = additions.map(item => ({
+    ...item,
+    depth: Math.min(childDepth + getDesktopNoteTodoDepth(item), DESKTOP_NOTE_TODO_MAX_DEPTH),
+  }))
+  return [...items.slice(0, end), ...children, ...items.slice(end)]
 }
 
 export function removeDesktopNoteTodo<T extends DesktopNoteTodo>(items: T[], index: number): T[] {
@@ -203,8 +218,12 @@ function isTodoDeadline(value: unknown): value is string {
   return Number.isFinite(date.getTime()) && date.toISOString().startsWith(value)
 }
 
+function isTodoMetadataLine(line: string): boolean {
+  return line.startsWith(DESKTOP_NOTE_TODO_METADATA_PREFIX) && line.endsWith(DESKTOP_NOTE_TODO_METADATA_SUFFIX)
+}
+
 function parseMetadata(line: string): Pick<DesktopNoteTodo, 'priority' | 'deadline'> {
-  if (!line.startsWith(DESKTOP_NOTE_TODO_METADATA_PREFIX) || !line.endsWith(DESKTOP_NOTE_TODO_METADATA_SUFFIX)) {
+  if (!isTodoMetadataLine(line)) {
     return {}
   }
   try {
@@ -222,6 +241,15 @@ function parseMetadata(line: string): Pick<DesktopNoteTodo, 'priority' | 'deadli
   }
 }
 
+function recordListIndent(indents: number[], indent: number): number {
+  while (indents.length > 0 && indent <= indents.at(-1)!) {
+    indents.pop()
+  }
+  const depth = Math.min(indents.length, DESKTOP_NOTE_TODO_MAX_DEPTH)
+  indents.push(indent)
+  return depth
+}
+
 export function parseDesktopNoteTodos(content: string): DesktopNoteTodo[] {
   const lines = content.split(/\r?\n/)
   const indents: number[] = []
@@ -233,11 +261,7 @@ export function parseDesktopNoteTodos(content: string): DesktopNoteTodo[] {
     }
     const [, prefix, checked, text] = match
     const indent = prefix.replaceAll('\t', ' '.repeat(DESKTOP_NOTE_TODO_INDENT_SIZE)).length
-    while (indents.length > 0 && indent <= indents.at(-1)!) {
-      indents.pop()
-    }
-    const depth = Math.min(indents.length, DESKTOP_NOTE_TODO_MAX_DEPTH)
-    indents.push(indent)
+    const depth = recordListIndent(indents, indent)
     const metadata = lines[index + 1]?.trimStart()
     items.push({
       text,
@@ -246,6 +270,50 @@ export function parseDesktopNoteTodos(content: string): DesktopNoteTodo[] {
       ...(metadata ? parseMetadata(metadata) : {}),
     })
   }
+  return items
+}
+
+function markdownIndentWidth(prefix: string): number {
+  let width = 0
+  for (const character of prefix) {
+    width += character === '\t'
+      ? DESKTOP_NOTE_TODO_MARKDOWN_TAB_SIZE - (width % DESKTOP_NOTE_TODO_MARKDOWN_TAB_SIZE)
+      : 1
+  }
+  return width
+}
+
+export function parseDesktopNoteTodoDraft(draft: string): DesktopNoteTodo[] {
+  const lines = draft.split(/\r\n|\r|\n/)
+  const indents: number[] = []
+  const items: DesktopNoteTodo[] = []
+
+  for (const [index, line] of lines.entries()) {
+    const trimmed = line.trim()
+    if (!trimmed || isTodoMetadataLine(trimmed)) {
+      continue
+    }
+
+    const marker = /^([ \t]*)(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$)/.exec(line)
+    const label = marker ? line.slice(marker[0].length).trim() : trimmed
+    const checkbox = /^\[([ x])\](?:[ \t]+|$)/i.exec(label)
+    const text = checkbox ? label.slice(checkbox[0].length).trim() : label
+    if (!text) {
+      continue
+    }
+
+    if (!marker) {
+      indents.length = 0
+    }
+    const depth = marker ? recordListIndent(indents, markdownIndentWidth(marker[1])) : 0
+    items.push({
+      text,
+      completed: checkbox?.[1].toLowerCase() === 'x',
+      ...(depth > 0 ? { depth } : {}),
+      ...parseMetadata(lines[index + 1]?.trim() ?? ''),
+    })
+  }
+
   return items
 }
 

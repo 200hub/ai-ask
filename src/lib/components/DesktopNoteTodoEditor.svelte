@@ -4,6 +4,7 @@
   import { configStore } from '$lib/stores/config.svelte'
   import {
     DEFAULT_DESKTOP_NOTE_TODO_PREFERENCES,
+    DESKTOP_NOTE_TODO_DRAFT_MAX_ROWS,
     DESKTOP_NOTE_TODO_PRIORITIES,
     DESKTOP_NOTE_TODO_SORT_MODES,
   } from '$lib/utils/constants'
@@ -12,8 +13,9 @@
     getDesktopNoteTodoParentIndex,
     getDesktopNoteTodoSiblingIndex,
     getVisibleDesktopNoteTodos,
-    insertDesktopNoteSubtask,
+    insertDesktopNoteTodos,
     moveDesktopNoteTodo,
+    parseDesktopNoteTodoDraft,
     parseDesktopNoteTodos,
     removeDesktopNoteTodo,
     serializeDesktopNoteTodos,
@@ -45,8 +47,8 @@
   let editing = $state(false)
   let addChildTo = $state<number | null>(null)
   let viewEditButton = $state<HTMLButtonElement>()
-  let newItemInput = $state<HTMLInputElement>()
-  let childInput = $state<HTMLInputElement>()
+  let newItemInput = $state<HTMLTextAreaElement>()
+  let childInput = $state<HTMLTextAreaElement>()
   let listElement = $state<HTMLUListElement>()
   let dateInput = $state<HTMLInputElement>()
   let expanded = $state<{ index: number, field: MetadataField } | null>(null)
@@ -96,26 +98,35 @@
     }
   }
 
-  function addItem(event: KeyboardEvent, parentIndex?: number) {
-    if (event.key !== 'Enter' || event.isComposing) {
+  function draftRows(value: string) {
+    return value.split('\n', DESKTOP_NOTE_TODO_DRAFT_MAX_ROWS).length
+  }
+
+  function handleAddKeydown(event: KeyboardEvent, parentIndex?: number) {
+    if (event.isComposing) {
+      return
+    }
+    if (event.key === 'Escape' && parentIndex !== undefined) {
+      addChildTo = null
+      childDraft = ''
+      listElement?.querySelector<HTMLButtonElement>(`[data-add-child="${parentIndex}"]`)?.focus()
+      return
+    }
+    if (event.key !== 'Enter' || event.shiftKey) {
       return
     }
     event.preventDefault()
-    const text = (parentIndex === undefined ? draft : childDraft).trim()
-    if (!text) {
+    const additions = parseDesktopNoteTodoDraft(parentIndex === undefined ? draft : childDraft)
+    const nextItems = insertDesktopNoteTodos(items, additions, parentIndex)
+    if (nextItems === items) {
       return
     }
-    const item = { text, completed: false, id: items.length }
+    onChange(serializeDesktopNoteTodos(nextItems))
     if (parentIndex === undefined) {
-      onChange(serializeDesktopNoteTodos([...items, item]))
       draft = ''
     }
     else {
-      const nextItems = insertDesktopNoteSubtask(items, parentIndex, item)
-      if (nextItems !== items) {
-        onChange(serializeDesktopNoteTodos(nextItems))
-        childDraft = ''
-      }
+      childDraft = ''
     }
   }
 
@@ -128,16 +139,6 @@
       await tick()
       childInput?.focus()
     }
-  }
-
-  function handleChildInputKeydown(event: KeyboardEvent, index: number) {
-    if (event.key === 'Escape') {
-      addChildTo = null
-      childDraft = ''
-      listElement?.querySelector<HTMLButtonElement>(`[data-add-child="${index}"]`)?.focus()
-      return
-    }
-    addItem(event, index)
   }
 
   function updateItem(index: number, updates: Partial<DesktopNoteTodo>) {
@@ -507,14 +508,16 @@
               {/if}
             </div>
             {#if addChildTo === index}
-              <input
+              <textarea
                 class='todo-text todo-add child-add'
                 aria-label={t('desktopNotes.todo.childPlaceholder')}
+                title={t('desktopNotes.todo.addHint')}
                 placeholder={t('desktopNotes.todo.childPlaceholder')}
+                rows={draftRows(childDraft)}
                 bind:this={childInput}
                 bind:value={childDraft}
-                onkeydown={event => handleChildInputKeydown(event, index)}
-              />
+                onkeydown={event => handleAddKeydown(event, index)}
+              ></textarea>
             {/if}
           {/if}
         </li>
@@ -524,14 +527,16 @@
     <p class='empty-tasks'>{t('desktopNotes.todo.viewEmpty')}</p>
   {/if}
   {#if editing}
-    <input
+    <textarea
       class='todo-text todo-add'
       aria-label={t('desktopNotes.todo.placeholder')}
+      title={t('desktopNotes.todo.addHint')}
       placeholder={t('desktopNotes.todo.placeholder')}
+      rows={draftRows(draft)}
       bind:this={newItemInput}
       bind:value={draft}
-      onkeydown={addItem}
-    />
+      onkeydown={handleAddKeydown}
+    ></textarea>
   {/if}
 </div>
 
@@ -563,9 +568,16 @@
   }
 
   .todo-items {
+    --todo-row-border: color-mix(in srgb, var(--note-accent) 8%, transparent);
+    --todo-indent-border: color-mix(in srgb, var(--note-accent) 18%, transparent);
     list-style: none;
     padding: 0;
     margin: 0 0 0.5rem;
+  }
+
+  .todo-items.editing {
+    --todo-row-border: color-mix(in srgb, var(--note-accent) 22%, transparent);
+    --todo-indent-border: color-mix(in srgb, var(--note-accent) 48%, transparent);
   }
 
   .todo-row {
@@ -581,12 +593,12 @@
   .todo-items li {
     position: relative;
     margin-inline-start: calc(var(--task-depth) * 0.45rem);
-    border-bottom: 1px solid color-mix(in srgb, var(--note-accent) 22%, transparent);
+    border-bottom: 1px solid var(--todo-row-border);
   }
 
   .todo-items li:not([data-task-depth='0']) {
     padding-inline-start: 0.25rem;
-    border-inline-start: 1px solid color-mix(in srgb, var(--note-accent) 48%, transparent);
+    border-inline-start: 1px solid var(--todo-indent-border);
   }
 
   .todo-items li.dragged {
@@ -673,8 +685,10 @@
   }
 
   .todo-add {
+    display: block;
     width: 100%;
     border-color: color-mix(in srgb, var(--note-accent) 45%, transparent);
+    resize: none;
   }
 
   .child-add {
