@@ -945,6 +945,67 @@ test('native Todo adds multiline drafts and nested Markdown tasks in batches', a
   }
 })
 
+test('native Todo preserves the pasted package tree and sizes the draft to its content', async () => {
+  const testInfo = test.info()
+  await seedConfig()
+  const app = await openApp(testInfo)
+  try {
+    await openSettings(app.main)
+    await app.main.getByRole('button', { name: /桌面便签/ }).press('Enter')
+    await app.main.getByRole('checkbox', { name: '启用桌面便签' }).press('Space')
+    const create = app.main.getByRole('button', { name: '新建待办便签' })
+    await expect(create).toBeEnabled()
+    await create.press('Enter')
+    const todo = await findWindow(app.context, 'desktop-note-')
+    await todo.locator('.view-edit-shortcut').press('F2')
+
+    const draft = todo.getByRole('textbox', { name: '新待办事项，每行一条，回车添加' })
+    const height = () => draft.evaluate(element => element.clientHeight)
+    const emptyHeight = await height()
+    await draft.fill('这是一条会在输入框里自动折行的新任务。'.repeat(8))
+    await expect.poll(height).toBeGreaterThan(emptyHeight)
+    await draft.clear()
+    await expect.poll(height).toBe(emptyHeight)
+
+    const packages = 'core crypto cache storage capacitor data_pipe reach scheduler vecdb reldb audit payment ui api-client api-contract kit serv iam deploy ai runner cli'.split(' ')
+    const apps = 'corporate-website h5-app api-service api-service-contract h5-app mobile-app ai-playground agent desktop-app admin-console framework-website'.split(' ')
+    const markdown = [
+      '- packages',
+      ...packages.map(name => `  - ${name}`),
+      ' - feedback',
+      '- apps',
+      ...apps.map(name => `  - ${name}`),
+      '- docs',
+      '- page',
+      '- ci流程',
+      '',
+    ].join('\n')
+    await draft.focus()
+    await todo.keyboard.insertText(markdown)
+    await expect(draft).toHaveValue(markdown)
+    await expect.poll(height).toBeGreaterThan(emptyHeight)
+    expect(await draft.evaluate(element => element.scrollHeight)).toBeGreaterThan(await height())
+    await draft.scrollIntoViewIfNeeded()
+    await draft.evaluate(element => element.scrollTo({ top: 0 }))
+    await screenshot(todo, testInfo, 'todo-package-tree-draft')
+    await draft.press('Enter')
+    await expect(draft).toHaveValue('')
+    await expect.poll(height).toBe(emptyHeight)
+    await todo.getByRole('button', { name: '完成编辑' }).click()
+
+    const rows = todo.locator('.todo-items > li')
+    await expect(rows).toHaveCount(39)
+    await expect(rows.locator('.todo-text')).toHaveText(['packages', ...packages, 'feedback', 'apps', ...apps, 'docs', 'page', 'ci流程'])
+    await expect(rows.filter({ has: todo.getByText('feedback', { exact: true }) })).toHaveAttribute('data-task-depth', '1')
+    await expect(todo.locator('li[data-task-depth="0"] .todo-text')).toHaveText(['packages', 'apps', 'docs', 'page', 'ci流程'])
+    await todo.locator('.todo-editor').evaluate(element => element.scrollTo({ top: 0 }))
+    await screenshot(todo, testInfo, 'todo-package-tree')
+  }
+  finally {
+    await app.close()
+  }
+})
+
 test('native Show Desktop keeps open notes visible without covering other apps', async () => {
   await requireInputDesktop()
   const testInfo = test.info()

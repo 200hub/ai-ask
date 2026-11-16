@@ -209,7 +209,7 @@ export const BUILT_IN_TRANSLATION_PLATFORMS: TranslationPlatform[] = [
  */
 export const APP_INFO = {
   name: 'AI Ask',
-  version: '0.0.1-beta.11',
+  version: '0.0.1-beta.12',
   description: '一个简洁高效的AI问答助手',
   author: 'AI Ask Team',
   repository: 'https://github.com/200hub/ai-ask',
@@ -348,7 +348,6 @@ export const DESKTOP_NOTE_TODO_PRIORITIES = ['high', 'normal', 'low'] as const
 export const DESKTOP_NOTE_TODO_INDENT_SIZE = 2
 export const DESKTOP_NOTE_TODO_MARKDOWN_TAB_SIZE = 4
 export const DESKTOP_NOTE_TODO_MAX_DEPTH = 7
-export const DESKTOP_NOTE_TODO_DRAFT_MAX_ROWS = 4
 export const DESKTOP_NOTE_TODO_SORT_MODES = ['manual', 'priority', 'deadline'] as const
 export const DEFAULT_DESKTOP_NOTE_TODO_PREFERENCES = { hideCompleted: false, sort: 'manual' } as const
 export const DESKTOP_NOTE_TODO_PREFERENCES_KEY_PREFIX = 'note_todo_preferences_'
