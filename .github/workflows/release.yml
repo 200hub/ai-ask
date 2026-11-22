@@ -39,13 +39,6 @@ jobs:
             exit 1
           fi
 
-          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
-          if jq -e --arg tag "$tag" 'any(.[][]; .tag_name == $tag and .draft == false)' <<< "$releases" > /dev/null; then
-            echo "$tag already has a published Release."
-            echo 'pending=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           if git show-ref --verify --quiet "refs/tags/$tag"; then
             sha=$(git rev-parse "refs/tags/$tag^{commit}")
             if ! git merge-base --is-ancestor "$sha" origin/main; then
@@ -58,10 +51,17 @@ jobs:
             sha=$(git rev-parse HEAD)
           fi
 
+          pending=true
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          if jq -e --arg tag "$tag" 'any(.[][]; .tag_name == $tag and .draft == false)' <<< "$releases" > /dev/null; then
+            echo "$tag already has a published Release; checking its update channel is still allowed."
+            pending=false
+          fi
+
           {
             echo "tag=$tag"
             echo "sha=$sha"
-            echo 'pending=true'
+            echo "pending=$pending"
           } >> "$GITHUB_OUTPUT"
 
   desktop:
@@ -106,14 +106,7 @@ jobs:
           TAURI_UPDATE_PUBLIC_KEY: ${{ vars.TAURI_UPDATE_PUBLIC_KEY }}
           TAURI_UPDATE_FEED_URL: ${{ vars.TAURI_UPDATE_FEED_URL }}
         run: |
-          if [[ -z "$TAURI_UPDATE_PUBLIC_KEY" && -z "$TAURI_UPDATE_FEED_URL" ]]; then
-            echo 'Signed updates are not configured; publishing manual installers only.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          if [[ -z "$TAURI_UPDATE_PUBLIC_KEY" || -z "$TAURI_UPDATE_FEED_URL" ]]; then
-            echo '::error::Both TAURI_UPDATE_PUBLIC_KEY and TAURI_UPDATE_FEED_URL are required for signed updates.'
-            exit 1
-          fi
+          node .github/scripts/desktop-updates.mjs validate-config apps/ai-ask-desktop/src-tauri/tauri.conf.json "$TAURI_UPDATE_FEED_URL"
           shopt -s nullglob
           signed=(artifacts/updater-*-${TAG#v})
           if [[ ${#signed[@]} != 5 ]]; then
@@ -187,3 +180,68 @@ jobs:
           fi
           gh release edit "$TAG" --verify-tag --draft=false
           gh release view "$TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
+
+  update-channel:
+    name: Advance Signed Desktop Update Channel
+    needs: [prepare, publish]
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.publish.result == 'success' || needs.prepare.outputs.pending == 'false') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: desktop-updates-channel
+      cancel-in-progress: false
+      queue: max
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Publish the fixed prerelease update feed last
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAURI_UPDATE_PUBLIC_KEY: ${{ vars.TAURI_UPDATE_PUBLIC_KEY }}
+          TAURI_UPDATE_FEED_URL: ${{ vars.TAURI_UPDATE_FEED_URL }}
+        run: |
+          node .github/scripts/desktop-updates.mjs validate-config apps/ai-ask-desktop/src-tauri/tauri.conf.json "$TAURI_UPDATE_FEED_URL"
+          expected_feed="https://github.com/$GITHUB_REPOSITORY/releases/download/desktop-updates/latest.json"
+          if [[ "$TAURI_UPDATE_FEED_URL" != "$expected_feed" || -z "$TAURI_UPDATE_PUBLIC_KEY" ]]; then
+            echo '::error::Configure the reviewed signing public key and fixed desktop-updates feed together.'
+            exit 1
+          fi
+          mkdir -p channel/candidate channel/current
+          git fetch --tags origin
+          # 必须在通道互斥锁内重读，不能依赖构建开始时间或之前的 release 列表。
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > channel/releases.json
+          gh release download "$TAG" --pattern latest.json --dir channel/candidate
+          channel=$(jq '[.[][] | select(.tag_name == "desktop-updates")] | first' channel/releases.json)
+          current=-
+          if [[ "$channel" != null ]]; then
+            if ! jq -e '.draft == false and .prerelease == true' <<< "$channel" > /dev/null; then
+              echo '::error::The reserved desktop-updates release must be a published prerelease.'
+              exit 1
+            fi
+            if jq -e 'any(.assets[]; .name == "latest.json")' <<< "$channel" > /dev/null; then
+              gh release download desktop-updates --pattern latest.json --dir channel/current
+              current=channel/current/latest.json
+            fi
+          fi
+          node .github/scripts/desktop-updates.mjs channel-plan channel/candidate/latest.json "$current" channel/releases.json "$SOURCE_SHA" "$GITHUB_REPOSITORY" channel/plan.json
+          if ! jq -e '.promote == true' channel/plan.json > /dev/null; then
+            jq -r .reason channel/plan.json >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # 仅首次创建保留的通道 tag；不移动通道 tag，也不改动任何应用 v 标签。
+          if [[ "$channel" == null ]]; then
+            gh release create desktop-updates --target "$SOURCE_SHA" --prerelease --latest=false --title 'Desktop updates' --notes 'Signed desktop update feed. Versioned installers remain on their application releases.'
+          fi
+          gh release upload desktop-updates channel/candidate/latest.json --clobber
+          echo "Advanced the fixed desktop update feed to $TAG." >> "$GITHUB_STEP_SUMMARY"

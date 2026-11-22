@@ -40,7 +40,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis", "deb", "appimage", "dmg", "app"],
+    "targets": [
+      "msi",
+      "nsis",
+      "deb",
+      "appimage",
+      "dmg",
+      "app"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -71,6 +78,17 @@
     },
     "iOS": {
       "developmentTeam": ""
+    },
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZBOThEREJCRTk4NkQzQkEKUldTNjA0YnB1OTJZK2luQSsxTFhjNFhPN1FJakx2M2hCWDk4UXRGbHI1b3JIYTlFc3ZBbWhGUEIK",
+      "endpoints": [
+        "https://github.com/200hub/ai-ask/releases/download/desktop-updates/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "allowDowngrades": false
     }
   }
 }

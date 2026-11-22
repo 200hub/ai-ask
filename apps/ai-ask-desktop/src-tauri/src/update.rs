@@ -342,6 +342,23 @@ mod tests {
     }
 
     #[test]
+    fn committed_release_configuration_has_a_valid_signing_key_and_stable_feed() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let updater = &config["plugins"]["updater"];
+
+        // 验证真实构建输入，避免只有 CI 临时覆盖包含可用的更新信任根。
+        assert!(valid_updater_config(Some(updater)));
+        assert_eq!(
+            updater["endpoints"],
+            serde_json::json!([
+                "https://github.com/200hub/ai-ask/releases/download/desktop-updates/latest.json"
+            ])
+        );
+        assert_eq!(config["bundle"]["createUpdaterArtifacts"], false);
+    }
+
+    #[test]
     fn download_sources_must_use_https_without_credentials() {
         assert!(trusted_url(
             &tauri::Url::parse("https://example.test/app.exe").unwrap()

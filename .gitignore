@@ -34,6 +34,10 @@ Thumbs.db
 # Codex
 .codex/
 
+# Local signing material (product backups live outside the repository)
+.signing/
+**/.signing/
+
 # Hai module runtime data and local build caches
 **/data/
 **/.turbo/

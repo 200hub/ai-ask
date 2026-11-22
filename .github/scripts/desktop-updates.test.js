@@ -9,7 +9,7 @@ import process from 'node:process'
 import test, { after, before } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
-import { configure, merge, sign } from './desktop-updates.mjs'
+import { compareVersions, configure, merge, planChannelUpdate, sign, validateReleaseConfiguration } from './desktop-updates.mjs'
 
 const version = '2.4.0-beta.3+build.7'
 const assetBaseUrl = `https://github.com/example/ai-ask/releases/download/v${version}/`
@@ -21,6 +21,7 @@ let directory
 let key
 let wrongKey
 let signedDirectories
+let channelFixture
 
 before(async () => {
   directory = await mkdtemp(join(tmpdir(), 'ai-ask-updater-ci-'))
@@ -56,6 +57,45 @@ async function fixture(platform, arch) {
   return { platform, arch, version, bundleDirectory, outputDirectory: join(directory, `signed-${platform}-${arch}`), assetBaseUrl, key }
 }
 
+async function channelScenario() {
+  if (channelFixture)
+    return channelFixture
+  const gitDirectory = join(directory, 'channel-history')
+  await mkdir(gitDirectory)
+  const git = (...args) => execFileSync('git', ['-c', 'user.name=Updater fixture', '-c', 'user.email=updater@example.test', ...args], { cwd: gitDirectory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).trim()
+  git('init', '--quiet', '--initial-branch=main')
+  git('commit', '--quiet', '--allow-empty', '-m', 'Root fixture')
+  const root = git('rev-parse', 'HEAD')
+  const versions = ['2.4.0-beta.9', '2.4.0-beta.13', '2.4.0-beta.14']
+  const sources = []
+  const feeds = []
+  const releases = []
+  for (const [index, selectedVersion] of versions.entries()) {
+    if (index === 2)
+      git('checkout', '--quiet', '--detach', root)
+    git('commit', '--quiet', '--allow-empty', '-m', `Version ${selectedVersion}`)
+    sources.push(git('rev-parse', 'HEAD'))
+    git('tag', `v${selectedVersion}`)
+    const directories = []
+    for (const [platform, arch] of targets) {
+      const options = await fixture(platform, arch)
+      const outputDirectory = join(directory, `channel-${selectedVersion}-${platform}-${arch}`)
+      await sign({ ...options, version: selectedVersion, assetBaseUrl: `https://github.com/example/ai-ask/releases/download/v${selectedVersion}/`, outputDirectory })
+      directories.push(outputDirectory)
+    }
+    const feedFile = join(directory, `channel-${selectedVersion}.json`)
+    await merge(directories, selectedVersion, feedFile, key)
+    const feed = JSON.parse(await readFile(feedFile, 'utf8'))
+    feeds.push(feed)
+    const assets = Object.values(feed.platforms).flatMap(artifact => [artifact.url, `${artifact.url}.sig`])
+    assets.push(`https://github.com/example/ai-ask/releases/download/v${selectedVersion}/latest.json`)
+    releases.push({ tag_name: `v${selectedVersion}`, draft: false, assets: assets.map(url => ({ name: decodeURIComponent(basename(new URL(url).pathname)), size: 1, state: 'uploaded', browser_download_url: url })) })
+  }
+  git('checkout', '--quiet', 'main')
+  channelFixture = { gitDirectory, git, sources, feeds, releases }
+  return channelFixture
+}
+
 test('keeps manual builds unchanged without public update configuration and rejects partial configuration', async () => {
   const file = join(directory, 'manual-platform.json')
   const original = JSON.stringify({ app: { windows: null }, plugins: { existing: { enabled: true } } })
@@ -87,6 +127,61 @@ test('rejects insecure feeds and malformed public keys before writing configurat
   for (const value of ['placeholder-key', Buffer.from('not a public key').toString('base64'), extraLine])
     await assert.rejects(configure(file, 'https://updates.example/latest.json', value))
   await assert.rejects(readFile(file), { code: 'ENOENT' })
+})
+
+test('checks release variables against the reviewed source trust root before the CLI writes an overlay', async () => {
+  const sourceDirectory = join(directory, 'reviewed-configuration')
+  await mkdir(sourceDirectory)
+  const file = join(sourceDirectory, 'tauri.conf.json')
+  const overlay = join(sourceDirectory, 'tauri.windows.conf.json')
+  const endpoint = 'https://github.com/example/ai-ask/releases/download/desktop-updates/latest.json'
+  const updater = { pubkey: key, endpoints: [endpoint], requireSignedVersion: true, allowDowngrades: false }
+  await writeFile(file, JSON.stringify({ plugins: { updater } }))
+  await validateReleaseConfiguration(file, endpoint, key)
+  await assert.rejects(validateReleaseConfiguration(file, endpoint, wrongKey), /reviewed source/)
+  await assert.rejects(validateReleaseConfiguration(file, 'https://wrong.example/latest.json', key), /reviewed source/)
+  await writeFile(file, JSON.stringify({ plugins: { updater: { ...updater, requireSignedVersion: false } } }))
+  await assert.rejects(validateReleaseConfiguration(file, endpoint, key), /strict signature policy/)
+  assert.throws(() => execFileSync(process.execPath, [fileURLToPath(new URL('desktop-updates.mjs', import.meta.url)), 'configure', overlay, endpoint], { env: { ...process.env, TAURI_UPDATE_PUBLIC_KEY: key }, stdio: 'ignore', windowsHide: true }))
+  await assert.rejects(readFile(overlay), { code: 'ENOENT' })
+  await writeFile(file, JSON.stringify({ plugins: { updater } }))
+  assert.throws(() => execFileSync(process.execPath, [fileURLToPath(new URL('desktop-updates.mjs', import.meta.url)), 'configure', overlay, ''], { env: { ...process.env, TAURI_UPDATE_PUBLIC_KEY: '' }, stdio: 'ignore', windowsHide: true }))
+  await assert.rejects(readFile(overlay), { code: 'ENOENT' })
+})
+
+test('orders prerelease versions by SemVer rather than lexical text or build metadata', () => {
+  assert.equal(compareVersions('0.0.1-beta.13', '0.0.1-beta.9'), 1)
+  assert.equal(compareVersions('1.0.0', '1.0.0-rc.1'), 1)
+  assert.equal(compareVersions('1.0.0-beta.2', '1.0.0-beta.13'), -1)
+  assert.equal(compareVersions('1.0.0-beta.13+one', '1.0.0-beta.13+two'), 0)
+  assert.throws(() => compareVersions('1.0.0-beta.01', '1.0.0'), /SemVer/)
+})
+
+test('advances a complete signed prerelease, skips late and repeated builds, and never changes application tags', async () => {
+  const scenario = await channelScenario()
+  const options = { candidate: scenario.feeds[1], current: scenario.feeds[0], releases: scenario.releases.slice(0, 2), sourceSha: scenario.sources[1], repository: 'example/ai-ask', key, gitDirectory: scenario.gitDirectory }
+  const tags = scenario.git('show-ref', '--tags')
+  assert.equal(planChannelUpdate(options).promote, true)
+  assert.equal(planChannelUpdate({ ...options, current: null }).promote, true)
+  assert.equal(planChannelUpdate({ ...options, current: scenario.feeds[1] }).promote, false)
+  const late = { ...options, candidate: scenario.feeds[0], sourceSha: scenario.sources[0] }
+  assert.equal(planChannelUpdate({ ...late, current: scenario.feeds[1] }).promote, false)
+  // 即使前次上传失败导致通道清单暂缺，新版已公开的事实仍阻止旧版回填。
+  assert.equal(planChannelUpdate({ ...late, current: null }).promote, false)
+  assert.equal(scenario.git('show-ref', '--tags'), tags)
+})
+
+test('rejects a wrong source SHA, divergent newer source, or incomplete public application release', async () => {
+  const scenario = await channelScenario()
+  const options = { candidate: scenario.feeds[1], current: scenario.feeds[0], releases: scenario.releases.slice(0, 2), sourceSha: scenario.sources[1], repository: 'example/ai-ask', key, gitDirectory: scenario.gitDirectory }
+  assert.throws(() => planChannelUpdate({ ...options, sourceSha: scenario.sources[0] }), /does not match the built source SHA/)
+  assert.throws(() => planChannelUpdate({ ...options, candidate: scenario.feeds[2], current: scenario.feeds[1], sourceSha: scenario.sources[2], releases: scenario.releases }), /must descend/)
+  const incomplete = structuredClone(options.releases)
+  incomplete[1].assets.pop()
+  assert.throws(() => planChannelUpdate({ ...options, releases: incomplete }), /must be public/)
+  const draft = structuredClone(options.releases)
+  draft[1].draft = true
+  assert.throws(() => planChannelUpdate({ ...options, releases: draft }), /must be public/)
 })
 
 test('signs fixture bytes with the official CLI, packs each Mac app, and merges five unique versioned assets', async () => {
@@ -200,6 +295,20 @@ test('keeps PR builds secret-free, signs only release steps, and uploads install
   assert.ok(publish.indexOf('gh release upload "$TAG"') < publish.indexOf('gh release upload "$TAG" artifacts/latest.json'))
   assert.match(publish, /artifacts\/windows-x64-\$version/)
   assert.match(publish, /artifacts\/macos-intel-\$version/)
+  const channel = release.jobs['update-channel']
+  assert.deepEqual(channel.needs, ['prepare', 'publish'])
+  assert.equal(channel.concurrency.group, 'desktop-updates-channel')
+  assert.equal(channel.concurrency['cancel-in-progress'], false)
+  assert.equal(channel.concurrency.queue, 'max')
+  assert.match(channel.if, /always\(\).*needs\.publish\.result.*pending == 'false'/)
+  const channelScript = channel.steps.find(step => step.name === 'Publish the fixed prerelease update feed last').run
+  assert.match(channelScript, /gh release create desktop-updates .*--prerelease --latest=false/)
+  assert.match(channelScript, /gh release upload desktop-updates channel\/candidate\/latest\.json --clobber/)
+  assert.equal(channelScript.includes('git push'), false)
+  assert.ok(channelScript.indexOf('channel-plan') < channelScript.indexOf('gh release upload desktop-updates'))
+  const prepare = release.jobs.prepare.steps.find(step => step.id === 'version').run
+  assert.match(prepare, /pending=false/)
+  assert.match(prepare, /echo "sha=\$sha"/)
   await load('build-mobile')
 })
 /* eslint test/no-import-node-test: off -- These CI tests run with node --test outside the Vitest workspace. */
