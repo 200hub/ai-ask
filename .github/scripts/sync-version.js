@@ -40,6 +40,7 @@ try {
   replaceVersion(paths.cargoLock, /(\[\[package\]\]\s*\nname\s*=\s*"ai-ask"\s*\nversion\s*=\s*")[^"]*(")/, version)
   replaceVersion(paths.constants, /(export\s+const\s+APP_INFO\s*=\s*\{[\s\S]*?version:\s*['"])[^'"]*(['"])/, version)
   replaceVersion(paths.publicEnvironment, /(^HAI_CORE_VERSION=)[^\r\n]*(\r?$)/m, version)
+  replaceVersion(paths.exampleEnvironment, /(^HAI_CORE_VERSION=)[^\r\n]*(\r?$)/m, version)
   replaceVersion(paths.coreConfig, /(^version:\s*\$\{HAI_CORE_VERSION:)[^}\r\n]*(\})/m, version)
   console.info(`Workspace desktop version synchronized to ${version}.`)
 }

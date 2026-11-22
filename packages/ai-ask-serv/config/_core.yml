@@ -1,5 +1,5 @@
 name: ${HAI_CORE_NAME:AI Ask}
-version: ${HAI_CORE_VERSION:0.0.1-beta.12}
+version: ${HAI_CORE_VERSION:0.0.1-beta.13}
 env: ${HAI_CORE_ENV:development}
 defaultLocale: ${HAI_CORE_DEFAULTLOCALE:zh-CN}
 logging:

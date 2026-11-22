@@ -20,6 +20,7 @@ test('workspace release scripts propagate versions and reject mismatches indepen
   const files = {
     'package.json': JSON.stringify({ type: 'module', version }),
     '.env': 'HAI_CORE_VERSION=1.0.0\n',
+    '.env.example': 'HAI_CORE_VERSION=1.0.0\n',
     'packages/ai-ask-serv/package.json': JSON.stringify({ name: 'ai-ask-serv', version: '1.0.0' }),
     'packages/ai-ask-contract/package.json': JSON.stringify({ name: 'ai-ask-contract', version: '1.0.0' }),
     'packages/ai-ask-serv/config/_core.yml': 'version: $' + '{HAI_CORE_VERSION:1.0.0}\n',
@@ -51,6 +52,11 @@ test('workspace release scripts propagate versions and reject mismatches indepen
   assert.equal(run('validate-version.js', ['--source-only']).status, 0)
   assert.equal(run('validate-version.js', [], { GITHUB_REF_NAME: `v${version}` }).status, 0)
   assert.equal(run('validate-version.js', [], { GITHUB_REF_NAME: 'v1.0.0' }).status, 1)
+  assert.equal(await readFile(join(directory, '.env.example'), 'utf8'), `HAI_CORE_VERSION=${version}\n`)
+  await writeFile(join(directory, '.env.example'), 'HAI_CORE_VERSION=1.0.0\n')
+  assert.equal(run('validate-version.js', ['--source-only']).status, 1)
+  assert.equal(run('sync-version.js').status, 0)
+  assert.equal(run('validate-version.js', ['--source-only']).status, 0)
   await writeFile(join(desktop, 'src-tauri/tauri.conf.json'), JSON.stringify({ version }))
   assert.equal(run('validate-version.js', ['--source-only']).status, 1)
 })

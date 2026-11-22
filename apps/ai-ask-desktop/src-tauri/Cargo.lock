@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "ai-ask"
-version = "0.0.1-beta.12"
+version = "0.0.1-beta.13"
 dependencies = [
  "accessibility",
  "anyhow",

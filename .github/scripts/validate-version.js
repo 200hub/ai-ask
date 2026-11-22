@@ -23,6 +23,7 @@ try {
     'service package.json': readJson(paths.servicePackage).version,
     'contract package.json': readJson(paths.contractPackage).version,
     '.env HAI_CORE_VERSION': readVersion(paths.publicEnvironment, /^HAI_CORE_VERSION=([^\r\n]+)/m),
+    '.env.example HAI_CORE_VERSION': readVersion(paths.exampleEnvironment, /^HAI_CORE_VERSION=([^\r\n]+)/m),
     'Core YAML version fallback': readVersion(paths.coreConfig, /^version:\s*\$\{HAI_CORE_VERSION:([^}]+)\}/m),
     'Tauri workspace version reference': readTauriVersion(),
     'Cargo.toml': readVersion(paths.cargoManifest, /^version\s*=\s*"([^"]+)"/m),

@@ -10,6 +10,7 @@ export const paths = {
   servicePackage: resolve(rootDir, 'packages/ai-ask-serv/package.json'),
   contractPackage: resolve(rootDir, 'packages/ai-ask-contract/package.json'),
   publicEnvironment: resolve(rootDir, '.env'),
+  exampleEnvironment: resolve(rootDir, '.env.example'),
   coreConfig: resolve(rootDir, 'packages/ai-ask-serv/config/_core.yml'),
   tauriConfig: resolve(desktopDir, 'src-tauri/tauri.conf.json'),
   cargoManifest: resolve(desktopDir, 'src-tauri/Cargo.toml'),
