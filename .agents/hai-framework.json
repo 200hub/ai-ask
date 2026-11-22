@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0-beta.35",
+  "source": "@h-ai/cli",
+  "integrity": "sha512-+paapmIEsh1YvLm8GS3Qr0E1kt8fMRG1pbIjsH5X/EBEnbqng9OIzwSXhUdUNWwHKEm8DBnW7WvwXp6f/ioilw==",
+  "skills": [
+    "hai-api-client",
+    "hai-api-contract",
+    "hai-app-create",
+    "hai-app-review",
+    "hai-app-tests",
+    "hai-build",
+    "hai-cache",
+    "hai-change-plan",
+    "hai-ci",
+    "hai-core",
+    "hai-crypto",
+    "hai-framework-sync",
+    "hai-iam",
+    "hai-pr-review",
+    "hai-reach",
+    "hai-reldb",
+    "hai-serv",
+    "hai-spec-implement",
+    "hai-spec-review",
+    "hai-ui",
+    "hai-ui-design",
+    "hai-ui-review"
+  ]
+}

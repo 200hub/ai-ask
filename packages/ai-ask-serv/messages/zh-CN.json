@@ -1,0 +1,11 @@
+{
+  "reset.title": "重置 AI Ask 密码",
+  "reset.password": "新密码",
+  "reset.confirm": "再次输入新密码",
+  "reset.submit": "保存新密码",
+  "reset.invalid": "重置链接或输入无效，请重新申请密码重置。",
+  "reset.mismatch": "两次输入的密码不一致。",
+  "reset.failed": "密码重置失败，请检查密码规则或重新申请重置链接。",
+  "reset.done": "密码已更新，请返回 AI Ask 使用新密码登录。",
+  "notes.invalidStoredData": "便签存储数据无效，请联系管理员检查。"
+}

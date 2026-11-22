@@ -1,0 +1,391 @@
+# hai-build — 详细用法
+
+从 [SKILL.md](SKILL.md) 选择主题后读取对应小节。代码片段展示 API 用法；省略的业务变量、schema、依赖与 return 上下文需由应用补齐。
+
+应用 Node/工具链要求以当前 `package.json.engines`、lockfile 与 CI 为准。使用 Turbo 时核对影响产物的环境变量、共享配置和模式切换清理策略，并验证实际产物；不要假定应用使用框架仓库的 tsup/Turbo 私有脚本。
+
+镜像 JSON 的 `manifest.source.dirty` 检查工程、所选 context 与 Dockerfile 中未忽略文件的 Git 状态；context 指向仓库根时包含兄弟包。跨所属仓库或检查不完整返回 null，不能解释为干净；它不是构建输入的内容证明，发布 Worker 仍须使用固定提交的受控检出。
+
+本技能帮助识别应用架构、依赖和技能。日常开发决策、安全边界与能力选择见 [development.md](../hai-app-create/development.md)。
+
+## 适用场景
+
+- 初次接触项目，需要了解整体架构与模块关系
+- 不确定应使用哪个技能来完成任务
+- 需要了解模块初始化顺序与依赖关系
+- 需要执行跨模块操作或全局配置变更
+- 多端构建切换（SSR ↔ SPA ↔ 原生 App）
+
+## 项目架构
+
+### 先辨别当前项目
+
+| 架构 | 接口/服务 | UI 与客户端 | 常见位置（以当前项目为准） |
+| --- | --- | --- | --- |
+| SvelteKit | `@h-ai/kit`、文件路由与 server services | Svelte 组件与既有数据加载 | `src/routes/`、`src/lib/server/` |
+| API workspace | `@h-ai/api-contract` + `@h-ai/serv` | 无需页面 | `apps/*-contract`、`apps/*-serv` |
+| fullstack | contract + serv，共享业务结构 | Vite Svelte Web/所选原生前端，typed client | `packages/*-contract`、`packages/*-serv`、`packages/*-shared`、`apps/*` |
+| Vite SPA/原生 | 远端服务 contract | `@h-ai/api-client` 与适用平台适配 | `src/App.svelte`、`src/lib/api.ts` 或 shared 客户端 |
+
+不要从目录名称推断运行环境；沿入口、导入与 scripts 核实。下列 SvelteKit 示例只适用于对应项目。
+
+### 技术栈
+
+| 层次     | 技术                           |
+| -------- | ------------------------------ |
+| UI     | Svelte 5 (Runes)；SvelteKit 或 Vite 以项目为准 |
+| 样式     | TailwindCSS 4 + DaisyUI 5      |
+| 语言     | TypeScript 6 / 7 (strict)       |
+| 构建     | Vite + tsup                    |
+| 包管理   | pnpm 12                        |
+| 单元测试 | Vitest                         |
+| E2E 测试 | Playwright                     |
+| 原生 App | Capacitor / Tauri / 小程序适配按当前项目选择 |
+| 公共 API | oRPC contract + Hono + typed client |
+| 认证     | Bearer access token + httpOnly refresh cookie（浏览器推荐） |
+
+pnpm 专属配置放在 `pnpm-workspace.yaml`，`.npmrc` 仅用于注册表与认证。Docker 缓存层使用 `pnpm fetch` 读取锁文件；pnpm 12 的该命令不支持 `--frozen-lockfile`。后续仍通过 `pnpm install --offline --frozen-lockfile` 校验清单与锁文件一致。容器裁剪用 `pnpm pm deploy --filter <服务包> --prod <目标目录>`，确保执行内置命令，避免项目同名 `deploy` 脚本覆盖它。保留 `.gitattributes`，让 `.dockerignore`、Dockerfile 和 POSIX 脚本统一使用 LF，保持跨平台输入一致并确保 Linux 脚本可运行。
+
+镜像构建只应使用可信且构建期间不会被其他主体替换的 context。CLI 在各 context 的 `images/dependencies/` 生成依赖缓存及 `.managed.json` 跟踪清单；缓存祖先目录不得是符号链接或 Windows junction，缓存文件不得是链接或多硬链接文件。更新通过独占临时文件原子替换，内容未变时保留时间戳；旧清单清理仅限该缓存树。若报缓存路径错误，按提示的原因和诊断码检查该路径，处理链接或访问权限后再重建。跟踪清单最多 16MiB，超限或 JSON 损坏时会给出诊断，且不会回显原文件内容。
+
+### 下载源与代理
+
+```sh
+pnpm build --target image --image-source cn --npm-source cn
+pnpm build --target image --proxy-mode custom --proxy-url http://127.0.0.1:10808
+pnpm build --target image --image-source custom --image-mirrors "docker.io=mirror.example.com/docker.io,ghcr.io=mirror.example.com/ghcr.io" --npm-source custom --npm-registry https://npm.example.com/registry
+```
+
+`hai build --target image --json` 的 stdout 是单行 v1 回执，内嵌 v5 制品清单。TypeScript 调用方使用 `deploy.verifyBuildReceipt(stdout, { projectDir, projectName })`，按任务可额外核对 Git 来源、干净状态、平台、镜像角色及完整构建。成功后再使用返回的 `artifactDir`。
+
+首次交互保存尚未配置的 `hai.json.build.sources.image` / `.npm` 与 `build.proxy`。命令参数优先且不回写，已保存值其次；非交互未配置时官方源与 inherit 代理。image 形如 `{ "type": "custom", "registries": { "docker.io": "mirror.example.com/docker.io", "ghcr.io": "mirror.example.com/ghcr.io" } }`，npm 形如 `{ "type": "custom", "registry": "https://npm.example.com/registry" }`。official/cn 只需 type。cn 使用毫秒镜像的 docker.1ms.run / ghcr.1ms.run 及 registry.npmmirror.com；公共服务有同步延迟和限流，需验证实际版本。打包中间件会复用本地原始镜像，缺失时从所选源拉取并恢复原标签，离线包与部署身份保持一致。
+
+代理形如 `{ "mode": "custom", "url": "http://127.0.0.1:10808", "bypass": "localhost,127.0.0.1" }`。inherit 使用进程变量；system 读取 Windows/macOS 静态代理，PAC/自动发现或其他平台用继承/自定义；none 清空本次代理变量，--no-http-proxy 等价 none。自定义地址不含认证，认证代理仅从环境继承。Podman 默认构建网络保留原代理地址，显式 --network pasta 等隔离网络时回环地址替换为 host.containers.internal；Docker 非 host 网络使用 host.docker.internal。须验证真实构建网络，run 结果不能代替；默认不通时显式试 --network pasta 或改用可达代理地址。Docker/远程 Podman 拉取使用引擎侧代理，不能用构建参数代替配置引擎，修改与重启独立安排。
+
+Dockerfile 在 FROM 前声明 HAI_NODE_IMAGE / 适用的 HAI_NGINX_IMAGE，构建阶段用 HAI_NPM_REGISTRY 设置 COREPACK_NPM_REGISTRY、npm_config_registry、pnpm_config_registry。首个下载步骤验证代理 TCP 可达性，代理不进入运行 ENV。旧工程同步模板后重新构建；显式 tarball/Git URL 和原生包不由 registry 覆盖。SQLite 13 原生二进制随 npm 包交付，使用同一 npm 源，无独立下载步骤。deploy 的 npm 参数须与 --build 一起使用。
+
+### SvelteKit Adapter 模式
+
+CLI website模板默认Node SSR，只安装Core/Kit/UI；注释配置和环境变量参考不启用模块。后续增加的服务端业务依赖、初始化和API/actions须在静态发布前移除；在compile时使用`HAI_BUILD_STATIC=1`与可选`PUBLIC_BASE_PATH`切换完整静态预渲染，边界见本skill的静态网站说明；该模板没有使用下方VITE_ADAPTER工厂。静态产物用preview本机检查，上传build到Pages/CDN；生成的start/Docker配置属于普通SSR模式，不能用于运行静态HTML。切回SSR只需清除静态开关并重建，PUBLIC_BASE_PATH仍可按实际网站目录用于SSR或Docker；SvelteKit/Vite差异、制品格式和健康检查见[网站挂载目录](paths.md)。
+
+仅在项目实际使用 SvelteKit 和 `@h-ai/kit/adapter` 时使用；Vite SPA 不配置 SvelteKit adapter，fullstack 各前端按自身 scripts 构建。
+
+| 模式    | Adapter        | 认证方式              | 部署目标                |
+| ------- | -------------- | --------------------- | ----------------------- |
+| SSR Web | adapter-node   | 项目现有 Cookie/会话管道 | Node.js 服务器          |
+| SPA     | adapter-static | Bearer access token + httpOnly refresh cookie | CDN / 静态托管          |
+| Android | adapter-static | Bearer access token + Capacitor secure storage | Capacitor → Android APK |
+| iOS     | adapter-static | Bearer access token + Capacitor secure storage | Capacitor → iOS IPA     |
+
+**Adapter 切换**：
+
+```typescript
+// vite.config.ts — SvelteKit 3 的配置在 Vite 插件中
+import { createAdapter } from '@h-ai/kit/adapter'
+import { sveltekit } from '@sveltejs/kit/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  // 无参读取项目交付配置并返回对应的 SvelteKit adapter，供 Vite 插件使用。
+  plugins: [sveltekit({ adapter: await createAdapter(), paths: { relative: false } })],
+})
+```
+
+- `VITE_ADAPTER=node`（默认）→ adapter-node（SSR）
+- `VITE_ADAPTER=static` → adapter-static（SPA / 原生 App）
+
+### SvelteKit 目录示例
+
+```
+项目根/
+  config/                         # 模块配置（YAML）
+    _core.yml                     # Core 配置（必须）
+    _db.yml                       # DB 配置（按需）
+    _cache.yml                    # Cache 配置（按需）
+    _iam.yml                      # IAM 配置（按需）
+    _storage.yml                  # Storage 配置（按需）
+    _ai.yml                       # AI 配置（按需）
+  src/
+    app.html                      # HTML 入口
+    app.d.ts                      # 全局类型声明
+    hooks.server.ts               # 服务端 Hook（模块初始化 + 请求管道）
+    lib/
+      api.ts                      # @h-ai/api-client 初始化（SPA / 原生 App 使用）
+      capacitor.ts                # Capacitor 初始化（原生 App）
+      server/
+        init.ts                   # 模块初始化入口（单例，SSR）
+      paraglide/                  # i18n 生成文件（禁止手动修改）
+      components/                 # 应用组件
+    routes/
+      +layout.svelte              # 根布局
+      +page.svelte                # 首页
+      (auth)/                     # 认证相关页面组
+      api/                        # API 端点
+        v1/                       # API v1 版本
+          payment/                # 支付端点（按需）
+  static/                         # 静态资源
+  messages/                       # i18n 翻译文件
+  capacitor.config.ts             # Capacitor 配置（原生 App）
+```
+
+### 模块依赖图
+
+```
+core（基础能力：配置、日志、i18n、HaiResult）
+  ├── crypto（加密：SM2/SM3/SM4）
+  ├── reldb（数据库：SQLite/PostgreSQL/MySQL）
+  ├── cache（缓存：内存/Redis）
+  ├── storage（存储：本地/S3）
+  ├── ai（AI：LLM/MCP/Agent）
+  ├── iam（身份管理）← 依赖 crypto + reldb + cache
+  ├── payment（支付）← 依赖 reldb + crypto
+  ├── api-contract（公共 HTTP API 契约）← 纯定义，依赖 core + zod + oRPC contract
+  ├── serv（Hono + oRPC API Service）← 依赖 api-contract；features 按需依赖 iam/storage/ai
+  ├── kit（SvelteKit 集成）← Hook / guard / validate / response，不定义公共 contract
+  ├── api-client（typed API 客户端）← 依赖 api-contract + oRPC client
+  ├── capacitor（原生能力）← 纯浏览器端
+  └── ui（UI 组件库）← 依赖 core
+```
+
+这是常见关联；具体配置/依赖以所选模块当前版本为准。其它能力（reach/audit/scheduler/datapipe/vecdb）及同模块 feature 的任务导航见 [需求能力表](../hai-app-create/development.md#将需求映射到现有能力)。
+
+### 模块初始化顺序
+
+#### SSR 模式（hooks.server.ts）
+
+在 `src/lib/server/init.ts` 中按依赖顺序初始化：
+
+```typescript
+import { core } from '@h-ai/core'
+import { cache, CacheConfigSchema } from '@h-ai/cache'
+import { reldb, ReldbConfigSchema } from '@h-ai/reldb'
+import { iam, IamConfigSchema } from '@h-ai/iam'
+
+// 放入应用已有的启动函数；并发防护和关闭钩子复用当前模板。
+// 从 ./config 加载配置，注册 db、cache 和 iam 的 Schema，返回 void。
+core.init({ configDir: './config', configSchemas: { db: ReldbConfigSchema, cache: CacheConfigSchema, iam: IamConfigSchema } })
+// 校验 db 配置并应用默认值。成功 data 供 reldb.init 使用，校验失败直接返回。
+const dbConfig = core.config.validate('db', ReldbConfigSchema)
+if (!dbConfig.success) return dbConfig
+// 校验 cache 配置。成功 data 是要初始化的缓存后端配置。
+const cacheConfig = core.config.validate('cache', CacheConfigSchema)
+if (!cacheConfig.success) return cacheConfig
+// 校验 iam 配置。成功 data 是要传给身份模块的配置。
+const iamConfig = core.config.validate('iam', IamConfigSchema)
+if (!iamConfig.success) return iamConfig
+// 用校验后的 db 配置连接数据库，成功 data 为 undefined。
+const db = await reldb.init(dbConfig.data)
+if (!db.success) return db
+// 用校验后的配置初始化缓存。成功 data 为 undefined，失败后清理已连接的数据库。
+const cached = await cache.init(cacheConfig.data)
+if (!cached.success) {
+  // 无参关闭已初始化的数据库，释放失败时返回清理错误。
+  const cleanup = await reldb.close()
+  return cleanup.success ? cached : cleanup
+}
+// 用校验后的配置初始化 IAM。成功 data 为 undefined，失败后按依赖关系释放缓存和数据库。
+const identity = await iam.init(iamConfig.data)
+if (!identity.success) {
+  // 无参释放缓存，成功 data 为 undefined，失败结果由启动函数返回。
+  const cacheCleanup = await cache.close()
+  // 无参释放数据库，成功 data 为 undefined，失败结果由启动函数返回。
+  const dbCleanup = await reldb.close()
+  if (!cacheCleanup.success) return cacheCleanup
+  if (!dbCleanup.success) return dbCleanup
+  return identity
+}
+// 应用结束时 await iam.close()、cache.close()、reldb.close()；
+// 检查关闭结果；core 无 close，kit/api-contract/serv 不需要 init。
+```
+
+#### SPA / 原生 App 模式（已有 api.ts 或 shared 客户端）
+
+复用当前项目初始化函数、API base 运行时配置和 TokenStorage；以下仅展示浏览器 Cookie 模式。原生端按 `hai-api-client` / `hai-capacitor` 配置安全存储，不用 localStorage 持久化敏感 token。
+
+```typescript
+import { apiClient } from '@h-ai/api-client'
+
+export async function initApi() {
+  // 配置 API 基址、会话策略和 15 秒超时，返回初始化的 HaiResult。
+  return apiClient.init({
+    baseUrl: configuredApiBase, // 来自当前项目已校验的运行时配置
+    auth: {}, // 浏览器默认 httpOnly cookie；原生 App 传入 Capacitor TokenStorage
+    timeout: 15_000,
+  })
+}
+
+export { apiClient }
+```
+
+#### 原生 App 追加初始化（src/lib/capacitor.ts）
+
+```typescript
+import { capacitor } from '@h-ai/capacitor'
+
+export async function initCapacitor() {
+  // 无参加载当前平台的 Capacitor 能力，失败时将错误结果交给应用。
+  const initialized = await capacitor.init()
+  if (!initialized.success) return initialized
+  // 请求把原生状态栏设为 dark，成功 data 为 undefined，能力或设置失败返回错误。
+  return capacitor.statusBar.configure({ style: 'dark' })
+}
+```
+
+### 配置文件格式
+
+所有模块配置使用 YAML 保存默认值；`HAI_<配置名>_<YAML 路径>` 环境变量
+自动覆盖对应叶子项，且优先级更高：
+
+```yaml
+# config/_core.yml
+name: my-app
+env: development
+logging:
+  level: info
+```
+
+以上字段分别对应 `HAI_CORE_NAME`、`HAI_CORE_ENV`、
+`HAI_CORE_LOGGING_LEVEL`。
+
+## 技能导航
+
+根据任务类型选择正确的技能：
+
+### 模块使用（API 与集成）
+
+先按 [development.md 的需求能力表](../hai-app-create/development.md#将需求映射到现有能力) 匹配需求，再查以下 API 入口；不用通读所有技能。
+
+| 任务                  | 技能             | 触发关键词                                        |
+| --------------------- | ---------------- | ------------------------------------------------- |
+| 配置/日志/i18n/HaiResult | `hai-core`       | core.init, core.logger, core.config, HaiResult       |
+| 数据库操作            | `hai-reldb`      | reldb.init, SQL, CRUD, 事务, 分页, DDL               |
+| 缓存操作              | `hai-cache`      | cache.init, cache.kv.get/set, TTL, Redis             |
+| 文件存储              | `hai-storage`    | storage.init, 上传, 下载, S3, 本地存储            |
+| 加密/签名/哈希        | `hai-crypto`     | crypto.init, SM2, SM3, SM4, 加密, 签名            |
+| 身份认证/授权         | `hai-iam`        | iam.init, 登录, 注册, RBAC, Token, Bearer         |
+| AI/LLM/MCP            | `hai-ai`         | ai.init, LLM, MCP, Agent, 工具调用                |
+| 公共 API 契约         | `hai-api-contract` | apiContract.create, contract, schema, oRPC, HaiResult |
+| API Service 运行时    | `hai-serv`       | serv.createApp, Hono, procedures, OpenAPI, docs, route guard |
+| SvelteKit 集成        | `hai-kit`        | kit.createHandle, guard, middleware, validate, response |
+| UI 组件               | `hai-ui`         | 表单, 按钮, 表格, Modal, Toast, 移动端组件        |
+| typed API 客户端      | `hai-api-client` | apiClient.init, typed client, Bearer, 401 refresh, custom fetch |
+| 原生 App 能力         | `hai-capacitor`  | capacitor, 相机, 推送, 状态栏, 设备信息           |
+| 支付                  | `hai-payment`    | payment, 微信支付, 支付宝, Stripe, 订单           |
+
+### 开发流程
+
+| 任务                   | 技能             | 触发关键词                             |
+| ---------------------- | ---------------- | -------------------------------------- |
+| 新增/修改/修复应用功能 | `hai-app-create` | 页面, 组件, API, 模型, 功能修复 |
+| 代码审查与规范化       | `hai-app-review` | 审查, review, 规范, 优化               |
+| 编写/补充测试          | `hai-app-tests`  | 测试, test, 单测, 覆盖率, TDD, E2E     |
+| CI/CD 与质量门禁       | `hai-ci`         | CI, CD, GitHub Actions, workflow, secret scan |
+| PR / Issue 交付审查    | `hai-pr-review`  | PR, pull request, issue, CODEOWNERS, 自动 Review, AI Review |
+| hai-framework 升级与同步 | `hai-framework-sync` | 升级框架, 最新版本, 版本差异, skills 同步, npm/local 漂移 |
+
+## 行为开发工作流
+
+新增/改变行为时：先写有意义的目标用例 → 确认因目标行为缺失失败 → 实现 → 通过 → 审查。纯文案、格式和文档变化按影响验证，不机械新增单元与 E2E 测试。
+
+### 完整流程
+
+```
+需求分析 → 设计测试用例 → 编写测试（Red）→ 运行测试确认失败
+    → 编写实现（Green）→ 运行测试确认通过
+    → 重构优化（Refactor）→ 运行质量门禁
+```
+
+### 按阶段使用的技能
+
+| 阶段                | 主要技能         | 说明                                       |
+| ------------------- | ---------------- | ------------------------------------------ |
+| 需求分析 + 测试设计 | `hai-app-tests`  | 拆分测试点，确定单元测试与 E2E 测试        |
+| Red：编写测试       | `hai-app-tests`  | 编写 Vitest 单元测试 + Playwright E2E 测试 |
+| Green：编写实现     | `hai-app-create` | 按照创建规范编写服务/路由/组件             |
+| Refactor：重构审查  | `hai-app-review` | 代码规范审查、分层检查、日志/i18n 合规     |
+
+### 快速指令
+
+```bash
+# Red：运行测试确认新增目标用例因预期行为缺失而失败（既有回归保持通过）
+pnpm --filter <app-name> test
+pnpm --filter <app-name> test:e2e
+
+# Green：运行测试确认全部通过
+pnpm --filter <app-name> test
+pnpm --filter <app-name> test:e2e
+
+# Refactor：按下方分轮验证流程收集适用门禁
+pnpm typecheck
+pnpm lint
+pnpm build # 构建/配置/模板/跨包契约变更
+pnpm test
+```
+
+以上命令按 [分轮验证与集中修复](../hai-app-tests/validation.md) 调度，不在普通失败时立即修改并从头重跑。
+
+## 统一编码规范
+
+### 强制规则
+
+- **禁止 `any`**：不确定类型用 `unknown`，在边界处做类型缩窄
+- **禁止 `console.log`**：使用 `core.logger`（trace/debug/info/warn/error/fatal）
+- **禁止硬编码密钥**：使用服务端配置/环境变量；新增变量在 `.env.example` 中写入占位符，PUBLIC/VITE 变量不得包含密钥
+- **禁止无说明的 `as unknown as T`**：必要第三方断言写明依据；代码注释中文、日志英文并脱敏
+- **禁止硬编码用户文案**：所有用户可见文本必须使用 i18n key
+- **禁止修改 `src/lib/paraglide`** 生成文件
+
+### HaiResult 模式
+
+返回 `HaiResult<T>` 的领域操作按以下模式处理；工具、工厂和流式 API 以签名为准：
+
+```typescript
+// 执行无绑定参数的 users 查询。成功 data 是用户行数组。
+const result = await reldb.sql.query('SELECT * FROM users')
+if (!result.success) {
+  // result.error: { code, message, details? }
+  // 记录失败的数据库查询及对应 error，返回 void。
+  core.logger.error('Query failed', { error: result.error })
+  // 无参返回通用 HTTP 500 响应，保留内部查询详情在日志中。
+  return kit.response.internalError()
+}
+// result.data 可安全使用
+// 以查询到的数组作为 data 返回 HTTP 200。
+return kit.response.ok(result.data)
+```
+
+### 质量门禁
+
+按当前项目已定义的 scripts 和变更影响选择检查，执行 [分轮验证与集中修复](../hai-app-tests/validation.md)：普通失败先记录，独立检查继续，汇总后集中修复。PowerShell 使用 `pnpm.cmd`：
+
+```bash
+pnpm typecheck    # TypeScript 类型检查
+pnpm lint         # ESLint 检查
+pnpm build        # 构建/配置/模板/跨包契约变更
+pnpm test         # Vitest 单元测试
+```
+
+## 标准工作流
+
+### 变更前：需求分析 + 测试设计
+
+1. 按 development.md 匹配适用框架能力、已有 feature/配置和实际版本，说明必要自定义缺口
+2. 列出将修改的文件路径
+3. 确认哪些类型/接口会变
+4. 搜索确认引用关系（避免遗漏）
+5. 按行为风险设计测试与安全验收场景
+
+### 变更中：TDD 三步走
+
+1. **Red**：为新增/改变行为编写适用的单元/集成/E2E 测试，确认目标用例失败、既有回归通过
+2. **Green**：按技能指引完成功能实现，逐步让测试通过
+3. **Refactor**：审查代码规范、重构优化
+
+### 变更后：验证
+
+1. 按影响范围调度一轮 typecheck/lint/build/test；UI/路由/端到端改动加相应 E2E，从 package.json 确认入口
+2. 记录全部可执行结果与日志；真实前置失败只阻塞依赖项，普通失败不边测边改
+3. 归并问题并集中修复，再验证失败、阻塞及受影响项；最终必需门禁对最终代码有效通过
+4. 搜索确认所有引用点已更新，报告未验证边界与结果来源
+
+涉及原生交付时按当前项目 Tauri/Gradle/Xcode 等实际入口打包，在目标 OS/设备验证安装启动、会话、安全 TokenStorage、API 域名及覆盖升级。Web 构建/E2E 不代替原生验收；记录平台/工具链与结果，缺平台写未验证。

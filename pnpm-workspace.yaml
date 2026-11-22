@@ -1,2 +1,30 @@
+nodeLinker: hoisted
+shellEmulator: true
+trustPolicy: no-downgrade
+# 与 Hai 模板相同；该固定 tarball 的 SHA-512 已对比原 lockfile 与 npm registry。
+trustPolicyExclude:
+  - chokidar@4.0.3
+
+packages:
+  - apps/*
+  - packages/*
+
 allowBuilds:
+  core-js: false
   esbuild: true
+  vue-demi: true
+
+minimumReleaseAgeExclude:
+  - '@h-ai/api-client@1.0.0-beta.35'
+  - '@h-ai/api-contract@1.0.0-beta.35'
+  - '@h-ai/audit@1.0.0-beta.35'
+  - '@h-ai/cache@1.0.0-beta.35'
+  - '@h-ai/core@1.0.0-beta.35'
+  - '@h-ai/crypto@1.0.0-beta.35'
+  - '@h-ai/iam@1.0.0-beta.35'
+  - '@h-ai/reldb@1.0.0-beta.35'
+  - '@h-ai/serv@1.0.0-beta.35'
+  - '@h-ai/storage@1.0.0-beta.35'
+  - '@h-ai/reach@1.0.0-beta.35'
+  - '@h-ai/cli@1.0.0-beta.35'
+  - '@h-ai/ui@1.0.0-beta.35'

@@ -1,0 +1,467 @@
+/**
+ * 应用配置状态管理 - 使用 Svelte 5 Runes
+ */
+import type { AppConfig } from '../types/config'
+import type { ShortcutKind, ShortcutStatus } from '../types/shortcut'
+
+import { invoke } from '@tauri-apps/api/core'
+import { emit } from '@tauri-apps/api/event'
+
+import { DEFAULT_CONFIG } from '../types/config'
+import { GLOBAL_SHORTCUT_COMMANDS } from '../utils/constants'
+import { logger } from '../utils/logger'
+import { getConfig, saveConfig, updateConfig, withConfigWrite } from '../utils/storage'
+
+/**
+ * 配置管理类
+ */
+class ConfigStore {
+  // 应用配置
+  config = $state<AppConfig>(DEFAULT_CONFIG)
+
+  // 是否已初始化
+  initialized = $state<boolean>(false)
+
+  // 辅助功能权限状态（macOS）
+  accessibilityPermissionGranted = $state<boolean>(true)
+  shortcutStatuses = $state<Partial<Record<ShortcutKind, ShortcutStatus>>>({})
+
+  /**
+   * 初始化配置
+   */
+  async init() {
+    try {
+      this.config = await getConfig()
+      this.initialized = true
+
+      // 应用主题
+      this.applyTheme()
+
+      await this.refreshSelectionToolbarTemporaryDisableIfExpired()
+      await this.syncSelectionToolbarPolicies()
+
+      // 同步自启动状态
+      await this.syncAutoLaunchStatus()
+
+      // 检查辅助功能权限
+      await this.checkAccessibilityPermission()
+    }
+ catch (error) {
+      logger.error('Failed to initialize config', error)
+      throw error
+    }
+  }
+
+  /**
+   * 同步自启动状态（确保配置与系统设置一致）
+   *
+   * 重要：如果用户配置中已启用自启动，但系统未注册（可能因重新安装导致），
+   * 则重新注册自启动，而不是禁用配置。这样可以确保重新安装后自启动设置不丢失。
+   */
+  async syncAutoLaunchStatus() {
+    try {
+      const isEnabled = await invoke<boolean>('is_auto_launch_enabled')
+
+      if (this.config.autoStart && !isEnabled) {
+        // 用户配置中启用了自启动，但系统未注册（可能因重新安装导致）
+        // 重新注册自启动
+        logger.info('Re-registering auto launch after reinstall', {
+          configValue: this.config.autoStart,
+          systemValue: isEnabled,
+        })
+        await invoke('enable_auto_launch')
+      }
+      else if (!this.config.autoStart && isEnabled) {
+        // 用户配置中禁用了自启动，但系统已注册（异常情况）
+        // 将配置同步为系统状态，或者禁用系统自启动
+        // 这里选择禁用系统自启动，保持与用户配置一致
+        logger.info('Disabling auto launch to match config', {
+          configValue: this.config.autoStart,
+          systemValue: isEnabled,
+        })
+        await invoke('disable_auto_launch')
+      }
+    }
+    catch (error) {
+      logger.error('Failed to sync auto launch status', error)
+    }
+  }
+
+  /**
+   * 同步划词工具栏启用状态到后端
+   */
+  async syncSelectionToolbarEnabled() {
+    try {
+      await invoke('set_selection_toolbar_enabled', {
+        enabled: this.config.selectionToolbarEnabled,
+      })
+    }
+ catch (error) {
+      logger.error('Failed to sync selection toolbar state', error)
+    }
+  }
+
+  async syncSelectionToolbarPolicies() {
+    try {
+      await invoke('set_selection_toolbar_enabled', {
+        enabled: this.config.selectionToolbarEnabled,
+      })
+      await invoke('set_selection_toolbar_ignored_apps', {
+        apps: this.buildIgnoredAppPayload(this.config.selectionToolbarIgnoredApps),
+      })
+      await invoke('set_selection_toolbar_temporary_disabled_until', {
+        until: this.config.selectionToolbarTemporaryDisabledUntil,
+      })
+    }
+ catch (error) {
+      logger.error('Failed to sync selection toolbar policies', error)
+    }
+  }
+
+  private sanitizeIgnoredApps(apps: string[]): string[] {
+    return apps.map(item => item.trim()).filter(item => item.length > 0)
+  }
+
+  private buildIgnoredAppPayload(apps: string[]): string[] {
+    return this.sanitizeIgnoredApps(apps).map(item => item.toLowerCase())
+  }
+
+  async setSelectionToolbarIgnoredApps(apps: string[]) {
+    const sanitized = this.sanitizeIgnoredApps(apps)
+    const payload = this.buildIgnoredAppPayload(sanitized)
+
+    try {
+      await invoke('set_selection_toolbar_ignored_apps', { apps: payload })
+    }
+ catch (error) {
+      logger.error('Failed to update selection toolbar ignored apps in backend', error)
+      throw error
+    }
+
+    await this.update({ selectionToolbarIgnoredApps: sanitized })
+  }
+
+  async setSelectionToolbarTemporaryDisabledUntil(until: number | null) {
+    try {
+      await invoke('set_selection_toolbar_temporary_disabled_until', { until })
+    }
+ catch (error) {
+      logger.error('Failed to update selection toolbar temporary disable state', error)
+      throw error
+    }
+
+    await this.update({ selectionToolbarTemporaryDisabledUntil: until })
+  }
+
+  async setSelectionToolbarTemporaryDisableDuration(duration: number) {
+    await this.update({ selectionToolbarTemporaryDisableDurationMs: duration })
+  }
+
+  async applySelectionToolbarTemporaryDisableSnapshot(until: number | null) {
+    this.config = await updateConfig({ selectionToolbarTemporaryDisabledUntil: until })
+  }
+
+  async refreshSelectionToolbarTemporaryDisableIfExpired() {
+    const until = this.config.selectionToolbarTemporaryDisabledUntil
+    if (!until) {
+      return
+    }
+
+    if (until <= Date.now()) {
+      logger.info('Selection toolbar temporary disable expired, restoring')
+      await this.setSelectionToolbarTemporaryDisabledUntil(null)
+    }
+  }
+
+  /**
+   * 更新配置
+   *
+   * @param updates - 要更新的配置字段
+   */
+  async update(updates: Partial<AppConfig>): Promise<void> {
+    try {
+      this.config = await updateConfig(updates)
+
+      // 如果更新了主题，应用主题
+      if (updates.theme !== undefined) {
+        this.applyTheme()
+      }
+    }
+ catch (error) {
+      logger.error('Failed to update config', error)
+      throw error
+    }
+  }
+
+  /**
+   * 设置主题
+   */
+  async setTheme(theme: 'system' | 'light' | 'dark') {
+    await this.update({ theme })
+
+    // 通知所有窗口主题已更改
+    try {
+      await emit('theme-changed', { theme })
+    }
+ catch (error) {
+      logger.error('Failed to emit theme-changed event', error)
+    }
+  }
+
+  /**
+   * 应用主题到DOM
+   */
+  applyTheme() {
+    const theme = this.config.theme
+    const isDark
+      = theme === 'dark'
+        || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+
+    if (isDark) {
+      document.documentElement.classList.add('dark')
+    }
+ else {
+      document.documentElement.classList.remove('dark')
+    }
+  }
+
+  async refreshShortcuts() {
+    try {
+      return await withConfigWrite(async () => {
+        const statuses = await invoke<ShortcutStatus[]>(GLOBAL_SHORTCUT_COMMANDS.GET_STATUSES)
+        this.shortcutStatuses = Object.fromEntries(statuses.map(status => [status.kind, status]))
+        return statuses.filter(status => status.failure !== null)
+      })
+    }
+    catch (error) {
+      logger.warn('Could not read global shortcut statuses', error)
+      return []
+    }
+  }
+
+  async setShortcut(kind: ShortcutKind, accelerator: string) {
+    await withConfigWrite(async () => {
+      const status = await invoke<ShortcutStatus>(GLOBAL_SHORTCUT_COMMANDS.SET, { kind, accelerator })
+      this.config[kind] = status.accelerator
+      this.shortcutStatuses[kind] = status
+    })
+  }
+
+  /**
+   * 设置自动启动
+   */
+  async setAutoStart(autoStart: boolean) {
+    try {
+      if (autoStart) {
+        await invoke('enable_auto_launch')
+        logger.info('Auto launch enabled')
+      }
+ else {
+        await invoke('disable_auto_launch')
+        logger.info('Auto launch disabled')
+      }
+
+      await this.update({ autoStart })
+    }
+ catch (error) {
+      logger.error('Failed to set auto launch', error)
+      throw error
+    }
+  }
+
+  /**
+   * 设置自动更新开关
+   */
+  async setAutoUpdateEnabled(enabled: boolean) {
+    await this.update({ autoUpdateEnabled: enabled })
+  }
+
+  /**
+   * 设置默认平台
+   */
+  async setDefaultPlatform(platformId: string | null) {
+    await this.update({ defaultPlatform: platformId })
+  }
+
+  /**
+   * 设置最后使用的平台
+   */
+  async setLastUsedPlatform(platformId: string | null) {
+    await this.update({ lastUsedPlatform: platformId })
+  }
+
+  /**
+   * 设置当前翻译平台
+   */
+  async setCurrentTranslator(translatorId: string) {
+    await this.update({ currentTranslator: translatorId })
+  }
+
+  /**
+   * 设置划词工具栏开关
+   */
+  async setSelectionToolbarEnabled(enabled: boolean) {
+    try {
+      await invoke('set_selection_toolbar_enabled', { enabled })
+    }
+ catch (error) {
+      logger.error('Failed to update selection toolbar state in backend', error)
+      throw error
+    }
+
+    await this.update({ selectionToolbarEnabled: enabled })
+  }
+
+  /**
+   * 设置划词默认平台
+   */
+  async setSelectionToolbarDefaultPlatformId(platformId: string | null) {
+    await this.update({ selectionToolbarDefaultPlatformId: platformId })
+  }
+
+  /**
+   * 设置是否使用悬浮结果窗口
+   */
+  async setSelectionToolbarUseFloatingWindow(useFloatingWindow: boolean) {
+    await this.update({ selectionToolbarUseFloatingWindow: useFloatingWindow })
+  }
+
+  /**
+   * 设置平台预加载开关
+   */
+  async setPreloadDefaultPlatforms(enabled: boolean) {
+    await this.update({ preloadDefaultPlatforms: enabled })
+  }
+
+  /**
+   * 设置桌面便签总开关
+   */
+  async setDesktopNotesEnabled(enabled: boolean) {
+    await this.update({ desktopNotesEnabled: enabled })
+  }
+
+  /**
+   * 设置桌面便签同步开关
+   */
+  async setDesktopNotesSyncEnabled(enabled: boolean) {
+    await this.update({ desktopNotesSyncEnabled: enabled })
+  }
+
+  /**
+   * 更新桌面便签最近同步时间
+   */
+  async setDesktopNotesLastSyncedAt(timestamp: number | null) {
+    await this.update({ desktopNotesLastSyncedAt: timestamp })
+  }
+
+  /**
+   * 设置窗口尺寸
+   */
+  async setWindowSize(width: number, height: number) {
+    await this.update({
+      windowSize: { width, height },
+    })
+  }
+
+  /**
+   * 设置窗口位置
+   */
+  async setWindowPosition(x: number, y: number) {
+    await this.update({
+      windowPosition: { x, y },
+    })
+  }
+
+  /**
+   * 标记首次运行完成
+   */
+  async completeFirstRun() {
+    await this.update({ firstRun: false })
+  }
+
+  /**
+   * 重置配置
+   */
+  async reset() {
+    try {
+      await saveConfig(DEFAULT_CONFIG)
+      this.config = DEFAULT_CONFIG
+      this.applyTheme()
+      await this.syncSelectionToolbarPolicies()
+    }
+ catch (error) {
+      logger.error('Failed to reset config', error)
+      throw error
+    }
+  }
+
+  /**
+   * 重新加载配置
+   */
+  async reload() {
+    await this.init()
+  }
+
+  /**
+   * 检查辅助功能权限状态
+   */
+  async checkAccessibilityPermission(): Promise<boolean> {
+    try {
+      const granted = await invoke<boolean>('check_accessibility_permission')
+      this.accessibilityPermissionGranted = granted
+
+      if (!granted) {
+        logger.warn('Accessibility permission not granted')
+      }
+ else {
+        logger.info('Accessibility permission verified')
+      }
+
+      return granted
+    }
+ catch (error) {
+      logger.error('Failed to check accessibility permission', error)
+      return true // 假设已授权，避免在不支持的平台上显示警告
+    }
+  }
+
+  /**
+   * 请求辅助功能权限
+   */
+  async requestAccessibilityPermission(): Promise<boolean> {
+    try {
+      const granted = await invoke<boolean>('request_accessibility_permission')
+      this.accessibilityPermissionGranted = granted
+
+      if (granted) {
+        logger.info('Accessibility permission granted after request')
+      }
+ else {
+        logger.warn('Accessibility permission denied or prompt shown')
+      }
+
+      return granted
+    }
+ catch (error) {
+      logger.error('Failed to request accessibility permission', error)
+      throw error
+    }
+  }
+}
+
+/**
+ * 导出单例实例
+ */
+export const configStore = new ConfigStore()
+
+/**
+ * 监听系统主题变化
+ */
+if (typeof window !== 'undefined') {
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  mediaQuery.addEventListener('change', () => {
+    if (configStore.config.theme === 'system') {
+      configStore.applyTheme()
+    }
+  })
+}

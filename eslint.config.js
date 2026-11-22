@@ -4,12 +4,13 @@ export default antfu(
   {
     svelte: true,
     ignores: [
-      'build/',
-      '.svelte-kit/',
-      'dist/',
-      'node_modules/',
-      'src-tauri/',
-      '.github/'
+      '**/build/',
+      '**/.svelte-kit/',
+      '**/dist/',
+      '**/node_modules/',
+      '**/src-tauri/',
+      '**/test-results/',
+      '**/playwright-report/',
     ]
   },
   {

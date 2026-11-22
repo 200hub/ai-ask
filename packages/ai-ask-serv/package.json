@@ -1,0 +1,53 @@
+{
+  "name": "ai-ask-serv",
+  "type": "module",
+  "version": "0.0.1-beta.12",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "README.md",
+    "config",
+    "data",
+    "dist"
+  ],
+  "engines": {
+    "node": "^22.23.4 || ^24.22.1 || ^26.12.1"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "pnpm build && node ../../scripts/run-node.mjs dev ../.. dist/index.js",
+    "start": "node ../../scripts/run-node.mjs prod ../.. dist/index.js",
+    "dev:test": "pnpm build && node ../../scripts/run-node.mjs test ../.. dist/index.js",
+    "dev:prod": "pnpm build && pnpm start",
+    "start:test": "node ../../scripts/run-node.mjs test ../.. dist/index.js",
+    "start:prod": "pnpm start",
+    "check": "pnpm typecheck",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "clean": "rimraf dist .turbo"
+  },
+  "dependencies": {
+    "@h-ai/cache": "1.0.0-beta.35",
+    "@h-ai/core": "1.0.0-beta.35",
+    "@h-ai/crypto": "1.0.0-beta.35",
+    "@h-ai/iam": "1.0.0-beta.35",
+    "@h-ai/reach": "1.0.0-beta.35",
+    "@h-ai/reldb": "1.0.0-beta.35",
+    "@h-ai/serv": "1.0.0-beta.35",
+    "ai-ask-contract": "workspace:*",
+    "pino-pretty": "^13.1.3"
+  },
+  "devDependencies": {
+    "@h-ai/api-client": "1.0.0-beta.35"
+  }
+}

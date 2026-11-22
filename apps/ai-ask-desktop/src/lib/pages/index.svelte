@@ -1,0 +1,399 @@
+<script lang='ts'>
+  import type { EventCallback, EventName, UnlistenFn } from '@tauri-apps/api/event'
+  import GlobalSelectionMonitor from '$lib/components/common/GlobalSelectionMonitor.svelte'
+  import Header from '$lib/components/layout/Header.svelte'
+  import MainContent from '$lib/components/layout/MainContent.svelte'
+  import Sidebar from '$lib/components/layout/Sidebar.svelte'
+  import { i18n } from '$lib/i18n'
+  import { appState } from '$lib/stores/app.svelte'
+  import { configStore } from '$lib/stores/config.svelte'
+  import { desktopNotesStore } from '$lib/stores/desktop-notes.svelte'
+  import { platformsStore } from '$lib/stores/platforms.svelte'
+  import { translationStore } from '$lib/stores/translation.svelte'
+  import { copyTextToClipboard } from '$lib/utils/clipboard'
+  import { registerExitFlush } from '$lib/utils/exit-flush'
+  import { logger } from '$lib/utils/logger'
+  import { preloadDefaultPlatforms } from '$lib/utils/preload'
+  import { executeExplanation, executeTranslation } from '$lib/utils/selection-actions'
+  import { listen as tauriListen } from '@tauri-apps/api/event'
+  /**
+   * AI Ask 主页面
+   */
+  import { onDestroy, onMount } from 'svelte'
+
+  const t = i18n.t
+
+  let openSettingsUnlisten: UnlistenFn | null = null
+  let translationHotkeyUnlisten: UnlistenFn | null = null
+  let selectionTranslateUnlisten: UnlistenFn | null = null
+  let selectionExplainUnlisten: UnlistenFn | null = null
+  let selectionCollectUnlisten: UnlistenFn | null = null
+  let openPlatformUnlisten: UnlistenFn | null = null
+  let beforeExitUnlisten: UnlistenFn | null = null
+  let isExiting = $state(false)
+  let disposed = false
+
+  function retainListener(stop: UnlistenFn): UnlistenFn {
+    if (disposed) {
+      stop()
+      return () => {}
+    }
+    return stop
+  }
+
+  async function listen<T>(event: EventName, handler: EventCallback<T>): Promise<UnlistenFn> {
+    return retainListener(await tauriListen<T>(event, (payload) => {
+      if (!disposed)
+        handler(payload)
+    }))
+  }
+
+  type SelectionToolbarEventPayload = {
+    text?: string
+  }
+
+  /**
+   * 从浮动结果窗口跳转到主窗口的事件负载
+   */
+  type OpenPlatformEventPayload = {
+    platformId: string
+    platformType: 'ai' | 'translation'
+    text?: string
+    action?: 'translate' | 'explain'
+  }
+
+  onMount(() => {
+    disposed = false
+    void registerOpenSettingsListener()
+    void registerTranslationHotkeyListener()
+    void registerSelectionToolbarListeners()
+    void registerOpenPlatformListener()
+    void registerBeforeExitListener()
+    void initializeStores()
+  })
+
+  onDestroy(() => {
+    disposed = true
+    openSettingsUnlisten?.()
+    openSettingsUnlisten = null
+
+    translationHotkeyUnlisten?.()
+    translationHotkeyUnlisten = null
+
+    selectionTranslateUnlisten?.()
+    selectionTranslateUnlisten = null
+
+    selectionExplainUnlisten?.()
+    selectionExplainUnlisten = null
+
+    selectionCollectUnlisten?.()
+    selectionCollectUnlisten = null
+
+    openPlatformUnlisten?.()
+    openPlatformUnlisten = null
+
+    beforeExitUnlisten?.()
+    beforeExitUnlisten = null
+  })
+
+  function extractSelectionText(payload: SelectionToolbarEventPayload | null | undefined): string | null {
+    const raw = payload?.text ?? ''
+    const trimmed = raw.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+
+  async function handleSelectionToolbarTranslate(payload: SelectionToolbarEventPayload | null) {
+    const text = extractSelectionText(payload)
+    if (!text) {
+      logger.debug('Selection toolbar translate request skipped: empty payload')
+      return
+    }
+
+    try {
+      await executeTranslation(text)
+    }
+    catch (error) {
+      logger.error('Failed to handle selection toolbar translate request:', error)
+    }
+  }
+
+  async function handleSelectionToolbarExplain(payload: SelectionToolbarEventPayload | null) {
+    const text = extractSelectionText(payload)
+    if (!text) {
+      logger.debug('Selection toolbar explain request skipped: empty payload')
+      return
+    }
+
+    try {
+      await executeExplanation(text)
+    }
+    catch (error) {
+      logger.error('Failed to handle selection toolbar explain request:', error)
+    }
+  }
+
+  async function handleSelectionToolbarCollect(payload: SelectionToolbarEventPayload | null) {
+    const text = extractSelectionText(payload)
+    if (!text) {
+      logger.debug('Selection toolbar collect request skipped: empty payload')
+      return
+    }
+
+    try {
+      await copyTextToClipboard(text)
+      logger.info('Selection toolbar collect request copied to clipboard', {
+        textLength: text.length,
+      })
+    }
+    catch (error) {
+      logger.error('Failed to handle selection toolbar collect request', error)
+      appState.setError(t('errors.selectionToolbar.collectFailed'))
+    }
+  }
+
+  async function registerSelectionToolbarListeners() {
+    try {
+      selectionTranslateUnlisten = await listen<SelectionToolbarEventPayload>(
+        'selection-toolbar:translate',
+        (event) => {
+          void handleSelectionToolbarTranslate(event.payload ?? null)
+        },
+      )
+    }
+    catch (error) {
+      logger.error('Failed to listen for selection-toolbar:translate event:', error)
+    }
+
+    try {
+      selectionExplainUnlisten = await listen<SelectionToolbarEventPayload>(
+        'selection-toolbar:explain',
+        (event) => {
+          void handleSelectionToolbarExplain(event.payload ?? null)
+        },
+      )
+    }
+    catch (error) {
+      logger.error('Failed to listen for selection-toolbar:explain event:', error)
+    }
+
+    try {
+      selectionCollectUnlisten = await listen<SelectionToolbarEventPayload>(
+        'selection-toolbar:collect',
+        (event) => {
+          void handleSelectionToolbarCollect(event.payload ?? null)
+        },
+      )
+    }
+    catch (error) {
+      logger.error('Failed to listen for selection-toolbar:collect event:', error)
+    }
+  }
+
+  /**
+   * 处理翻译快捷键触发
+   */
+  function handleTranslationHotkey() {
+    logger.debug('Translation hotkey triggered, switching to translation view')
+    appState.switchToTranslationView()
+    window.dispatchEvent(new CustomEvent('ensureTranslationVisible'))
+  }
+
+  /**
+   * 注册翻译快捷键监听器
+   */
+  async function registerTranslationHotkeyListener() {
+    try {
+      translationHotkeyUnlisten = await listen('translation-hotkey-triggered', () => {
+        handleTranslationHotkey()
+      })
+    }
+    catch (error) {
+      logger.error('Failed to listen for translation-hotkey-triggered event:', error)
+    }
+  }
+
+  async function initializeStores() {
+    try {
+      await configStore.init()
+      void configStore.refreshShortcuts().then((failed) => {
+        if (failed.length > 0) {
+          appState.setError(t('general.shortcutsStartupWarning'))
+        }
+      })
+      void initializeDesktopNotes()
+      await platformsStore.init()
+      await translationStore.init()
+
+      const translatorId = configStore.config.currentTranslator
+      if (translatorId) {
+        translationStore.setCurrentPlatform(translatorId)
+      }
+      else if (!translationStore.currentPlatform && translationStore.enabledPlatforms.length > 0) {
+        translationStore.setCurrentPlatform(translationStore.enabledPlatforms[0].id)
+      }
+
+      const lastPlatformId
+        = configStore.config.lastUsedPlatform
+          || configStore.config.defaultPlatform
+      if (lastPlatformId && appState.currentView === 'welcome') {
+        const platform = platformsStore.getPlatformById(lastPlatformId)
+        if (platform && platform.enabled) {
+          appState.switchToChatView(platform)
+        }
+      }
+
+      // 预加载默认平台（异步，不阻塞初始化）
+      void preloadDefaultPlatforms()
+    }
+    catch (error) {
+      logger.error('Failed to initialize application stores:', error)
+      appState.setError(t('errors.loadFailed'))
+    }
+  }
+
+  async function initializeDesktopNotes() {
+    try {
+      await desktopNotesStore.init()
+      await desktopNotesStore.startLocalChangeListener()
+      if (configStore.config.desktopNotesEnabled) {
+        await desktopNotesStore.restoreVisibleWindows()
+      }
+
+      await desktopNotesStore.refreshSession()
+      if (configStore.config.desktopNotesSyncEnabled && desktopNotesStore.session.authenticated) {
+        await desktopNotesStore.syncWithCloud()
+        if (configStore.config.desktopNotesEnabled) {
+          await desktopNotesStore.restoreVisibleWindows()
+        }
+      }
+    }
+    catch (error) {
+      logger.warn('Desktop notes initialization failed', error)
+    }
+    finally {
+      desktopNotesStore.startAuthListener()
+    }
+  }
+
+  async function registerOpenSettingsListener() {
+    try {
+      openSettingsUnlisten = await listen('open-settings', () => {
+        appState.openSettings()
+      })
+    }
+    catch (error) {
+      logger.error('Failed to listen for open-settings event:', error)
+    }
+  }
+
+  async function registerBeforeExitListener() {
+    try {
+      beforeExitUnlisten = retainListener(await registerExitFlush({
+        flush: () => desktopNotesStore.flushPersistPublic(),
+        setExiting: (value) => {
+          isExiting = value
+          if (value)
+            desktopNotesStore.suspendCloudActivity()
+          else
+            desktopNotesStore.resumeCloudActivity()
+        },
+        onFailure: () => appState.setError(t('desktopNotes.saveFailed')),
+      }))
+    }
+    catch (error) {
+      logger.error('Failed to register exit persistence', error)
+    }
+  }
+
+  /**
+   * 处理从浮动结果窗口跳转到主窗口的请求
+   */
+  async function handleOpenPlatform(payload: OpenPlatformEventPayload) {
+    logger.info('Open platform request received', {
+      platformId: payload.platformId,
+      platformType: payload.platformType,
+      action: payload.action,
+      hasText: Boolean(payload.text),
+    })
+
+    if (payload.platformType === 'translation') {
+      // 切换到翻译视图
+      const platform = translationStore.getPlatformById(payload.platformId)
+      if (platform) {
+        translationStore.setCurrentPlatform(platform.id)
+        appState.switchToTranslationView()
+        window.dispatchEvent(new CustomEvent('ensureTranslationVisible'))
+
+        if (payload.text && payload.action === 'translate') {
+          void executeTranslation(payload.text, platform.id)
+        }
+      }
+      else {
+        logger.warn('Translation platform not found', { platformId: payload.platformId })
+      }
+    }
+    else {
+      // 切换到 AI 聊天视图
+      const platform = platformsStore.getPlatformById(payload.platformId)
+      if (platform) {
+        appState.switchToChatView(platform)
+
+        if (payload.text && payload.action === 'explain') {
+          void executeExplanation(payload.text, platform.id)
+        }
+      }
+      else {
+        logger.warn('AI platform not found', { platformId: payload.platformId })
+      }
+    }
+  }
+
+  /**
+   * 注册打开平台事件监听器
+   */
+  async function registerOpenPlatformListener() {
+    try {
+      openPlatformUnlisten = await listen<OpenPlatformEventPayload>(
+        'openPlatform',
+        (event) => {
+          handleOpenPlatform(event.payload)
+        },
+      )
+    }
+    catch (error) {
+      logger.error('Failed to listen for openPlatform event:', error)
+    }
+  }
+</script>
+
+<div class='app-container'>
+  <GlobalSelectionMonitor />
+  <div class='app-interactive' inert={isExiting}>
+  <Header />
+  <div class='app-body'>
+    <Sidebar />
+    <MainContent />
+  </div>
+  </div>
+</div>
+
+<style>
+    .app-container {
+        width: 100%;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background-color: var(--bg-primary);
+    }
+
+    .app-interactive {
+        display: contents;
+    }
+
+    .app-body {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+    }
+</style>

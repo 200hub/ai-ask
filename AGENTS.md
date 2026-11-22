@@ -1,180 +1,51 @@
-﻿# Instructions — AI Ask
+# AI Ask 工程规范
 
-These instructions help AI coding agents work productively in this repo. Focus on core architectural patterns and critical constraints; avoid over-specification of implementation details.
+请用中文沟通；代码注释中文、日志英文。工程采用 Hai fullstack 桌面布局，不再使用 SvelteKit。
 
-## Language Preference
+## Hai 工作流
 
-- 请尽量使用中文进行回复与说明；仅在用户明确要求或上下文确有需要时再改用其他语言。
+框架依赖和 `.agents/skills/` 同步到 `1.0.0-beta.35`；来源记录在 `.agents/hai-framework.json`。先按任务读取对应入口及相邻参考，不加载整个技能树；本项目的实际业务规则和用户明确授权优先于模板初始约定。
 
-## Big Picture
+- 新增、修改、修复：[hai-app-create](.agents/skills/hai-app-create/SKILL.md)，能力选择见其 [development.md](.agents/skills/hai-app-create/development.md)。
+- 应用审查：[hai-app-review](.agents/skills/hai-app-review/SKILL.md)。
+- 升级同步：[hai-framework-sync](.agents/skills/hai-framework-sync/SKILL.md)。
+- 测试、构建与 CI：按需读取 hai-app-tests、hai-build、hai-ci；模块能力按实际使用选择，不为覆盖率安装无关模块。
 
-- **Tech stack**: Tauri 2.x (Rust backend) + SvelteKit 3 (SPA mode) + Svelte 5 Runes
-- **Architecture**: Main window (Svelte SPA) + child webviews (one per AI platform, managed by Rust)
-- **Why**: SPA for fast UI; child webviews isolate AI sites (sessions, proxy, security)
-- **Key pattern**: Frontend coordinates via `ChildWebviewProxy` wrapper → Rust manages actual webviews via `invoke()` commands
+## 结构与边界
 
-## Core Conventions
+- `apps/ai-ask-desktop`：Tauri 2 + Vite + Svelte 5，页面在 `src/lib/pages`，Hash 路由入口为 `src/App.svelte`。原生代码在该 workspace 的 `src-tauri`，公开资源在 `public`，四语言消息在 `messages/*.json`。
+- `packages/ai-ask-contract`：共享 Zod schema 与 typed API contract，根导出编译后的 `dist`；不得引用服务端、数据库或私密配置。
+- `packages/ai-ask-serv`：Hai Serv / IAM / Reldb / Cache / Crypto / Reach 服务；配置在 `config/_*.yml`，模块生命周期在 `src/server/runtime.ts`，procedure 与服务逻辑分层。
+- 根目录只承担 workspace、环境、Hai 构建和验证编排。不要新增根级 src、src-tauri、static、独立同步服务器或第二份契约。
+- 桌面端只通过 ai-ask-contract 与 @h-ai/api-client 访问服务，不依赖 service workspace。先判断 HaiResult.success。
 
-### Svelte 5 Runes Only
-- Use `$state`, `$derived`, `$effect` for all reactive state
-- Example: `class Store { value = $state(0); } export const store = new Store();`
-- **Do NOT** introduce Svelte 4 `writable`/`readable`/`derived` patterns in new code
+## 桌面业务约束
 
-### SPA Mode
-- `src/routes/+layout.ts` sets `export const ssr = false;`
-- All routing is client-side only
+- 响应式状态用 Svelte 5 Runes，不用 Svelte 4 writable/readable/derived。
+- 沿用纯 CSS、自定义属性和深浅主题，不引入 Tailwind 或其他 CSS 框架。
+- 用户文本通过 i18n.t()，同步维护 zh-CN、en-US、ja-JP、ko-KR 四份 JSON，不复制第二份字典。
+- 常量放桌面 src/lib/utils/constants.ts；用 $lib/utils/logger（委托 Hai Core），不用 console.log。日志必须英文，不记录 token、密码或便签正文。
+- 子 Webview 只通过 ChildWebviewProxy 到 Rust invoke 管理，不在前端新建 WebviewWindow。
+- 主窗口隐藏仍遵循 hideAllWebviews / restoreWebviews 协调。拖拽区不能覆盖按钮和输入框。
+- 本地配置与便签走 Tauri Store 和原生字段补丁；窗口位置仅保存在本机，登录凭据只存操作系统凭据库。
+- 保存、同步、登录、退出及切换服务的队列和归属校验必须保留；远端关闭也先保存草稿。退出须收齐全部编辑窗口回执，失败不能强退。
 
-### Styling: Pure CSS with Custom Properties
-- **NO Tailwind or other CSS frameworks**
-- Use CSS variables defined in `src/lib/styles/base.css`: `--bg-primary`, `--text-primary`, `--accent-color`, etc.
-- Supports light/dark themes via `.dark` class
-- Use `rem` units; minimal spacing (< 1rem default)
-- Scoped styles in `<style>` blocks
+## 配置与构建
 
-### i18n
-- Use `i18n.t()` function (NOT a store subscription)
-- Pattern: `import { i18n } from '$lib/i18n'; const t = i18n.t;`
-- Four locales: `zh-CN` (default), `en-US`, `ja-JP`, `ko-KR`
-- All user-facing text must use i18n keys (dot notation: `settings.general.title`)
-- Update all four locale files when adding keys
+- 配置使用 Hai YAML Schema 与 HAI_* 变量；公开 API 地址使用 PUBLIC_API_BASE，不把服务端配置复制到桌面 bundle。
+- 环境优先级：进程 > .env.<mode>.local > .env.local > .env.<mode> > .env > YAML。
+- 公共 .env/.env.dev/.env.test/.env.prod 提交，秘密只在忽略的本机覆盖或部署环境注入。
+- 根 package.json 版本为发布入口；同步脚本处理桌面、Cargo 和应用常量。原生应用标识保持数据兼容。
+- 业务变更同步实现、契约、调用方、配置、测试与文档；保留已有工作，不为未要求的能力新增空模块。
 
-### Naming
-- Components: PascalCase
-- Files: kebab-case or PascalCase
-- Variables: camelCase
-- Constants: UPPER_SNAKE_CASE
+## 验证
 
-## Critical Architecture Patterns
+交付必须运行并通过根 pnpm lint 与 pnpm test，并按影响执行 pnpm check、pnpm check:i18n、pnpm build 和原生 E2E。
 
-### Child Webview Management
-- **Frontend**: `ChildWebviewProxy` wrapper (from `src/lib/utils/childWebview.ts`)
-- **Backend**: Rust manages actual webviews via commands: `ensure_child_webview`, `show_child_webview`, `hide_child_webview`, etc.
-- **Never** create `WebviewWindow` directly in frontend code
-- Proxy methods: `ensure()`, `show()`, `hide()`, `close()`, `setFocus()`, `updateBounds()`
+- pnpm tauri dev：从根启动原生桌面开发。
+- pnpm dev：构建 contract 后并行启动服务和桌面 Vite。
+- pnpm build：Hai compile 目标，按 workspace 依赖构建。
+- pnpm build:desktop：Hai 原生桌面打包。
+- pnpm test:e2e：桌面 Playwright。Windows 入口 apps/ai-ask-desktop/e2e/run-windows.ps1 使用隔离标识与数据目录。
 
-### Window Visibility Coordination
-Two flows for hiding main window:
-
-1. **User clicks close button** (Header):
-   - Frontend dispatches DOM event `hideAllWebviews`
-   - Frontend hides child webviews
-   - Frontend calls `appWindow.hide()`
-
-2. **Tray/hotkey triggered** (Rust):
-   - Rust emits Tauri event `hideAllWebviews`
-   - Frontend hides child webviews
-   - Rust waits 100ms
-   - Rust hides main window
-
-**Show flow**: Rust shows main → emits `restoreWebviews` → frontend restores children
-
-### Drag Regions
-- Mark with `data-tauri-drag-region` attribute (or `-webkit-app-region: drag` CSS)
-- **Never** apply to interactive elements (buttons, inputs, links)
-
-### State Management (Stores)
-- All stores in `src/lib/stores/*.svelte.ts` using Runes
-- Export singleton instance: `export const appState = new AppState();`
-- Use `@tauri-apps/plugin-store` for persistence via `src/lib/utils/storage.ts` helpers
-
-### Logging
-- Use `logger` from `$lib/utils/logger` (NOT `console.log`)
-- Dev: logs all; Prod: logs errors/warnings only
-- **All log messages must be in English** for consistency and debugging across teams
-- Format: Use clear, structured log messages with context (e.g., `logger.info('Platform enabled', { platformId, enabled })`)
-
-### Constants Management
-- **All hardcoded values MUST be defined in `src/lib/utils/constants.ts`**
-- Include: URLs, timeouts, limits, default values, magic numbers, API endpoints, feature flags
-- Pattern: Export as named constants with UPPER_SNAKE_CASE naming
-- Example: `export const DEFAULT_WINDOW_WIDTH = 800;`
-- Never use magic numbers or hardcoded strings directly in code
-
-## Project-Specific Rules
-
-### DO
-- Use Runes for all new reactive state
-- Use CSS custom properties from `base.css` for theming
-- Use `i18n.t()` for all user-facing text
-- Use `ChildWebviewProxy` for child webview operations
-- Use `logger` for intentional logging (all messages in English)
-- Define all hardcoded values in `constants.ts`
-- Order imports: Svelte/external → Tauri → internal
-- Follow Svelte 5 component structure: imports → props → state → derived → effects → functions → template → styles
-- Handle errors gracefully with `appState.setError()`
-
-### DON'T
-- Don't add Tailwind CSS or CSS frameworks
-- Don't use Svelte 4 store patterns in new code
-- Don't hardcode user-facing strings (use i18n)
-- Don't hardcode configuration values (use constants.ts)
-- Don't use inline styles (prefer scoped styles with CSS variables)
-- Don't manage Tauri webviews directly in frontend
-- Don't use `console.log` (use `logger` instead)
-- Don't write log messages in non-English languages
-- Don't use `any` type without strong justification
-
-## Pre-Task Requirements
-
-Before starting any task:
-
-1. **Understand the context**:
-   - Use Context7 to read relevant files and understand existing patterns
-   - Check how similar features are already implemented
-   - Understand dependencies and their interfaces
-
-2. **Clarify uncertainties**:
-   - If task requirements are vague, ask for specific examples or expected behavior
-   - If unsure about API usage, search official documentation
-   - Never assume - always verify
-
-## Task Completion Checklist
-
-Before reporting any task as complete, you MUST run and pass `pnpm lint` (covers frontend and Rust style checks) and `pnpm test`. Record failures, fix them, and rerun until they succeed.
-
-After completing each task:
-
-1. **Code Quality**:
-   - Remove unused imports/code
-   - Extract duplicate logic into reusable functions
-   - Use `logger` instead of `console.log`
-   - Proper error handling with user-friendly messages
-   - CSS uses custom properties (no hardcoded colors)
-
-2. **i18n**:
-   - All four locale files updated with matching keys
-   - No hardcoded strings in UI
-
-3. **Testing**:
-   - Create unit tests in `src/lib/__tests__/` (`.test.ts` or `.test.svelte.ts`)
-   - Use Vitest framework
-   - Test happy paths, edge cases, errors, reactive state changes
-   - All tests pass: `pnpm test`
-
-4. **Quality Gates**:
-   - `pnpm run check` -> 0 errors
-   - `pnpm tauri dev` -> starts without errors
-   - `pnpm lint` -> passes (runs frontend ESLint and Rust fmt/clippy)
-   - `pnpm test` -> passes
-   - Proper TypeScript types (minimize `any`)
-   - Accessibility: semantic HTML, ARIA labels, keyboard nav
-   - Drag regions correct (never on interactive elements)
-
-## Developer Commands
-
-- **Typecheck**: `pnpm run check`
-- **Dev**: `pnpm tauri dev`
-- **Build**: `pnpm tauri build`
-- **Test**: `pnpm test`
-- **Icons**: `pnpm tauri icon src-tauri/icons/app-icon.svg`
-
-## Adding New Features
-
-- **Component**: Define `type Props = {...}`, use `const t = i18n.t;`, scoped styles with CSS vars
-- **Store**: Class with `$state` fields, async methods, singleton export
-- **i18n keys**: Add to all four locale files with dot notation paths
-- **Rust command**: `#[tauri::command]` in `lib.rs`, register in `.invoke_handler()`, call via `invoke()`
-
----
-
-Focus on these patterns and constraints. Implementation details will evolve; these principles should remain stable.
+区分测试夹具与真实网站结果。不得覆盖用户安装版数据，不把隔离测试 exe 当发布包。

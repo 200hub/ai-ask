@@ -1,0 +1,11 @@
+{
+  "reset.title": "Reset AI Ask password",
+  "reset.password": "New password",
+  "reset.confirm": "Confirm new password",
+  "reset.submit": "Save password",
+  "reset.invalid": "Invalid reset link or input. Request a new password reset.",
+  "reset.mismatch": "The passwords do not match.",
+  "reset.failed": "Password reset failed. Check the password rules or request a new reset link.",
+  "reset.done": "Password updated. Return to AI Ask and sign in with your new password.",
+  "notes.invalidStoredData": "Stored note data is invalid. Contact an administrator."
+}

@@ -1,0 +1,13 @@
+name: ${HAI_CORE_NAME:AI Ask}
+version: ${HAI_CORE_VERSION:0.0.1-beta.12}
+env: ${HAI_CORE_ENV:development}
+defaultLocale: ${HAI_CORE_DEFAULTLOCALE:zh-CN}
+logging:
+  level: ${HAI_CORE_LOGGING_LEVEL:info}
+  format: ${HAI_CORE_LOGGING_FORMAT:pretty}
+  redact:
+    - password
+    - token
+    - secret
+    - accessToken
+    - refreshToken

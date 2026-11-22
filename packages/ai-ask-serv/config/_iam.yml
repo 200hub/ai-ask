@@ -1,0 +1,24 @@
+seedDefaultData: true
+register:
+  enabled: true
+  defaultAccountStatus: active
+login:
+  password: true
+  otp: false
+  ldap: false
+  apikey: false
+password:
+  minLength: 8
+  maxLength: 128
+  requireUppercase: true
+  requireLowercase: true
+  requireNumber: true
+  requireSpecialChar: false
+passwordReset:
+  enabled: ${HAI_IAM_PASSWORDRESET_ENABLED:false}
+  mode: email
+  resetUrl: ${HAI_IAM_PASSWORDRESET_RESETURL:http://127.0.0.1:1422/reset-password}
+session:
+  maxAge: 86400
+  refreshTokenMaxAge: 604800
+  sliding: true

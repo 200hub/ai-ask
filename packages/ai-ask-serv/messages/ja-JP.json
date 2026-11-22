@@ -1,0 +1,11 @@
+{
+  "reset.title": "AI Ask パスワードのリセット",
+  "reset.password": "新しいパスワード",
+  "reset.confirm": "新しいパスワードを再入力",
+  "reset.submit": "パスワードを保存",
+  "reset.invalid": "リンクまたは入力が無効です。再度リセットを申請してください。",
+  "reset.mismatch": "パスワードが一致しません。",
+  "reset.failed": "リセットに失敗しました。パスワードの要件を確認するか再申請してください。",
+  "reset.done": "パスワードを更新しました。AI Ask に戻り、新しいパスワードでログインしてください。",
+  "notes.invalidStoredData": "保存されたメモのデータが無効です。管理者に確認してください。"
+}

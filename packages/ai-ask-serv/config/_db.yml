@@ -1,0 +1,4 @@
+# 相对路径以 ai-ask-serv 工作目录为基准，保留原便签与 IAM 表。
+# type 的 HAI_DB_TYPE 覆盖由 Core 根据 Reldb 的判别联合 Schema 解析。
+type: sqlite
+database: ${HAI_DB_DATABASE:./data/ai-ask.sqlite}

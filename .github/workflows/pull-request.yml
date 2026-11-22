@@ -23,6 +23,7 @@ jobs:
         with:
           node-version: '24'
       - run: node .github/scripts/validate-version.js --source-only
+      - run: node --test .github/scripts/workspace-version.test.js
 
   windows-checks:
     name: Windows Quality Checks
@@ -42,8 +43,9 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: apps/ai-ask-desktop/src-tauri
       - run: pnpm install --frozen-lockfile
+      - run: pnpm test:ci
       - run: pnpm run check
       - run: pnpm lint
       - run: pnpm test

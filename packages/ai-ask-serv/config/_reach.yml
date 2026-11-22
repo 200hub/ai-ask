@@ -1,0 +1,15 @@
+# 仅启用 IAM passwordReset 后初始化此 SMTP provider。
+providers:
+  - name: email
+    type: smtp
+    host: ${HAI_REACH_PROVIDERS_0_HOST:localhost}
+    port: ${HAI_REACH_PROVIDERS_0_PORT:465}
+    secure: ${HAI_REACH_PROVIDERS_0_SECURE:true}
+    user: ${HAI_REACH_PROVIDERS_0_USER:}
+    pass: ${HAI_REACH_PROVIDERS_0_PASS:}
+    from: ${HAI_REACH_PROVIDERS_0_FROM:noreply@localhost}
+templates:
+  - name: password_reset
+    provider: email
+    subject: AI Ask 密码重置
+    body: '<p>请打开链接重置密码。链接在 {expiresAt} 失效：</p><p><a href="{resetUrl}">{resetUrl}</a></p>'

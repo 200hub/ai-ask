@@ -1,0 +1,2 @@
+# 开发允许内存缓存；生产由框架守卫要求共享 Redis，多副本部署仍需独立验收。
+type: ${HAI_CACHE_TYPE:memory}

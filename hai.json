@@ -1,0 +1,7 @@
+{
+  "build": {
+    "desktop": [
+      "apps/ai-ask-desktop"
+    ]
+  }
+}

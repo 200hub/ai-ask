@@ -1,0 +1,348 @@
+/**
+ * 子 WebView 管理工具
+ *
+ * 提供子 WebView 的创建、显示、隐藏和边界计算等核心功能。
+ * 子 WebView 用于嵌入 AI 平台和翻译服务的网页内容。
+ */
+
+import type { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { TIMING } from '$lib/utils/constants'
+import { logger } from '$lib/utils/logger'
+import { invoke } from '@tauri-apps/api/core'
+
+export function waitForChildWebviewReady(id: string, timeoutMs: number): Promise<boolean> {
+  return invoke<boolean>('wait_child_webview_ready', {
+    payload: { id },
+    timeoutMs,
+  })
+}
+
+/**
+ * 子 WebView 边界信息接口
+ */
+export interface ChildWebviewBounds {
+  /** 逻辑坐标位置 */
+  positionLogical: { x: number, y: number }
+  /** 逻辑尺寸 */
+  sizeLogical: { width: number, height: number }
+  /** DPI 缩放因子 */
+  scaleFactor: number
+}
+
+/**
+ * 边界比较的浮点误差容限（像素）
+ */
+export const BOUNDS_EPSILON = 0.5
+
+/**
+ * 比较两个边界是否相等（考虑浮点误差）
+ *
+ * @param a - 边界 A
+ * @param b - 边界 B
+ * @returns 是否相等
+ */
+export function boundsEqual(a: ChildWebviewBounds, b: ChildWebviewBounds): boolean {
+  return (
+    Math.abs(a.positionLogical.x - b.positionLogical.x) < BOUNDS_EPSILON
+    && Math.abs(a.positionLogical.y - b.positionLogical.y) < BOUNDS_EPSILON
+    && Math.abs(a.sizeLogical.width - b.sizeLogical.width) < BOUNDS_EPSILON
+    && Math.abs(a.sizeLogical.height - b.sizeLogical.height) < BOUNDS_EPSILON
+  )
+}
+
+/**
+ * 清理指定 ID 的子 WebView 缓存
+ *
+ * 此操作会清除 WebView 的所有浏览数据（缓存、Cookie、LocalStorage 等），
+ * 并关闭该 WebView。下次访问时将重新创建。
+ *
+ * @param id - WebView 唯一标识符
+ * @returns Promise 完成时表示缓存已清理
+ */
+export async function clearChildWebviewCache(id: string): Promise<void> {
+  try {
+    await invoke('clear_child_webview_cache', {
+      payload: { id },
+    })
+    logger.info('Child webview cache cleared', { id })
+  }
+  catch (error) {
+    logger.error('Failed to clear child webview cache', { id, error })
+    throw error
+  }
+}
+
+/**
+ * 计算子 WebView 的边界位置和尺寸
+ *
+ * 根据主窗口的布局元素（侧边栏、头部、主内容区）计算子 WebView 应该占据的区域。
+ * 考虑了 DPI 缩放因子，确保在不同显示器上显示正确。
+ *
+ * @param mainWindow - 主窗口对象
+ * @returns 计算得到的边界信息
+ */
+export async function calculateChildWebviewBounds(
+  mainWindow: WebviewWindow,
+): Promise<ChildWebviewBounds> {
+  try {
+    const scaleFactor = await mainWindow.scaleFactor()
+    const innerSize = await mainWindow.innerSize()
+
+    const layoutElements = {
+      sidebar: document.querySelector('.sidebar') as HTMLElement | null,
+      header: document.querySelector('.header') as HTMLElement | null,
+      mainContent: document.querySelector('.main-content') as HTMLElement | null,
+    }
+
+    const sidebarWidth = layoutElements.sidebar?.offsetWidth ?? 56
+    const headerHeight = layoutElements.header?.offsetHeight ?? 44
+    const mainContentRect = layoutElements.mainContent?.getBoundingClientRect()
+
+    // 保护性边界计算：
+    // 某些时机（窗口恢复/首次布局）mainContentRect 可能短暂返回异常值（例如 left=0），
+    // 这会导致子 WebView 覆盖侧边栏和设置区域并拦截点击。
+    const rawLeft = mainContentRect?.left ?? sidebarWidth
+    const rawTop = mainContentRect?.top ?? headerHeight
+    const rawWidth
+      = mainContentRect?.width ?? Math.max(0, innerSize.width / scaleFactor - rawLeft)
+    const rawHeight
+      = mainContentRect?.height ?? Math.max(0, innerSize.height / scaleFactor - rawTop)
+
+    const windowWidthLogical = Math.max(0, innerSize.width / scaleFactor)
+    const windowHeightLogical = Math.max(0, innerSize.height / scaleFactor)
+
+    // 至少不小于侧边栏/头部偏移，避免盖住左侧平台栏与顶部区域
+    const contentOffsetLeft = Math.max(sidebarWidth, rawLeft)
+    const contentOffsetTop = Math.max(headerHeight, rawTop)
+
+    // 尺寸也要与窗口可用区域进行夹紧，防止超出并覆盖其他区域
+    const maxWidth = Math.max(0, windowWidthLogical - contentOffsetLeft)
+    const maxHeight = Math.max(0, windowHeightLogical - contentOffsetTop)
+    const contentWidth = Math.min(Math.max(0, rawWidth), maxWidth)
+    const contentHeight = Math.min(Math.max(0, rawHeight), maxHeight)
+
+    return {
+      positionLogical: {
+        x: contentOffsetLeft,
+        y: contentOffsetTop,
+      },
+      sizeLogical: {
+        width: contentWidth,
+        height: contentHeight,
+      },
+      scaleFactor,
+    }
+  }
+  catch (error) {
+    logger.error('Failed to calculate child webview bounds, using defaults', error)
+    return {
+      positionLogical: { x: 100, y: 100 },
+      sizeLogical: { width: 800, height: 600 },
+      scaleFactor: 1,
+    }
+  }
+}
+
+/**
+ * 子 WebView 代理类
+ *
+ * 提供对 Rust 后端管理的子 WebView 的前端抽象接口。
+ * 负责协调创建、显示、隐藏、更新边界等操作，并维护本地状态。
+ */
+export class ChildWebviewProxy {
+  /** 上次设置的边界信息，用于避免重复更新 */
+  #lastBounds: ChildWebviewBounds | null = null
+  /** 当前可见性状态 */
+  #isVisible = false
+  /** WebView 标签（与 id 相同） */
+  #label: string
+
+  /**
+   * 创建子 WebView 代理实例
+   *
+   * @param id - WebView 唯一标识符
+   * @param url - 要加载的 URL
+   * @param proxyUrl - 代理服务器 URL（可选）
+   */
+  constructor(
+    private readonly id: string,
+    private readonly url: string,
+    private readonly proxyUrl: string | null,
+  ) {
+    this.#label = id
+  }
+
+  /**
+   * Check if this child webview exists (has been created)
+   * @returns Promise resolving to true if webview exists, false otherwise
+   */
+  async exists(): Promise<boolean> {
+    try {
+      const result = await invoke<boolean>('check_child_webview_exists', {
+        payload: { id: this.id },
+      })
+      return result
+    }
+    catch (error) {
+      logger.warn('Failed to check webview existence', { id: this.id, error })
+      return false
+    }
+  }
+
+  async ensure(bounds?: ChildWebviewBounds) {
+    try {
+      await invoke('ensure_child_webview', {
+        payload: {
+          id: this.id,
+          url: this.url,
+          bounds,
+          proxyUrl: this.proxyUrl,
+        },
+      })
+      if (bounds) {
+        this.#lastBounds = bounds
+      }
+    }
+    catch (error) {
+      logger.error('Failed to ensure child webview', { id: this.id, error })
+      throw error
+    }
+  }
+
+  async updateBounds(bounds: ChildWebviewBounds) {
+    if (this.#lastBounds && boundsEqual(this.#lastBounds, bounds)) {
+      return
+    }
+
+    try {
+      await invoke('set_child_webview_bounds', {
+        payload: {
+          id: this.id,
+          bounds,
+        },
+      })
+      this.#lastBounds = bounds
+    }
+    catch (error) {
+      logger.error('Failed to update child webview bounds', { id: this.id, error })
+      throw error
+    }
+  }
+
+  async show() {
+    if (this.#isVisible) {
+      return
+    }
+
+    try {
+      await invoke('show_child_webview', {
+        payload: { id: this.id },
+      })
+      this.#isVisible = true
+    }
+    catch (error) {
+      logger.error('Failed to show child webview', { id: this.id, error })
+      throw error
+    }
+  }
+
+  async waitForLoadFinished(timeoutMs: number = TIMING.CHILD_WEBVIEW_READY_TIMEOUT_MS): Promise<boolean> {
+    return waitForChildWebviewReady(this.#label, timeoutMs)
+  }
+
+  async hide() {
+    if (!this.#isVisible) {
+      return
+    }
+
+    try {
+      await invoke('hide_child_webview', {
+        payload: { id: this.id },
+      })
+      this.#isVisible = false
+    }
+    catch (error) {
+      logger.error('Failed to hide child webview', { id: this.id, error })
+      throw error
+    }
+  }
+
+  async close() {
+    try {
+      await invoke('close_child_webview', {
+        payload: { id: this.id },
+      })
+    }
+    catch (error) {
+      logger.error('Failed to close child webview', { id: this.id, error })
+      throw error
+    }
+    finally {
+      this.#isVisible = false
+      this.#lastBounds = null
+    }
+  }
+
+  /**
+   * 清理子 WebView 的所有浏览数据（缓存、Cookie、LocalStorage 等）
+   *
+   * 此操作会关闭并移除 WebView，下次访问时将重新创建
+   */
+  async clearCache() {
+    try {
+      await invoke('clear_child_webview_cache', {
+        payload: { id: this.id },
+      })
+      logger.info('Child webview cache cleared', { id: this.id })
+    }
+    catch (error) {
+      logger.error('Failed to clear child webview cache', { id: this.id, error })
+      throw error
+    }
+    finally {
+      this.#isVisible = false
+      this.#lastBounds = null
+    }
+  }
+
+  async setFocus() {
+    try {
+      await invoke('focus_child_webview', {
+        payload: { id: this.id },
+      })
+    }
+    catch (error) {
+      logger.warn('Failed to focus child webview', { id: this.id, error })
+    }
+  }
+
+  /** 仅确认原生命令已发送；执行结果由注入脚本的导航回传通道另行确认。 */
+  async evaluateScript(script: string): Promise<void> {
+    try {
+      // Send script to child webview
+      const response = await invoke<{ success: boolean, message: string }>(
+        'evaluate_child_webview_script',
+        {
+          payload: {
+            id: this.id,
+            script,
+          },
+        },
+      )
+
+      if (!response.success) {
+        throw new Error(response.message)
+      }
+
+      logger.debug('Script dispatched to child webview', { id: this.id })
+    }
+    catch (error) {
+      logger.error('Failed to evaluate script in child webview', { id: this.id, error })
+      throw error
+    }
+  }
+
+  isVisible(): boolean {
+    return this.#isVisible
+  }
+}

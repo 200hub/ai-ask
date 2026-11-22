@@ -32,7 +32,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           node .github/scripts/validate-version.js --source-only
-          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          version=$(node -p "require('./package.json').version")
           tag="v$version"
           if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "$tag" ]]; then
             echo "::error::The pushed tag $GITHUB_REF_NAME does not match $tag in the source."
@@ -71,6 +71,10 @@ jobs:
     uses: ./.github/workflows/build-desktop.yml
     with:
       source_sha: ${{ needs.prepare.outputs.sha }}
+      signed_updates: true
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
   publish:
     name: Publish GitHub Release
@@ -93,6 +97,30 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Verify and merge signed updater feed
+        shell: bash
+        env:
+          TAURI_UPDATE_PUBLIC_KEY: ${{ vars.TAURI_UPDATE_PUBLIC_KEY }}
+          TAURI_UPDATE_FEED_URL: ${{ vars.TAURI_UPDATE_FEED_URL }}
+        run: |
+          if [[ -z "$TAURI_UPDATE_PUBLIC_KEY" && -z "$TAURI_UPDATE_FEED_URL" ]]; then
+            echo 'Signed updates are not configured; publishing manual installers only.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ -z "$TAURI_UPDATE_PUBLIC_KEY" || -z "$TAURI_UPDATE_FEED_URL" ]]; then
+            echo '::error::Both TAURI_UPDATE_PUBLIC_KEY and TAURI_UPDATE_FEED_URL are required for signed updates.'
+            exit 1
+          fi
+          shopt -s nullglob
+          signed=(artifacts/updater-*-${TAG#v})
+          if [[ ${#signed[@]} != 5 ]]; then
+            echo '::error::Expected signed updater artifacts for all five desktop targets.'
+            exit 1
+          fi
+          node .github/scripts/desktop-updates.mjs merge "${TAG#v}" artifacts/latest.json "${signed[@]}"
       - name: Check installers and publish
         shell: bash
         run: |
@@ -116,6 +144,17 @@ jobs:
           require_installer 'Linux x64 AppImage' "artifacts/linux-x64-$version"/**/*.AppImage
           require_installer 'macOS Intel DMG' "artifacts/macos-intel-$version"/**/*.dmg
           require_installer 'macOS Apple Silicon DMG' "artifacts/macos-arm64-$version"/**/*.dmg
+
+          # 更新包与普通安装包分开下载和校验，避免复制的 exe 被算作第二个安装包。
+          if [[ -f artifacts/latest.json ]]; then
+            for directory in artifacts/updater-*-$version; do
+              for file in "$directory"/*; do
+                if [[ $(basename "$file") != latest.json ]]; then
+                  assets+=("$file")
+                fi
+              done
+            done
+          fi
 
           releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
           state=$(jq -r --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | first | if . == null then "missing" elif .draft then "draft" else "published" end' <<< "$releases")
@@ -142,5 +181,9 @@ jobs:
             gh release create "$TAG" --verify-tag --draft --generate-notes --title "AI Ask $TAG" "${flags[@]}"
           fi
           gh release upload "$TAG" "${assets[@]}" --clobber
+          # 版本化文件全部上传后才上传清单，最后一次性公开 draft。
+          if [[ -f artifacts/latest.json ]]; then
+            gh release upload "$TAG" artifacts/latest.json --clobber
+          fi
           gh release edit "$TAG" --verify-tag --draft=false
           gh release view "$TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"

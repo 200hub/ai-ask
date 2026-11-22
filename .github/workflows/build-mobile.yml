@@ -9,7 +9,7 @@ name: Build Mobile Platforms
 #     - Requires Android SDK and Java 17
 #     - Uses debug signing (no release keystore needed)
 #     - Outputs: APK (direct install)
-#   
+#
 #   iOS:
 #     - Runs on macOS runners (expensive, 10x billing rate)
 #     - Requires Xcode and iOS certificates
@@ -20,30 +20,30 @@ on:
   workflow_call:
     inputs:
       enable_android:
-        description: 'Enable Android build when true (computed by caller)'
+        description: Enable Android build when true (computed by caller)
         required: false
         type: boolean
         default: false
       enable_ios:
-        description: 'Enable iOS build when true (computed by caller)'
+        description: Enable iOS build when true (computed by caller)
         required: false
         type: boolean
         default: false
     secrets:
       IOS_CERTIFICATE_P12:
-        description: 'Base64 encoded iOS certificate'
+        description: Base64 encoded iOS certificate
         required: false
       IOS_CERTIFICATE_PASSWORD:
-        description: 'iOS certificate password'
+        description: iOS certificate password
         required: false
       IOS_PROVISIONING_PROFILE:
-        description: 'Base64 encoded iOS provisioning profile'
+        description: Base64 encoded iOS provisioning profile
         required: false
       APPLE_ID:
-        description: 'Apple ID for notarization'
+        description: Apple ID for notarization
         required: false
       APPLE_ID_PASSWORD:
-        description: 'Apple ID app-specific password'
+        description: Apple ID app-specific password
         required: false
 
 jobs:
@@ -51,78 +51,84 @@ jobs:
     name: Build Android
     runs-on: ubuntu-latest
     if: ${{ inputs.enable_android }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '24'
-      
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
-      
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
-      
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
-      
+
       - name: Setup NDK
         run: |
           echo "NDK_HOME=$ANDROID_NDK_HOME" >> $GITHUB_ENV
-      
+
       - name: Install frontend dependencies
-        run: pnpm install
-      
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared API contract
+        run: pnpm --filter ai-ask-contract build
+
       - name: Build Android APK (debug signed)
         run: |
-          pnpm tauri android init
-          pnpm tauri android build --apk
-      
+          pnpm --filter ai-ask-desktop tauri android init
+          pnpm --filter ai-ask-desktop tauri android build --apk
+
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android
           path: |
-            src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+            apps/ai-ask-desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
           if-no-files-found: warn
           retention-days: 5
-  
+
   build-ios:
     name: Build iOS
     runs-on: macos-latest
     if: ${{ inputs.enable_ios }}
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '24'
-      
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
-      
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,x86_64-apple-ios
-      
+
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared API contract
+        run: pnpm --filter ai-ask-contract build
 
       - name: Check iOS signing secrets
         id: ios_guard
@@ -134,7 +140,7 @@ jobs:
             echo "enabled=false" >> $GITHUB_OUTPUT
             echo "iOS signing secrets not found; skipping iOS build steps."
           fi
-      
+
       - name: Setup iOS certificates
         if: ${{ steps.ios_guard.outputs.enabled == 'true' }}
         run: |
@@ -143,33 +149,33 @@ jobs:
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
-          
+
           # Import certificate
           echo "${{ secrets.IOS_CERTIFICATE_P12 }}" | base64 -d > certificate.p12
           security import certificate.p12 \
             -k build.keychain \
             -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
             -T /usr/bin/codesign
-          
+
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
-          
+
           # Install provisioning profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo "${{ secrets.IOS_PROVISIONING_PROFILE }}" | base64 -d > \
             ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
-      
+
       - name: Build iOS IPA
         if: ${{ steps.ios_guard.outputs.enabled == 'true' }}
         run: |
-          pnpm tauri ios init
-          pnpm tauri ios build --release
-      
+          pnpm --filter ai-ask-desktop tauri ios init
+          pnpm --filter ai-ask-desktop tauri ios build --release
+
       - name: Upload iOS artifacts
         uses: actions/upload-artifact@v4
         if: ${{ steps.ios_guard.outputs.enabled == 'true' }}
         with:
           name: ios
           path: |
-            src-tauri/gen/apple/build/arm64/*.ipa
+            apps/ai-ask-desktop/src-tauri/gen/apple/build/arm64/*.ipa
           if-no-files-found: warn
           retention-days: 5

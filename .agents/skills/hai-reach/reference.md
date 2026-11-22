@@ -1,0 +1,407 @@
+# hai-reach — 详细用法
+
+从 [SKILL.md](SKILL.md) 选择主题后读取对应小节。代码片段展示 API 用法；省略的业务变量、schema、依赖与 return 上下文需由应用补齐。
+
+> `@h-ai/reach` 提供统一的用户触达接口，支持同时注册多个 Provider（SMTP 邮件、短信、API 回调），内置模板引擎与免打扰（DND）机制。
+
+## 运行环境
+
+Provider 名称必须唯一，重名在连接前返回 CONFIG_ERROR。close 等待在途初始化并释放其 Provider，返回后不再迟到发布模块或定时器。
+
+> ⚠️ **服务端模块（Node.js only）。** 浏览器端不直接发送邮件/短信，而是通过 API 端点触发服务端 `reach.send()`。
+
+## 依赖
+
+| 模块 | 用途 | 是否必需 | 初始化要求 |
+| --- | --- | --- | --- |
+| `@h-ai/reldb` | 数据库（发送日志与模板持久化） | 模板与 DND delay 必需；其他即时发送可选 | 先初始化；非空配置模板保存或必需表准备失败则 reach.init 返回 CONFIG_ERROR 并关闭候选 Provider |
+| `@h-ai/cache` | 缓存（DND delay 策略分布式锁） | 可选 | 已初始化时自动启用分布式锁 |
+
+## 适用场景
+
+- 同时使用邮件、短信、API 回调发送通知
+- 发送邮件通知（注册欢迎、密码重置、告警等）
+- 发送短信验证码或通知
+- 通过 HTTP API 回调触发第三方通知
+- 定义和管理消息模板（模板绑定到具体 Provider，支持配置文件定义）
+- 免打扰时段控制
+- 基于 `HaiReachError` 做错误分支处理
+
+## 使用步骤
+
+### 1. 配置
+
+```yaml
+# config/_reach.yml
+providers:
+  - name: email
+    type: smtp
+    host: ${HAI_REACH_PROVIDERS_0_HOST:smtp.example.com}
+    port: ${HAI_REACH_PROVIDERS_0_PORT:465}
+    secure: true
+    user: ${HAI_REACH_PROVIDERS_0_USER:}
+    pass: ${HAI_REACH_PROVIDERS_0_PASS:}
+    from: ${HAI_REACH_PROVIDERS_0_FROM:noreply@example.com}
+  - name: sms
+    type: aliyun-sms
+    accessKeyId: ${HAI_REACH_PROVIDERS_0_ACCESSKEYID:}
+    accessKeySecret: ${HAI_REACH_PROVIDERS_0_ACCESSKEYSECRET:}
+    signName: ${HAI_REACH_PROVIDERS_0_SIGNNAME:}
+    # 按需启用隔离网关
+    # gateway:
+    #   url: https://sms-gateway.example.com/dx
+    #   body: {}
+  - name: webhook
+    type: api
+    url: ${HAI_REACH_WEBHOOK_URL:}
+    idempotent: false # 只有接收端按 Idempotency-Key 原子、持久化去重时才能设 true
+
+# 模板（可选，也可通过代码注册）
+templates:
+  - name: verification_code
+    provider: email
+    subject: '验证码: {code}'
+    body: '您的验证码是 {code}，有效期 {minutes} 分钟。'
+  - name: sms_code
+    provider: sms
+    body: '验证码: {code}，{minutes} 分钟内有效。'
+
+# 免打扰（可选）
+dnd:
+  enabled: true
+  strategy: delay # 必须先初始化 reldb；确认持久化成功后才返回 deferred 与 queueId
+  start: '22:00'
+  end: '08:00'
+```
+
+`providers` 是数组，因此示例保留稳定、可读的显式厂商变量名；若同时设置
+按索引生成的约定变量（如 `HAI_REACH_PROVIDERS_0_HOST`），约定变量优先。
+
+API Provider 只接受 HTTP(S) URL。回调地址若来自不可信输入，业务层必须先做域名 allowlist，并由企业网络出口策略限制内网访问；不要在日志中记录完整 URL、收件人或第三方响应体。
+
+### 2. 初始化与关闭
+
+```typescript
+import { cache, CacheConfigSchema } from '@h-ai/cache'
+import { core } from '@h-ai/core'
+import { reach, ReachConfigSchema } from '@h-ai/reach'
+import { reldb, ReldbConfigSchema } from '@h-ai/reldb'
+
+// 当前配置启用了 delay：数据库和队列表为必需依赖。
+// 从配置中心校验 db。成功 data 是延迟发送所需的数据库配置。
+const databaseConfig = core.config.validate('db', ReldbConfigSchema)
+if (!databaseConfig.success) throw new Error(databaseConfig.error.message)
+// 用校验后的配置初始化数据库。成功 data 为 undefined，连库失败从 error 诊断。
+const database = await reldb.init(databaseConfig.data)
+if (!database.success)
+  throw new Error(database.error.message)
+// 从配置中心校验 cache。成功 data 用来初始化 flush 分布式锁所需的缓存。
+const cacheConfig = core.config.validate('cache', CacheConfigSchema)
+if (!cacheConfig.success) throw new Error(cacheConfig.error.message)
+// 用已校验的配置初始化缓存。成功 data 为 undefined，失败时停止示例启动。
+const cached = await cache.init(cacheConfig.data) // 可选，启用 flush 分布式锁
+if (!cached.success)
+  throw new Error(cached.error.message)
+
+// 再初始化触达模块（自动检测已初始化的 reldb/cache 单例）
+// 校验 reach 配置，成功 data 含 Provider、模板及免打扰选项。
+const reachConfig = core.config.validate('reach', ReachConfigSchema)
+if (!reachConfig.success) throw new Error(reachConfig.error.message)
+// 初始化 Reach 并接入已启动的依赖。成功 data 为 undefined，配置或依赖错误返回失败。
+const initialized = await reach.init(reachConfig.data)
+if (!initialized.success)
+  throw new Error(initialized.error.message)
+// ... 使用触达服务
+// 无参关闭 Reach 并等待它释放拥有的资源，返回 Promise<void>。
+await reach.close()
+```
+
+`reach.config` 返回的是脱敏后的配置快照；`api.url` / `endpoint`、授权头、SMTP `pass`、短信密钥等敏感值会自动隐藏。
+
+### 3. 保存模板（模板绑定 Provider）
+
+```typescript
+// 通过代码保存（配置文件中的模板在 init 时自动注册）
+// 为 email 渠道保存 verification_code 模板。发送时由 code 和 minutes 替换占位符。 成功 data 为 undefined，模板无效返回错误。
+await reach.template.save({
+  name: 'verification_code',
+  provider: 'email',
+  subject: '验证码: {code}',
+  body: '您的验证码是 {code}，有效期 {minutes} 分钟。',
+})
+
+// 用下方两份模板批量注册邮件欢迎语与短信验证码。成功 data 为 undefined。
+await reach.template.saveBatch([
+  { name: 'welcome', provider: 'email', subject: '欢迎 {userName}', body: '亲爱的 {userName}，欢迎使用 {appName}！' },
+  { name: 'sms_code', provider: 'sms', body: '验证码: {code}，{minutes} 分钟内有效。' },
+])
+```
+
+### 4. 发送消息
+
+```typescript
+// 使用模板发送邮件（指定 provider）
+// 用 email 渠道把 code 和 minutes 代入验证码模板并向该邮箱发送。成功可能直接返回投递结果，也可能返回延迟队列回执。
+const result = await reach.send({
+  provider: 'email',
+  to: 'user@example.com',
+  template: 'verification_code',
+  vars: { code: '123456', minutes: '5' },
+})
+if (!result.success)
+  throw new Error(result.error.message)
+if (result.data.deferred) {
+  // queueId 是 hai_reach_send_log.queue_id 中的回执 UUID；此时尚未投递。
+  // 把延期回执的 queueId 交给应用持久化，以便查询后续状态。
+  await savePendingReceipt(result.data.queueId)
+}
+
+// 直接发送邮件（无模板）
+// 通过 email 渠道向示例邮箱直接发送主题「通知」及 HTML 正文。 成功 data 表示投递结果或延期回执，渠道错误返回失败。
+await reach.send({
+  provider: 'email',
+  to: 'user@example.com',
+  subject: '通知',
+  body: '<h1>Hello</h1>',
+})
+
+// 发送短信（通过 extra 传递 Provider 特有参数）
+// 用 sms 渠道向示例手机号发送验证码 654321，渠道侧使用 SMS_123456 模板。 成功 data 表示投递结果或延期回执，渠道错误返回失败。
+await reach.send({
+  provider: 'sms',
+  to: '13800138000',
+  extra: { templateCode: 'SMS_123456' },
+  vars: { code: '654321' },
+})
+
+// API 回调
+// 把 signup 的 JSON 正文交给已配置的 webhook 渠道。 成功 data 表示投递结果或延期回执，渠道错误返回失败。
+await reach.send({
+  provider: 'webhook',
+  to: 'user@example.com',
+  body: '{"event":"signup"}',
+})
+```
+
+### 隔离网关与动态字段
+
+在 `aliyun-sms` 下配置 `gateway.url`，使用包含路径的完整 HTTPS 地址。受信内网确需明文时设置 `gateway.allowInsecureHttp: true`。请求使用 POST，阿里云签名仍基于 RPC 路径 `/` 和查询参数，网关路径、头和正文仅供网关使用。`gateway.headers` 取字符串键值，`gateway.body` 可设 JSON 对象、数组或原始文本，`body: {}` 表示空 JSON 对象。
+
+从服务端 `reach.init(config, { gatewayHooks: { sms: hook } })` 注入同步或异步函数。`sms` 对应已配置网关的 Provider 名称，`hook` 接收 `{ method, url, body, signal }`，其中 `body` 已序列化，`url` 含签名和敏感查询。返回 `{ headers, body }` 时，头按名称忽略大小写覆盖，正文整段替换，省略字段时沿用静态配置。`Host` 和 `Content-Length` 等由 HTTP 客户端管理。函数和请求共用 10 秒期限，拒绝重定向。`reach.config` 仅展示网关的地址和 HTTP 开关。
+
+验证网关转发时确认上游路径、方法和查询参数，HTTP 2xx 且阿里云 `Code: OK` 表示已受理，送达状态通过 `BizId` 查询。明文连接的访问日志应脱敏查询串，配置及测试均使用占位数据或受控的私有注入。
+
+## 核心 API
+
+### reach 对象
+
+| 方法 / 属性           | 签名                                                     | 说明                               |
+| --------------------- | -------------------------------------------------------- | ---------------------------------- |
+| `reach.init`          | `(config: ReachConfigInput, options?: ReachInitOptions) => Promise<HaiResult<void>>` | 初始化 Provider，可注入网关函数 |
+| `reach.send`          | `(message: ReachMessage) => Promise<HaiResult<SendResult>>` | 发送消息（通过 provider 字段路由） |
+| `reach.queue.get` | `(queueId: string) => Promise<HaiResult<ReachQueueEntry \| null>>` | 不含正文/收件人的队列状态 |
+| `reach.queue.list` | `(options: ReachQueueListOptions) => Promise<HaiResult<ReachQueueEntry[]>>` | 可信服务端分页查询 dead/unknown，每页至多 100 条 |
+| `reach.queue.requeueDead` | `(queueId: string, options: ReachDeadRequeue) => Promise<HaiResult<void>>` | 按 expectedUpdatedAt 条件恢复 dead；unknown 禁止重排 |
+| `reach.queue.resolveUnknown` | `(queueId: string, resolution: ReachUnknownResolution) => Promise<HaiResult<void>>` | 人工核对后将 unknown 裁定为 sent/discarded，不发送 |
+| `reach.template`      | `ReachTemplateRegistry`                                  | 模板注册表                         |
+| `reach.config`        | `ReachConfig \| null`                                    | 当前脱敏配置快照                   |
+| `reach.isInitialized` | `boolean`                                                | 是否已初始化                       |
+| `reach.close`         | `() => Promise<void>`                                    | 关闭所有连接                       |
+
+### ReachConfigInput
+
+```typescript
+interface ReachConfigInput {
+  providers: ProviderConfig[] // 多个 Provider 配置
+  templates?: TemplateConfig[] // 通过配置文件定义的模板
+  dnd?: {
+    enabled: boolean // 是否启用
+    strategy: 'discard' | 'delay' // discard 丢弃 / delay 延时发送
+    start: string // 开始时间 HH:mm
+    end: string // 结束时间 HH:mm
+  }
+}
+```
+
+### ReachMessage
+
+| 字段       | 类型                      | 必填 | 说明                                |
+| ---------- | ------------------------- | ---- | ----------------------------------- |
+| `provider` | `string`                  | 条件 | 模板发送省略时由模板推导；直接发送必填；显式值优先 |
+| `to`       | `string`                  | ✅   | 接收方（邮箱或手机号）              |
+| `subject`  | `string`                  | —    | 邮件主题（直接发送时）              |
+| `body`     | `string`                  | —    | 消息正文（直接发送时）              |
+| `template` | `string`                  | —    | 模板名称（模板发送时）              |
+| `vars`     | `Record<string, string>`  | —    | 模板变量                            |
+| `extra`    | `Record<string, unknown>` | —    | Provider 扩展参数（如短信模板编码） |
+| `idempotencyKey` | `string` | — | 直接 API 请求可指定；队列投递由框架固定为 queueId |
+
+### ReachTemplate（模板绑定 Provider）
+
+| 字段       | 类型     | 必填 | 说明                 |
+| ---------- | -------- | ---- | -------------------- |
+| `name`     | `string` | ✅   | 模板名称             |
+| `provider` | `string` | ✅   | 绑定的 Provider 名称 |
+| `subject`  | `string` | —    | 邮件主题模板         |
+| `body`     | `string` | ✅   | 正文模板             |
+
+## 错误码
+
+| 错误码 | code | 说明 |
+|--------|------|------|
+| `HaiReachError.SEND_FAILED`            | `hai:reach:001`   | 发送失败        |
+| `HaiReachError.DELIVERY_REJECTED`      | `hai:reach:020`   | API 明确永久拒绝 |
+| `HaiReachError.TEMPLATE_NOT_FOUND`     | `hai:reach:002`   | 模板未找到      |
+| `HaiReachError.TEMPLATE_RENDER_FAILED` | `hai:reach:003`   | 模板渲染失败    |
+| `HaiReachError.INVALID_RECIPIENT`      | `hai:reach:004`   | 无效接收方      |
+| `HaiReachError.PROVIDER_NOT_FOUND`     | `hai:reach:005`   | Provider 未找到 |
+| `HaiReachError.DND_BLOCKED`            | `hai:reach:006`   | 免打扰丢弃      |
+| `HaiReachError.NOT_INITIALIZED`        | `hai:reach:010`   | 模块未初始化    |
+| `HaiReachError.UNSUPPORTED_TYPE`       | `hai:reach:011`   | 不支持的类型    |
+| `HaiReachError.CONFIG_ERROR`           | `hai:reach:012`   | 配置错误        |
+
+## 常见模式
+
+### 可靠延迟入队
+
+启用 delay 后，只有数据库确认插入一条 pending 记录才返回 `deferred: true` 和 `queueId`。缺库、断连、插入失败返回失败 HaiResult，不能向用户报告已入队。`queueId` 对应 `hai_reach_send_log.queue_id`，同一行的 `status` 为 pending / processing / sending / unknown / sent / discarded / dead。节点重启后连接同一数据库、配置同名 Provider，可在 DND 时段外恢复投递。即时发送后的普通日志仍为可选，日志失败不会使已发送消息返回失败。
+
+验证码和密码重置等有时效的通知应明确选择 DND 策略；可靠入队成功不代表用户已收到验证码。
+
+队列 `created_at` / `updated_at` / `locked_until` / `next_attempt_at` 均为 Unix 毫秒 `BIGINT`（SQLite 为 64 位 INTEGER）；仓库把 driver 的字符串/数字归一化为安全整数 number，并拒绝负数、小数和不安全整数。模板仓库的 TIMESTAMP 时间返回 Date。初始化自动执行版本化迁移，包含次数、退避策略和失败分类；升级前先 dry-run、备份并停止旧写入。旧通知载荷退役会清空正文/变量并将旧待发项标记 discarded，回退镜像不能恢复这些数据；跨库验收必须运行 PostgreSQL/MySQL 用例，SQLite 无法证明 32 位溢出已经消除。
+
+### 租约、接收端幂等与未知结果
+
+每轮最多 100 条，逐条 claim，发送前原子写入 sending 并在途续租；过期 owner 的开始、续租、确认和释放均被拒绝。DND 时段外每分钟恢复遗留任务。cache 锁只是扫描优化，不能提供外部副作用的 exactly-once。
+
+API `idempotent: true` 是接收端能力声明：接收方必须把 queueId 对应的去重记录与业务副作用原子、持久化提交。所有尝试用相同 `Idempotency-Key` 头和 `idempotencyKey` 正文，覆盖响应丢失和旧节点恢复；去重记录须覆盖所有迟到请求，迟到无上界时不能过期。同名 Provider 的目标与幂等存储保持一致。只有此模式能自动接管已开始的 API 投递。
+
+SMTP、短信和默认 API 一旦开始投递，失败或过期转 unknown，不自动重发。未连接按持久策略退避；发送前解析失败直接进入 dead。unknown 必须在可信服务端管理流程里，先停止/隔离旧 worker 并核对第三方投递记录，再执行以下二选一裁定；discarded 不撤销已开始请求。需要补发时，先确保旧请求不可能继续生效，再创建新消息。
+
+```ts
+// 按发送回执的 queueId 查询队列记录。成功 data 是当前记录或 null。
+const state = await reach.queue.get(queueId)
+// 在外部投递已核对成功后，用消息 ID 将该未知结果记录确认为 sent。成功 data 为 undefined，状态冲突返回失败。
+const resolved = await reach.queue.resolveUnknown(queueId, { status: 'sent', messageId: verifiedMessageId })
+if (!resolved.success)
+  throw new Error(resolved.error.message)
+```
+
+管理入口校验回执 UUID、status 与 messageId 长度，只能从 unknown 条件更新为 sent/discarded；不提供重排队选项，并发裁定仅一个成功。
+
+### 有限重试与死信运维
+
+`queue.maxAttempts` 默认 5（1–100），`retryDelayMs` 默认 60000，`maxRetryDelayMs` 默认 3600000；两项毫秒配置范围 1000–86400000，最大退避不得小于首次退避。策略随入队记录保存，不随新节点配置重置；领取（含崩溃恢复）原子累加 attemptCount。暂时故障保存 nextAttemptAt，按 `min(maxRetryDelayMs, retryDelayMs × 2^(attemptCount−1))` 退避。DND 外每分钟扫描，一轮最多 100 条且固定资格时间，失败行不会在同一轮反复领取。缺失/未连接 Provider、网络错误、HTTP 408/425/429/5xx 允许有限重试；坏 JSON、幂等 API 其它 4xx 直接 dead；超限（含最后一次领取后崩溃）停止自动处理。非幂等在途仍隔离 unknown，不能借重试预算重发。
+
+queue.get/list 返回 attemptCount、maxAttempts、nextAttemptAt、lastFailure、updatedAt 等安全元数据。lastFailure 为 provider_unavailable、invalid_message、permanent_rejection、transient_failure 或 attempts_exhausted，不保存响应正文。可信服务端以 `list({ status: 'dead', limit: 50, offset: 0 })` 分页查询，status 也可选 unknown；limit 1–100，offset 0–1000000。
+
+```ts
+// 应用先校验运维权限并修复根因；不向浏览器直接暴露队列管理。
+// 按发送回执的 queueId 查询队列记录。成功 data 是当前记录或 null。
+const state = await reach.queue.get(queueId)
+if (!state.success)
+  throw new Error(state.error.message)
+if (state.data?.status === 'dead' && state.data.updatedAt !== undefined) {
+  // 以刚读到的 updatedAt 为版本条件恢复此 dead 回执。成功后回到待处理，版本不再匹配时失败。
+  const restored = await reach.queue.requeueDead(queueId, { expectedUpdatedAt: state.data.updatedAt })
+  if (!restored.success)
+    throw new Error(restored.error.message)
+}
+```
+
+恢复仅匹配当前 dead 版本，过时/并发请求失败；重置次数但保留 queueId 和原策略。unknown 永远不能通过此入口重排。dead 不代表外部副作用未发生，旧幂等 API 请求仍可能迟到，恢复前确认接收端持久去重；不可修复的坏消息留在 dead 人工排查。
+
+### 多渠道验证码发送
+
+```typescript
+// 为 email 渠道保存 email_code 模板，主题和正文使用 code，正文还使用 minutes。 成功 data 为 undefined，模板无效返回错误。
+reach.template.save({
+  name: 'email_code',
+  provider: 'email',
+  subject: '验证码: {code}',
+  body: '您的验证码是 {code}，有效期 {minutes} 分钟。',
+})
+
+// 为 sms 渠道保存 sms_code 模板，发送时传入 code 和 minutes。 成功 data 为 undefined，模板无效返回错误。
+reach.template.save({
+  name: 'sms_code',
+  provider: 'sms',
+  body: '验证码: {code}，{minutes} 分钟内有效。',
+})
+
+// 根据用户选择的渠道发送
+async function sendCode(channel: 'email' | 'sms', target: string, code: string) {
+  const template = channel === 'email' ? 'email_code' : 'sms_code'
+  // 用调用方提供的收件地址和验证码发送所选模板。渠道取自模板，成功 data 说明已发送或排队。
+  return reach.send({
+    to: target,
+    template,
+    vars: { code, minutes: '5' },
+  })
+}
+```
+
+### 与 IAM 集成（密码重置 / OTP 验证码）
+
+```typescript
+import { iam } from '@h-ai/iam'
+import { reach } from '@h-ai/reach'
+
+// 初始化 reach（注册 email 和 sms Provider）
+// 注册下方邮件、短信渠道和 IAM 用到的三份模板，成功 data 为 undefined。
+const initializedReach = await reach.init({
+  providers: [
+    { name: 'email', type: 'smtp', host: 'smtp.example.com', from: 'noreply@example.com' },
+    { name: 'sms', type: 'aliyun-sms', accessKeyId: '...', accessKeySecret: '...', signName: '...' },
+  ],
+  templates: [
+    { name: 'password_reset', provider: 'email', subject: 'Password Reset', body: 'Token: {token}, expires: {expiresAt}' },
+    { name: 'otp_email', provider: 'email', subject: 'Code: {code}', body: 'Your code is {code}' },
+    { name: 'otp_sms', provider: 'sms', body: 'Your code is {code}' },
+  ],
+})
+if (!initializedReach.success)
+  throw new Error(initializedReach.error.message)
+
+// 先确认 reldb/cache/Reach 已初始化成功，再注入 Reach；内置适配器传播发送失败。
+// 把已启动的 Reach 作为通知依赖传入 IAM。成功 data 为 undefined，启动失败停止应用初始化。
+const initializedIam = await iam.init({ ...iamSettings, reach })
+if (!initializedIam.success)
+  throw new Error(initializedIam.error.message)
+```
+
+若使用显式通知回调覆盖内置适配器，必须检查 `reach.send()` 的 HaiResult，失败时拒绝 Promise；不得吞掉入队失败。需要即时送达的验证码不应启用延迟策略。
+
+### 错误处理
+
+```typescript
+import { HaiReachError } from '@h-ai/reach'
+
+// 发送应用准备的 message。成功 data 是发送结果，下方按失败码处理未初始化、配置和渠道问题。
+const result = await reach.send(message)
+if (!result.success) {
+  switch (result.error.code) {
+    case HaiReachError.NOT_INITIALIZED.code:
+      break
+    case HaiReachError.PROVIDER_NOT_FOUND.code:
+      break
+    case HaiReachError.DND_BLOCKED.code:
+      // 免打扰时段（discard 策略），消息已丢弃
+      break
+    case HaiReachError.TEMPLATE_NOT_FOUND.code:
+      break
+    case HaiReachError.SEND_FAILED.code:
+      break
+  }
+}
+```
+
+## 相关 Skills
+
+- `hai-core` — 配置加载、日志、HaiResult 模式
+- `hai-reldb` — 数据库操作（存储发送记录等）
+- `hai-cache` — 缓存操作、分布式锁（DND flush 互斥）
+
+## 生产共享状态
+
+生产拒绝 console Provider，须配置真实 SMTP/短信/API 服务。console 的日志成功不是外部投递成功；非幂等服务的未知结果必须核对，不能自动重发证明 exactly-once。 NODE_ENV 或 HAI_CORE_ENV 为 production 时在初始化成功前检查，只有 HAI_E2E=1/HAI_E2E_MOCK=1 明确测试豁免。不要将租约当作最终写入条件，外部未知效果须按稳定业务键核对。

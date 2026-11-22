@@ -3,20 +3,14 @@
  * 用法: node scripts/check-i18n-parity.mjs
  */
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 
-const ROOT = resolve(process.cwd(), 'src/lib/i18n/locales')
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../apps/ai-ask-desktop/messages')
 
-/** 用极简 TS->JS 转换：去掉 `as const`、export 关键字、类型注解后用 eval 解析对象字面量 */
 function loadLocale(file) {
-  const src = readFileSync(resolve(ROOT, file), 'utf8')
-  // 提取 `export const xxxX = { ... }`（结构形如对象字面量）
-  const match = src.match(/export\s+const\s+\w+\s*(?::[^=]+)?=\s*(\{[\s\S]*?\})\s*(?:as\s+const\s*)?;?\s*$/m)
-  if (!match)
-    throw new Error(`Cannot parse: ${file}`)
-  // 在严格模式下使用 Function 构造而非 eval
-  // eslint-disable-next-line no-new-func
-  return new Function(`return (${match[1]});`)()
+  return JSON.parse(readFileSync(resolve(ROOT, file), 'utf8'))
 }
 
 function flatten(obj, prefix = '', out = {}) {
@@ -33,10 +27,10 @@ function flatten(obj, prefix = '', out = {}) {
 }
 
 const locales = {
-  'zh-CN': flatten(loadLocale('zh-CN.ts')),
-  'en-US': flatten(loadLocale('en-US.ts')),
-  'ja-JP': flatten(loadLocale('ja-JP.ts')),
-  'ko-KR': flatten(loadLocale('ko-KR.ts')),
+  'zh-CN': flatten(loadLocale('zh-CN.json')),
+  'en-US': flatten(loadLocale('en-US.json')),
+  'ja-JP': flatten(loadLocale('ja-JP.json')),
+  'ko-KR': flatten(loadLocale('ko-KR.json')),
 }
 
 const reference = Object.keys(locales['zh-CN']).sort()

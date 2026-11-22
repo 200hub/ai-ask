@@ -1,0 +1,79 @@
+---
+name: hai-build
+description: "构建或排查 hai 应用的源码、静态网站、容器镜像和桌面产物；识别工程架构、依赖与对应构建入口。"
+---
+
+# hai-build
+
+## 能力契约
+
+| 项目 | 契约 |
+| --- | --- |
+| 能力 | 定位 hai 应用架构、模块依赖、初始化顺序、构建模式和对应技能 |
+| 适用场景 | 识别应用架构、跨模块依赖或构建入口 |
+| 输入 | README、package.json、应用类型、现有 config 与目标 |
+| 输出 | 适用技能、最小修改路径和按范围选择的验证命令 |
+| 限制 | 先识别 API workspace、SvelteKit、SPA 或原生 App；不强行转换架构，不给纯函数模块添加生命周期。 |
+
+## 使用路径
+
+- 构建或排错涉及配置项、核心流程等变更时，先按 [hai-change-plan](../hai-change-plan/SKILL.md) 取得人工确认，再执行会写入配置或应用变更的命令。
+
+- 构建批次使用 `build-<工程>-<目标>-YYYYMMDD-HHmmss-<随机串>-<版本>`，时间与 deploy 共用 Core 的构建机本地日期格式。原生目标补平台、Desktop 架构和 debug/release；归档文件如 `todo-android-debug-0.1.0.apk`、`todo-windows-x64-release-0.1.0-setup.exe`，用工程标识，显示名仍取 Core。latest 存批次相对目录，buildId 是不含工程/目标前缀的短标识；旧目录和清单保持可读，不重命名历史制品或原生工具工作文件。
+
+- 原生名称是单独的公开构建输入：App 的 appName、Desktop 的 productName/主窗口初始标题复用 `_core.yml.name` 与 HAI_CORE_NAME，Fullstack 从工程根 dotenv 和 serv YAML 解析。正式打包默认 prod，Tauri dev 默认 dev，进程 HAI_CORE_ENV 可切换模式；只有名称写入原生配置。Desktop 使用 pnpm tauri/tauri:build 或 hai build 的入口，不绕过生成的 run-tauri.mjs；保留当前平台 JSON 的窗口数组与 null 删除，优先更新 main 标签窗口。已有 Capacitor 平台需另行同步显示名；源码/镜像的环境隔离规则保持适用。
+
+- 父级 `HAI_CORE` JSON 替换 YAML。父 JSON 未提供 `name` 且没有生效的 `HAI_CORE_NAME` 时，直接运行原生工具与 `hai build` 都使用 Core 默认名 `hai Admin`。
+
+- 先读当前 package.json、lockfile 与 README，识别 SvelteKit / API workspace / fullstack / Vite SPA / 原生 App，按实际 scripts 验证。
+- 升级 hai-framework、比较版本差异或同步框架 skills 时，使用 [hai-framework-sync](../hai-framework-sync/SKILL.md) 完成版本发现、差异分析、选择/阻塞处理、迁移与验证。
+- 功能开发先用 [development.md](../hai-app-create/development.md) 把需求匹配到当前版本的框架能力与配置；再读取所选模块 skill 和公开类型。
+- 有生命周期的模块按真实依赖初始化、检查结果并反序清理；core、纯函数和工厂不套用相同生命周期。
+- 构建任务检查当前 engines、适配器、缓存与目标产物，不能照搬框架仓库私有构建命令。
+- 网站地址含目录时按[网站挂载目录](paths.md)区分SvelteKit基址、Vite相对资源与API地址，核对构建制品、反代、权限、健康及增量恢复。
+- 多项门禁按 [分轮验证与集中修复](../hai-app-tests/validation.md) 先收集结果再集中修复；遵守产物依赖与资源隔离，不并行清理/重建同一输出目录，不用旧产物补成通过。
+
+## 构建与部署
+
+- 新建website只安装Core/Kit/UI，默认Node SSR，可直接切换静态发布；注释配置与环境变量参考不启用模块。后续增加的服务端业务依赖、初始化及API/actions须先移除。compile静态预渲染使用`HAI_BUILD_STATIC=1 PUBLIC_BASE_PATH=/docs-site`，docs-site替换为实际仓库名，各路径段仅ASCII字母、数字、_、.、-，无末尾/；省略/0保持SSR，根站路径留空。HAI_BUILD_STATIC仅用于compile，PUBLIC_BASE_PATH也支持image网站构建。静态拒绝服务端业务模块、自定义API/actions与未预渲染页面，不放宽生产守卫、不用SPA fallback；默认健康端点不发布。构建不读根.env，static为公开目录，拒绝.env/.env.*与符号链接。上传build使用include-hidden-files:true保留.nojekyll，验首页/深链/刷新/资产与敏感哨兵。
+
+- 创建默认包含开发期部署工具，可用 --no-deploy 关闭。每个镜像使用 images/ 中独立 Dockerfile，Web 配置位于 images/web/，不使用镜像阶段 target 配置。
+- 构建器生成 images/dependencies/ 安装输入；fetch、安装和生产依赖整理共用 pnpm store，安装与生产依赖整理共用 SQLite 驱动缓存，并复用依赖层；依赖安装在源码COPY前，前后端仅复制各自需要的源码。运行镜像去掉应用自身声明、source map和README。file: 归档、补丁、workspace 元数据必须进入下载上下文；原生依赖缓存按系统/架构/ABI 区分。基础镜像、中间件及工具指定版本，禁止 latest。
+- 默认容器面向 CPU 运行或远程 AI 服务，Dockerfile 设置 `ONNXRUNTIME_NODE_INSTALL_CUDA=skip`，跳过额外 CUDA/TensorRT 下载；使用宿主机 GPU 时定制镜像和运行参数，不修改本机 npm 或全局 AI/GPU 配置。
+- pnpm run deploy --build 显式串联构建、打包和发布；--bundle-only 只交付完整离线包与跨平台脚本；--services 以服务器成功状态为基线只更新选中服务。完整包自动包含自建中间件镜像，服务器禁止联网拉取。
+- `pnpm build` 默认仅编译源码（调用 compile）；`pnpm build --target image` 根据 hai.json.build.images 的 dockerfile 构建并导出 serv/web 镜像（可单独或组合），可用 --images web 只构建前端，默认最多两项并行，--concurrency 1可串行，auto 优先可达 Podman、其次 Docker，可用 --runtime 显式指定。
+- 自动化直接执行 `hai build --target image --json`，成功时 stdout 只有单行 JSON，进度和失败走 stderr。读取 `artifactDir` 作为本次部署输入，清单记录 Git 提交、dirty 状态、实际镜像 OS/架构、镜像引用和归档 SHA-256。发布 Worker 从固定提交的干净检出构建。
+- compile 交付源码编译结果，image 交付镜像归档，desktop 交付 Tauri 系统安装包，app 交付 Capacitor 原生制品；每次选择一个 target。hai.json 的 build.images[].dockerfile 指向独立镜像文件，build.desktop/build.app 声明原生工程目录，deploy 保存整个项目的部署配置；参数和平台前置以当前 CLI 类型与工程 scripts 为准。cap:sync 只同步工程，不能作为已打包或已安装的证据。
+- `--image-source` / `--npm-source` 分别选 official/cn/custom；首次交互保存到 hai.json.build.sources，参数仅覆盖本次，--yes 复用且未配置时走官方。cn 镜像用毫秒镜像覆盖 Docker Hub/GHCR，npm 用 npmmirror；保留版本和 lockfile 校验。旧 Dockerfile 缺参数时明确提示同步模板。自定义映射见 [下载源与代理](reference.md#下载源与代理)。
+- Docker/Podman 的构建代理用预定义参数传递；--proxy-mode 选 inherit/system/custom/none，--proxy-url 指定自定义地址，--proxy-bypass 覆盖绕过列表，--no-http-proxy 等价 none。Podman 默认网络保留原代理地址，显式 pasta 等隔离网络才改为宿主入口；Docker 非 host 网络使用宿主入口。首个下载步骤检查实际构建可达性，不能用 run 网络代替。镜像拉取端仍需 Docker daemon/Desktop 或 Podman Machine/API 自身代理，CLI 分别预检提示。不要把代理写成 Dockerfile ENV 或固化进运行镜像。
+- --network 默认沿用引擎网络；只有实际构建网络无法访问依赖/代理时才显式选择网络，pasta 仅适用于 rootless Podman。build 与 run 的主机名解析可能不同，须验证构建网络中的可达性，不默认改成 host 网络。
+- 从运行build的应用根package.json.version读取版本，不能使用CLI/框架版本或服务子包版本代替。根目录清单version=4，非根目录version=5并记录webBasePath；appVersion为应用版本。servContainerPort/webContainerPort仅记录images配置显式填写的端口，部分构建也保留未选镜像端口，未填写时沿用部署默认值。镜像tar名含版本、buildId区分同版本构建，Tauri也接收根版本。不要手改清单或保留无版本的交付归档。
+- 源码/镜像构建不区分 dev/test/prod，不加载部署环境覆盖，不注入运行期凭据；原生名称遵循上述单独输入规则。所选镜像清单含 SHA-256，全部成功才更新本机最近构建指针（不是镜像标签）。不要让 compile、Dockerfile 或 Tauri beforeBuildCommand 递归调用自身的原生/镜像构建。
+- 运行产物的反馈标识为 appVersion/buildId/commit：CLI 过滤调用者 HAI_/PUBLIC_/VITE_ 后注入本次内部生成的 HAI_BUILD_ID/HAI_BUILD_COMMIT，原生目标额外允许名称和模式。Docker 使用镜像批次 ID 经 ARG 传入编译。每个目标的运行版本取自己的 manifest，同次 SSR 的 client/server 共用 buildId；没有所属 Git 提交时明确 unknown。模板的三字段 build-metadata.json 与代码内联共用值，验收需与 API/ZIP 的各端证据分别核对。
+- Vite 的 envDir 与 SvelteKit 的 kit.env.dir 是独立加载入口，必须同时阻止构建阶段读取工程根的 .env 文件；开发/预览由 core loader 注入，运行期由 deploy 注入。用临时 .env.local 哨兵值检查输出，避免只过滤进程变量却仍把私有文件固化进产物。
+- 静态客户端通过 runtime-config.js 或原生宿主初始化脚本获取公开地址与元数据；仅投影公开白名单，禁止将完整 process.env、服务配置或密钥序列化到浏览器。预览与容器启动均须验证真实登录，不能依赖构建期 API 地址让 E2E 通过。
+- Fullstack Capacitor App 在 `public/runtime-config.js` 提供公开 API 地址，再编译并同步原生资源；Tauri 从启动进程的 PUBLIC_API_BASE 注入。不能把开发代理的 .env 配置当作已安装原生包的运行配置。
+- `pnpm build --target desktop --platform windows|linux|macos --arch x64|arm64` 调用对应工程的 Tauri build。要求在目标系统准备 Rust target、SDK 和打包工具，不假定跨系统编译。原生安装包必须按目标系统实测。
+- 桌面应用内更新默认关闭，可为 Linux x64 AppImage 和 Windows x64 NSIS 正式包配置 `plugins.updater` 的 HTTPS 清单地址、公钥和 `requireSignedVersion: true`。遵循桌面工作区 README，单独用 `tauri signer sign --app-version` 签名本批发布文件，私钥只传入签名步骤。先发布版本化文件，再发布含同一版本及签名的清单。用户确认后下载安装，在目标系统上重开应用核对结果。
+- deploy 默认消费已有产物，--build 显式先构建。工程已交付 `hai-deploy` 时按需读取该技能；已有工程的通用 AI 支持不假定已安装部署工具，先核对实际 scripts 与依赖。网络不通时 --bundle-only 默认生成 tar.gz（显式--output release.tar保留未压缩格式），按说明手工搬运；packaged 不代表部署已运行。
+- 测试临时工程、镜像、容器、辅助进程和数据必须在 finally/teardown 自动清理，失败/取消也清理；日志、截图和报告保留到分析和交付结束再清理，不得提交测试产物或删除用户既有资源。
+- 浏览器测试的数据放入本轮独立临时目录；Windows 等子进程与服务退出后再删除数据库和上传文件，不依赖下一轮测试补清理。
+
+交付角色统一为 `serv`（独立 API 后端）、`web`（静态或 SSR 浏览器站点）、`app`（Android/iOS 手机安装包）、`desktop`（桌面安装包）。Fullstack 容器为 serv + 可选 web，API 为 serv，admin/website/h5/mobile-app 的浏览器镜像为 web；原生 app/desktop 不作为服务器 Compose 服务。`--images` 与 `--services` 使用 serv/web，`--target app` 与 `--target desktop` 生成原生包。API workspace 的服务目录为 `apps/<项目>-serv`。镜像与容器共用工程根 `package.json.name` 的归一化身份（去 scope、转小写、非法字符合并为连字符）；名称缺失或无效时报错，不回退目录名。镜像为 `localhost/hai-<项目>-<角色>:<buildId>`，容器为 `hai-<项目>-<环境>-<角色>`，镜像可跨环境复用。
+
+镜像制品统一使用格式 5，`webBasePath` 为空字符串时表示域名根目录。`primaryService` 记录主服务，`hasWeb` 记录完整 Web 拓扑。部署身份来自工程根 `package.json.name`。只有 `serv` 与 `web` 同时存在时才生成同源 API 代理。 公开挂载目录见[网站挂载目录](paths.md)。
+
+## 按需参考
+
+Windows 构建子进程使用追加式 pnpm 日志并规范 CRLF，等待输出写完再完成；保留 stdout/stderr、UTF-8 和所有警告，不靠静默输出隐藏下载错误。Dockerfile 的 pnpm fetch/install 同步使用 --reporter=append-only。
+
+按任务读取 [reference.md](reference.md) 的对应小节；签名以当前源码或安装版本的公开类型为准，不默认加载全部资料。示例中的业务变量由应用提供。
+
+- 适用场景
+- 项目架构
+- 技能导航
+- 行为开发工作流
+- 统一编码规范
+- 标准工作流
+
+`pnpm build --target app --platform android --runtime auto --debug` 容器打调试 APK，省略 `--debug` 使用发布签名；`--runtime` 可选 auto/docker/podman，省略时使用本机工具链。iOS 在 macOS/Xcode 上签名导出 IPA。原生打包拒绝同步后的 `CAPACITOR_SERVER_URL`，成功后按平台、构建类型和批次归档到 `.hai/build/app/` 或 `.hai/build/desktop/`，更新对应的 `latest`。只有工程已交付 `hai-capacitor` 时，才按需读取该技能 `reference.md` 的“Android 容器打包”小节；纯 API 工程不交付原生技能，新增原生端时先补当前版本的能力与技能。构建身份统一 128 字符，显式非法 `HAI_BUILD_ID`/`HAI_BUILD_COMMIT` 报错且不回显原值。
